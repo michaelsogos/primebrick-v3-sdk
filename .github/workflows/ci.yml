@@ -6,11 +6,9 @@ on:
       # Numeric version tags: 0.1.0, 0.2.0, 1.10.3, etc.
       - "[0-9]+.[0-9]+.[0-9]+"
 
-# OIDC Trusted Publishing: no NPM_TOKEN needed for subsequent publishes.
-# For the FIRST publish only, NPM_TOKEN is used (chicken-and-egg: Trusted
-# Publisher config requires the package to already exist on NPM).
-# After first publish + Trusted Publisher config, remove the NPM_TOKEN
-# env var below and rely on OIDC alone.
+# OIDC Trusted Publishing: no NPM_TOKEN needed.
+# GitHub Actions generates an OIDC token that NPM verifies
+# against the Trusted Publisher configuration on the package.
 permissions:
   contents: read
   id-token: write
@@ -40,11 +38,10 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
-      - name: Publish to NPM
-        # First publish: uses NPM_TOKEN (classic auth).
-        # After Trusted Publisher is configured on NPM, switch to:
-        #   npm publish --access public --provenance
-        # and remove the env: NODE_AUTH_TOKEN line.
+      - name: Publish to NPM (OIDC Trusted Publishing)
+        # No NPM_TOKEN env var — OIDC handles authentication.
+        # Requires Trusted Publisher configured on npmjs.com:
+        #   https://www.npmjs.com/package/@primebrick/sdk/access
+        # Repository: michaelsogos/primebrick-v3-sdk
+        # Workflow: .github/workflows/ci.yml
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
