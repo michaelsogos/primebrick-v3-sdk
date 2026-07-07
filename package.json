@@ -1,9 +1,19 @@
 {
   "name": "@primebrick/sdk",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "description": "Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.",
+  "license": "MIT",
+  "author": "Michael Sogos",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michaelsogos/primebrick-v3-sdk"
+  },
+  "homepage": "https://github.com/michaelsogos/primebrick-v3-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/michaelsogos/primebrick-v3-sdk/issues"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -11,8 +21,13 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc",
     "test": "vitest run",
     "test:watch": "vitest"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {},
   "peerDependencies": {
