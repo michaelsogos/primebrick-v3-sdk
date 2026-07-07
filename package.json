@@ -1,6 +1,6 @@
 {
   "name": "@primebrick/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.",
