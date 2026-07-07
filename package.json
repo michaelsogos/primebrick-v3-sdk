@@ -1,0 +1,30 @@
+{
+  "name": "@primebrick/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "nats": "^2.28.1"
+  },
+  "peerDependenciesMeta": {
+    "nats": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "nats": "^2.28.1",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.0"
+  }
+}
