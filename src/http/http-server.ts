@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "http";
 import type { HealthCheck } from "./health-check.js";
+import { extJsonStringify } from "../json/ext-json.js";
 
 export interface HttpServerOptions {
   port: number;
@@ -24,10 +25,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
         const results = await options.healthCheck.runAll();
         const healthy = options.healthCheck.isHealthy(results);
         res.writeHead(healthy ? 200 : 503, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: healthy ? "healthy" : "degraded", checks: results }));
+        res.end(extJsonStringify({ status: healthy ? "healthy" : "degraded", checks: results }));
       } else {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "healthy" }));
+        res.end(extJsonStringify({ status: "healthy" }));
       }
       return;
     }

@@ -55,3 +55,10 @@ export { HealthCheck, type HealthCheckResult } from "./http/health-check.js";
 
 // Env validation
 export { validateEnv, requireEnv, type EnvSchema, type EnvValidationResult } from "./env/env-validator.js";
+
+// Ext-JSON — BigInt-safe JSON serialization/deserialization (BE/US only, NOT for FE)
+export {
+  extJsonStringify,
+  extJsonParse,
+  extJsonMiddleware,
+} from "./json/ext-json.js";

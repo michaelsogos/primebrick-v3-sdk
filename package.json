@@ -17,9 +17,18 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./json": {
+      "types": "./dist/json/ext-json.d.ts",
+      "import": "./dist/json/ext-json.js"
+    }
   },
-  "files": ["dist/"],
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
@@ -30,14 +39,20 @@
     "access": "public",
     "registry": "https://registry.npmjs.org"
   },
-  "dependencies": {},
+  "dependencies": {
+    "json-bigint": "^1.0.0"
+  },
   "peerDependencies": {
     "nats": "^2.28.1"
   },
   "peerDependenciesMeta": {
-    "nats": { "optional": true }
+    "nats": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/json-bigint": "^1.0.4",
     "@types/node": "^24.12.4",
     "nats": "^2.28.1",
     "typescript": "^5.7.2",
