@@ -10,7 +10,7 @@
  * - migrations: applyPatches, patch-registry, patch-naming
  * - service: ServiceRegistrar, IServiceRegistry
  * - lifecycle: GracefulShutdown
- * - nats: NatsClient (requires `nats` peer dependency)
+ * - nats: NatsClient
  * - http: createHttpServer, HealthCheck
  * - env: validateEnv, requireEnv
  */
@@ -46,7 +46,7 @@ export { ServiceRegistrar, type ServiceRegistrarConfig } from "./service/service
 // Lifecycle
 export { GracefulShutdown, type CleanupFn } from "./lifecycle/graceful-shutdown.js";
 
-// NATS (optional — requires `nats` peer dependency)
+// NATS
 export { NatsClient } from "./nats/nats-client.js";
 
 // HTTP
@@ -62,3 +62,6 @@ export {
   extJsonParse,
   extJsonMiddleware,
 } from "./json/ext-json.js";
+
+// Auth — framework-agnostic auth for HTTP + NATS (BE + microservices)
+export * from "./auth/index.js";

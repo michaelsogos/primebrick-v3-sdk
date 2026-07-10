@@ -1,4 +1,4 @@
-import { connect, type NatsConnection, type JetStreamClient, type Subscription, type Msg } from "nats";
+import { connect, headers, type NatsConnection, type JetStreamClient, type Subscription, type Msg, type MsgHdrs } from "nats";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 
 /**
@@ -50,14 +50,24 @@ export class NatsClient {
    *
    * @param subject - NATS subject (e.g. "emailsender.send", "customer.created")
    * @param data - Any serializable object (bigint values are preserved)
+   * @param headers - Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode)
    *
    * Example:
    *   await NatsClient.publish("customer.created", { entity_id: 42n, action: "CREATED" });
+   *   await NatsClient.publish("emailsender.send", request, authHeaders);
    */
-  static async publish(subject: string, data: unknown): Promise<void> {
+  static async publish(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
     const nc = await NatsClient.getConnection();
     const payload = new TextEncoder().encode(extJsonStringify(data));
-    nc.publish(subject, payload);
+    if (hdrs && Object.keys(hdrs).length > 0) {
+      const natsHeaders = headers();
+      for (const [key, value] of Object.entries(hdrs)) {
+        natsHeaders.set(key, value);
+      }
+      nc.publish(subject, payload, { headers: natsHeaders });
+    } else {
+      nc.publish(subject, payload);
+    }
   }
 
   /**
