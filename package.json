@@ -3,6 +3,9 @@
   "version": "0.1.1",
   "private": false,
   "type": "module",
+  "engines": {
+    "node": "24"
+  },
   "description": "Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.",
   "license": "MIT",
   "author": "Michael Sogos",
@@ -40,16 +43,16 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
-    "jose": "^6.2.3",
-    "json-bigint": "^1.0.0",
-    "nats": "^2.28.1"
+    "jose": "6.2.3",
+    "json-bigint": "1.0.0",
+    "nats": "2.29.3"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/json-bigint": "^1.0.4",
-    "@types/node": "^24.12.4",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.0"
+    "@types/express": "5.0.6",
+    "@types/json-bigint": "1.0.4",
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
   },
   "packageManager": "pnpm@9.15.9"
 }

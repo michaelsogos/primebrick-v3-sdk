@@ -34,6 +34,14 @@ export class NatsClient {
     return NatsClient.js;
   }
 
+  /**
+   * Check if the NATS connection is alive.
+   * Returns false if the connection was never established or has been closed.
+   */
+  static isConnected(): boolean {
+    return NatsClient.nc !== null && !NatsClient.nc.isClosed();
+  }
+
   static async close(): Promise<void> {
     if (NatsClient.nc) {
       await NatsClient.nc.close();

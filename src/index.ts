@@ -41,7 +41,14 @@ export { applyPatches, type ApplyPatchesResult } from "./migrations/apply-patche
 
 // Service registration
 export { type IServiceRegistry } from "./service/service-registry.js";
-export { ServiceRegistrar, type ServiceRegistrarConfig } from "./service/service-registrar.js";
+export { ServiceRegistrar, type ServiceRegistrarConfig, type HealthCheckFn } from "./service/service-registrar.js";
+export {
+  SERVICE_SUBJECTS,
+  type ServiceHeartbeatPayload,
+  type ServiceRegisterPayload,
+  type ServiceUnregisterPayload,
+  type ServiceHealthCheck,
+} from "./service/service-lifecycle-subjects.js";
 
 // Lifecycle
 export { GracefulShutdown, type CleanupFn } from "./lifecycle/graceful-shutdown.js";
