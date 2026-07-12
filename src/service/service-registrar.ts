@@ -18,6 +18,8 @@ export interface ServiceRegistrarConfig {
   github_repo_url?: string;
   service_version?: string;
   is_behind_scaler?: boolean;
+  icon?: string;
+  icon_type?: 'url' | 'svg' | 'base64' | 'icon';
 }
 
 /**
@@ -58,6 +60,8 @@ export class ServiceRegistrar {
       author: undefined,
       github_repo_url: undefined,
       service_version: undefined,
+      icon: undefined,
+      icon_type: undefined,
       ...config,
     } as Required<ServiceRegistrarConfig>;
   }
@@ -74,6 +78,8 @@ export class ServiceRegistrar {
       author: this.config.author,
       github_repo_url: this.config.github_repo_url,
       is_behind_scaler: this.config.is_behind_scaler,
+      icon: this.config.icon,
+      icon_type: this.config.icon_type,
       http_healthy,
       nats_connected: this.nats.isConnected(),
       checks,
@@ -94,6 +100,8 @@ export class ServiceRegistrar {
         author: this.config.author,
         github_repo_url: this.config.github_repo_url,
         is_behind_scaler: this.config.is_behind_scaler,
+        icon: this.config.icon,
+        icon_type: this.config.icon_type,
         http_healthy,
         nats_connected: this.nats.isConnected(),
         checks,

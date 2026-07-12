@@ -21,4 +21,7 @@ export interface IServiceRegistry {
   is_behind_scaler?: boolean;
   status?: string;
   last_health_check_at?: Date;
+  is_enabled?: boolean;
+  icon?: string;
+  icon_type?: 'url' | 'svg' | 'base64' | 'icon';
 }

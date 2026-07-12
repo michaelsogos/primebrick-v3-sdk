@@ -32,6 +32,11 @@ export const Permission = {
 
   // --- System / cross-module ---
   MODULES_READ_ALL: "modules.read.all",
+  MODULES_READ_SINGLE: "modules.read.single",
+  MODULES_UPDATE: "modules.update.single",
+  MODULES_DELETE: "modules.delete.single",
+  MODULES_CONFIG_READ: "modules.config.read",
+  MODULES_CONFIG_UPDATE: "modules.config.update",
 
   // --- Settings / Profile module ---
   PROFILE_READ: "profile.read",

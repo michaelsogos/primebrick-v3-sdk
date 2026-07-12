@@ -18,9 +18,9 @@ export class NatsClient {
   private static nc: NatsConnection | null = null;
   private static js: JetStreamClient | null = null;
 
-  static async getConnection(): Promise<NatsConnection> {
+  static async getConnection(url?: string): Promise<NatsConnection> {
     if (NatsClient.nc) return NatsClient.nc;
-    const natsUrl = process.env.NATS_URL || "nats://127.0.0.1:4222";
+    const natsUrl = url ?? process.env.NATS_URL ?? "nats://127.0.0.1:4222";
     NatsClient.nc = await connect({ servers: natsUrl });
     NatsClient.js = NatsClient.nc.jetstream();
     console.log(`Connected to NATS at ${natsUrl}`);

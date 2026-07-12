@@ -34,6 +34,8 @@ export interface ServiceHeartbeatPayload {
   http_healthy: boolean;
   nats_connected: boolean;
   checks: Record<string, ServiceHealthCheck>;
+  icon?: string;
+  icon_type?: 'url' | 'svg' | 'base64' | 'icon';
 }
 
 export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
