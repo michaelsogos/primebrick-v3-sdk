@@ -23,6 +23,15 @@ shutdown, NATS client, health checks, and env validation.
 | Build | `pnpm run build` |
 | Test | `pnpm test` |
 
+## Patch SHA256 management
+
+The SDK provides `applyPatches()` in `src/migrations/apply-patches.ts` which enforces
+strict sha256 immutability on database patches. If a consuming repo (BE or US) hits
+a sha256 mismatch, they must follow their own `.devin/rules/patch-sha256-management.md`.
+
+The SDK MUST NOT add a "force" or "skip hash check" option. See
+[.devin/rules/patch-sha256-management.md](./.devin/rules/patch-sha256-management.md).
+
 ## Package Versioning — FIXED versions only (MANDATORY)
 
 All package versions in `package.json` MUST be pinned to exact versions (e.g.
