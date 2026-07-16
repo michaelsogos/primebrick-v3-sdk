@@ -36,7 +36,8 @@
     "build": "tsc",
     "prepare": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "extract-docs": "node scripts/extract-api-docs.mjs"
   },
   "publishConfig": {
     "access": "public",
@@ -51,6 +52,7 @@
     "@types/express": "5.0.6",
     "@types/json-bigint": "1.0.4",
     "@types/node": "24.13.3",
+    "typedoc": "0.28.20",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
   },

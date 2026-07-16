@@ -1,0 +1,224 @@
+---
+title: Authentication
+description: Framework-agnostic auth for HTTP and NATS — STANDALONE and GATEWAY-RESOLVED modes, RBAC, API keys, and session context.
+---
+
+# Authentication
+
+The auth module provides JWT/OIDC verification, API key auth, RBAC, and session
+context propagation via `AsyncLocalStorage`. It is framework-agnostic: the same
+`verifyAuth()` works with raw Node.js HTTP, Express, and NATS messages through
+a single `HeaderProvider` abstraction.
+
+## Auth modes
+
+Two operating modes control who validates the token and how the user identity
+reaches the service:
+
+<Mermaid chart={`flowchart TB
+  subgraph STANDALONE["STANDALONE mode (BE)"]
+    S1["Extract Bearer token"] --> S2["Verify JWT via OIDC/JWKS"]
+    S2 --> S3["Resolve IDP sub → internal UUID"]
+    S3 --> S4["Expand roles → permissions"]
+    S4 --> S5["Build AuthUser"]
+  end
+  subgraph GATEWAY["GATEWAY-RESOLVED mode (microservices)"]
+    G1["Verify gateway secret header"] --> G2["Deserialize AuthUser from headers"]
+    G2 --> G3["Done — no DB, no ports"]
+  end
+`} />
+
+| Mode | Who uses it | Token verification | Ports needed |
+|------|-------------|-------------------|-------------|
+| `STANDALONE` | BE | Service validates JWT against IDP via OIDC discovery | `UserResolverPort`, `RoleMappingPort` |
+| `GATEWAY` | Microservices | BE already resolved the user; microservice verifies gateway secret + deserializes headers | None |
+
+## AuthConfig
+
+Auth configuration is loaded once at startup from the service's config table
+and cached in memory. The config determines the mode, OIDC settings, gateway
+secret, and the header names used for serialization.
+
+```ts
+import { initAuthConfig, loadAuthConfig, getAuthConfig } from "@primebrick/sdk";
+
+// At startup — inject your AuthConfigPort adapter (BE provides one using its DAL)
+initAuthConfig(myAuthConfigPort);
+await loadAuthConfig();
+
+// On the hot path — returns cached config, zero DB hits
+const config = getAuthConfig();
+```
+
+Call `invalidateAuthConfig()` to force a reload on the next `loadAuthConfig()`.
+
+## STANDALONE mode (BE)
+
+The BE validates the JWT, resolves the IDP subject to an internal UUID, and
+expands roles into permissions using the `role_mappings` table.
+
+```ts
+import { verifyHttpRequest, type AuthPorts } from "@primebrick/sdk";
+
+const ports: AuthPorts = {
+  resolveInternalUuid: async (input) => {
+    // look up user_profiles by idp_code / email
+    return userRepo.resolveByAuthProvider(input);
+  },
+  getRoleMapping: async (role) => {
+    // look up role_mappings table
+    return roleMappingRepo.findByRole(role);
+  },
+};
+
+// In your Express middleware or route handler:
+const user = await verifyHttpRequest(req, config, ports);
+```
+
+## GATEWAY-RESOLVED mode (microservices)
+
+Microservices do not validate JWTs or touch the database. The BE serializes the
+fully resolved `AuthUser` into headers (HTTP proxy or NATS), and the microservice
+verifies the gateway secret and deserializes the user.
+
+```ts
+import { verifyHttpRequest } from "@primebrick/sdk";
+
+// No ports — GATEWAY-RESOLVED mode
+const user = await verifyHttpRequest(req, config);
+```
+
+For NATS subscribers:
+
+```ts
+import { verifyNatsMessage } from "@primebrick/sdk";
+
+NatsClient.subscribe("emailsender.send", async (data, msg) => {
+  const user = await verifyNatsMessage(msg, config);
+  // user.permissions, user.isAdmin, user.isSystem are all available
+});
+```
+
+The BE publisher side uses `buildNatsAuthHeaders()` to serialize the user into
+NATS headers with the gateway secret:
+
+```ts
+import { buildNatsAuthHeaders } from "@primebrick/sdk";
+
+const authHeaders = buildNatsAuthHeaders(user, config);
+await NatsClient.publish("emailsender.send", requestBody, authHeaders);
+```
+
+## AuthUser
+
+The `AuthUser` type is the result of all auth verification — regardless of mode:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Internal Primebrick UUID (or `"system"` for system API keys) |
+| `idp_code` | `string` | Original IDP subject (JWT `sub`) — traceability only |
+| `email` | `string \| null` | User email |
+| `name` | `string \| null` | Display name |
+| `roles` | `string[]` | Normalized role names from the IDP |
+| `permissions` | `Set<string>` | Flattened permissions derived from roles |
+| `isAdmin` | `boolean` | Bypasses all permission checks (admin role) |
+| `isSystem` | `boolean` | System API key — bypasses RBAC, actor = `"system"` |
+| `idp_org` | `string \| null` | IDP organization |
+| `idp_username` | `string \| null` | IDP username |
+| `raw_access_token` | `string \| undefined` | Raw token (STANDALONE only, for proxy forwarding) |
+
+## API keys
+
+API keys are machine-to-machine credentials stored in the `api_keys` table with
+a SHA-256 hash. The SDK provides `verifyApiKey()`, `hashApiKey()`, and
+`generateApiKey()`.
+
+```ts
+import { verifyApiKey, generateApiKey, hashApiKey } from "@primebrick/sdk";
+
+// Generate a new key (store the hash, return the plaintext once)
+const { key, prefix } = generateApiKey(); // key = "pbk_<32 hex chars>"
+
+// Verify on incoming request
+const user = await verifyApiKey(headers, apiKeyPort);
+// user.isSystem → true if the key has is_system=true
+```
+
+API keys accept two header formats:
+- `Authorization: ApiKey <key>`
+- `Authorization: Bearer <key>` (when the key starts with `pbk_`)
+
+## RBAC
+
+RBAC evaluates whether an authenticated user has the permissions required by an
+endpoint. The `Permission` constant defines all known permissions. Two
+sentinels are handled specially:
+
+- `Permission.PUBLIC` — endpoint reachable without authentication
+- `Permission.AUTHENTICATED_USER` — any authenticated caller passes
+
+```ts
+import { enforceHttpRbac, Permission } from "@primebrick/sdk";
+
+// In your route handler:
+enforceHttpRbac(user, [Permission.CUSTOMERS_READ_ALL, Permission.CUSTOMERS_READ_SINGLE]);
+// OR semantics by default — user needs ANY of the listed permissions
+
+enforceHttpRbac(user, [Permission.CUSTOMERS_CREATE_SINGLE], "all");
+// AND semantics — user needs ALL listed permissions
+```
+
+Admin users (`isAdmin=true`) and system API keys (`isSystem=true`) bypass all
+permission checks. Wildcard patterns in role mappings (e.g. `customers.read.*`)
+are supported via `matchesWildcard()`.
+
+For NATS subscribers, use `enforceNatsRbac()` — same logic, semantic separation.
+
+The non-throwing variant `checkRbac()` returns `{ allowed, missing? }` instead
+of throwing.
+
+## Session context
+
+Session context uses `AsyncLocalStorage` to propagate the authenticated actor
+through the async chain without passing it through every method signature. The
+auth middleware sets the session; DAL code reads it via `requireActor()`.
+
+```ts
+import { requireActor, runAsSystem, SYSTEM_ACTOR } from "@primebrick/sdk";
+
+// In DAL / repository code:
+await repo.update(CustomerEntity, uuid, body, requireActor());
+// requireActor() returns the UUID or "system" — throws if no session in scope
+
+// In seeds, migrations, background jobs:
+await runAsSystem(() => dal.seedIfEmpty());
+// audit columns will record "system"
+```
+
+`getSession()` returns the full `Session` object or `undefined` if no session is
+in scope. `runWithSession()` is the low-level primitive — prefer `runAsSystem()`
+or the auth middleware unless you are writing infrastructure code.
+
+## AuthError
+
+All auth failures throw `AuthError` with an `internal_code` field. The HTTP
+server's error handler reads `internal_code` and `status` from the error to
+produce RFC 7807 responses. Common codes:
+
+| Code | Meaning |
+|------|---------|
+| `AUTH_TOKEN_MISSING` | No Bearer token in Authorization header |
+| `AUTH_TOKEN_INVALID` | JWT verification failed (expired, bad signature, etc.) |
+| `AUTH_GATEWAY_SECRET_INVALID` | Gateway secret header mismatch |
+| `AUTH_GATEWAY_HEADERS_MISSING` | Required identity header not present |
+| `AUTH_API_KEY_MISSING` | No API key in Authorization header |
+| `AUTH_API_KEY_INVALID` | API key hash not found |
+| `AUTH_API_KEY_INACTIVE` | Key marked inactive |
+| `AUTH_API_KEY_EXPIRED` | Key past `expires_at` |
+
+## Next steps
+
+- [NATS Client](nats-client) — publish/subscribe with auth headers
+- [Service Registration](service-registration) — lifecycle events over NATS
+- [HTTP Server](http-server) — how auth errors become RFC 7807 responses
+- [API Reference](api-reference) — full auth API listing

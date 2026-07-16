@@ -1,0 +1,91 @@
+---
+title: NATS Client
+description: Singleton NATS connection manager with Ext-JSON publish, subscribe, and request-reply.
+---
+
+# NATS Client
+
+`NatsClient` is a singleton connection manager for NATS. All `publish()`,
+`subscribe()`, and `subscribeRequest()` methods use Ext-JSON serialization
+automatically — consumers pass plain TypeScript objects and receive plain
+TypeScript objects. BigInt values are preserved across the wire.
+
+## Connection
+
+```ts
+import { NatsClient } from "@primebrick/sdk";
+
+// Connect using NATS_URL env var (or pass a URL explicitly)
+await NatsClient.getConnection();
+// or: await NatsClient.getConnection("nats://broker:4222");
+
+// Check if the connection is alive
+NatsClient.isConnected(); // boolean
+
+// Close on shutdown
+await NatsClient.close();
+```
+
+The connection is a singleton — subsequent `getConnection()` calls return the
+existing connection. The JetStream client is also available via
+`getJetStreamClient()`.
+
+## Publish
+
+Publish a message with automatic Ext-JSON serialization. Optional headers can
+be attached (e.g. auth headers for GATEWAY-RESOLVED mode).
+
+```ts
+// Without headers
+await NatsClient.publish("customer.created", { entity_id: 42n, action: "CREATED" });
+
+// With auth headers (BE publishing to a microservice)
+const authHeaders = buildNatsAuthHeaders(user, config);
+await NatsClient.publish("emailsender.send", requestBody, authHeaders);
+```
+
+BigInt values are serialized as JSON numbers (`42n` → `42` in the wire format)
+and parsed back to `bigint` on the receiving end.
+
+## Subscribe
+
+Subscribe to a subject with automatic Ext-JSON deserialization. The handler
+receives a typed object — no manual decode/parse.
+
+```ts
+await NatsClient.subscribe<SendEmailRequest>(
+  "emailsender.send",
+  async (request, raw) => {
+    console.log(`Received: ${request.requestId}`);
+    // request.entity_id is bigint if present in the payload
+  },
+);
+```
+
+Empty payloads are passed as `null` to the handler. Processing errors are
+caught and logged — they do not crash the subscription loop.
+
+## Request-reply
+
+`subscribeRequest()` implements the NATS request-reply pattern. The handler
+receives the parsed request and returns a response that is automatically
+serialized and published to `msg.reply`.
+
+```ts
+await NatsClient.subscribeRequest<SendEmailRequest, SendEmailResponse>(
+  "emailsender.send",
+  async (request, raw) => {
+    return { requestId: request.requestId, success: true };
+  },
+);
+```
+
+If the handler throws, an error response `{ success: false, error, requestId }`
+is published back to the reply subject (if set).
+
+## Next steps
+
+- [Authentication](authentication) — verifyNatsMessage and auth headers
+- [Service Registration](service-registration) — lifecycle events over NATS
+- [Ext-JSON](ext-json) — how BigInt serialization works
+- [API Reference](api-reference) — NatsClient method signatures

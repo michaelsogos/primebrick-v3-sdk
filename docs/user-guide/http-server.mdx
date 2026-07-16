@@ -1,0 +1,74 @@
+---
+title: HTTP Server
+description: Minimal HTTP server with health endpoint and RFC 7807 Problem Details error responses.
+---
+
+# HTTP Server
+
+`createHttpServer()` creates a minimal HTTP server using Node's native `http`
+module — no Express dependency. It provides a `/health` endpoint and delegates
+custom routes to a `routeHandler` callback. All errors are returned as RFC 7807
+Problem Details JSON.
+
+## Usage
+
+```ts
+import { createHttpServer, HealthCheck } from "@primebrick/sdk";
+
+const healthCheck = new HealthCheck();
+healthCheck.add("db", () => dbPing());
+
+const server = await createHttpServer({
+  port: 3001,
+  serviceName: "emailsender",
+  healthCheck,
+  routeHandler: async (req, res, url) => {
+    if (url.pathname === "/send" && req.method === "POST") {
+      // handle the request
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+      return true; // handled
+    }
+    return false; // not handled — server returns 404
+  },
+});
+```
+
+## Health endpoint
+
+`GET /health` is public (no auth). If a `HealthCheck` is provided, it runs all
+registered checks and returns `200` with `{ status: "healthy", checks: {...} }`
+or `503` with `{ status: "degraded", checks: {...} }`. If no `HealthCheck` is
+provided, it returns `200` with `{ status: "healthy" }`.
+
+## RFC 7807 error responses
+
+All non-health errors — unmatched routes, route handler crashes, auth errors —
+are returned as RFC 7807 Problem Details JSON:
+
+```json
+{
+  "type": "https://primebrick.io/errors/ROUTE_NOT_FOUND",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "No route matched POST /unknown",
+  "instance": "/unknown",
+  "internal_code": "ROUTE_NOT_FOUND",
+  "severity": "LOW"
+}
+```
+
+Auth errors (`AuthError`) and RBAC errors (`RbacDeniedError`) carry an
+`internal_code` and `status` on the error object. The server extracts these to
+produce the correct RFC 7807 response. Other errors default to `500` with
+`internal_code: "INTERNAL_ERROR"`.
+
+If the route handler has already started writing the response (headers sent)
+and then throws, the server logs the error and destroys the socket — it cannot
+send a proper RFC 7807 response at that point.
+
+## Next steps
+
+- [Authentication](authentication) — auth errors and internal codes
+- [Ext-JSON](ext-json) — used for health and error response serialization
+- [API Reference](api-reference) — createHttpServer and HttpServerOptions

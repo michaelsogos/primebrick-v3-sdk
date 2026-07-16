@@ -1,0 +1,1249 @@
+<!-- AUTO-GENERATED:reference -->
+---
+title: API Reference
+description: Complete API reference for @primebrick/sdk — every exported symbol.
+---
+
+# API Reference
+
+Every exported symbol from `@primebrick/sdk`, rendered mechanically from the
+TypeDoc extraction. This page is regenerated from `docs/user-guide/_extracted/api.json`
+on every `pnpm extract-docs` run — do not edit by hand.
+
+## Classes
+
+### `AuthError`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| internal_code | string |  |
+
+#### `AuthError(internal_code, message)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| internal_code | string |  |
+| message | string |  |
+
+### `ConfigLoader`
+
+Dictionary-style config loader backed by a config table.
+Mirrors BE's loadAuthConfig / getAuthConfig / invalidateAuthConfig pattern
+(config.ts:150-180), generalized so every microservice can reuse it.
+
+DB-agnostic: depends on ConfigRepositoryPort, NOT on any specific DAL.
+The consumer provides an adapter that implements ConfigRepositoryPort
+using their DAL (e.g. @primebrick/dal-pg, or raw SQL).
+
+Load once at startup → cache in memory → get(key) on hot path (zero DB hits).
+Call invalidate() to force a reload on next load().
+
+#### `ConfigLoader(repo)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| repo | ConfigRepositoryPort |  |
+
+#### `ConfigLoader.load(): Promise<Record<string, string \| null>>`
+
+Load all config rows from DB into in-memory cache.
+Call once at startup. Throws if DB is unreachable.
+
+#### `ConfigLoader.get(key): string \| null`
+
+Get a config value from cache. Returns null if key is missing or value is null.
+Throws if load() has not been called.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | string |  |
+
+#### `ConfigLoader.require(key): string`
+
+Get a config value, throwing if it's missing or empty.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | string |  |
+
+#### `ConfigLoader.getTyped(key, converter): T \| null`
+
+Get a typed config value via a converter function.
+Returns null if the key is missing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | string |  |
+| converter | (v: string) => T |  |
+
+#### `ConfigLoader.requireTyped(key, converter): T`
+
+Get a typed config value, throwing if it's missing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | string |  |
+| converter | (v: string) => T |  |
+
+#### `ConfigLoader.getAll(): Record<string, string \| null>`
+
+Get all config as a plain object.
+
+#### `ConfigLoader.invalidate()`
+
+Invalidate the cache so the next load() re-reads from DB.
+
+### `GracefulShutdown`
+
+Graceful shutdown manager. Extracted from emailsender's index.ts:55-95.
+
+- Re-entrancy guard: second signal is a no-op.
+- Runs all cleanup functions in parallel (Promise.allSettled).
+- Always calls process.exit() explicitly.
+- Installs SIGTERM, SIGINT, SIGHUP + uncaughtException + unhandledRejection handlers.
+
+Pure Node.js — no DB dependency. The consumer registers cleanup functions
+(e.g. getDal().close(), NatsClient.close()) via addCleanup().
+
+#### `GracefulShutdown(serviceName)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| serviceName | string |  |
+
+#### `GracefulShutdown.addCleanup(fn)`
+
+Register a cleanup function to run on shutdown.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| fn | CleanupFn |  |
+
+#### `GracefulShutdown.install()`
+
+Install signal + crash handlers.
+
+#### `GracefulShutdown.shutdown(reason, code): Promise<void>`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| reason | string |  |
+| code | number |  |
+
+### `HealthCheck`
+
+Health check utility. Extracted from BE's index.ts:126-148 pattern.
+Checks DB connectivity (via HealthCheckPort) and optional custom checks.
+
+DB-agnostic: depends on HealthCheckPort, NOT on pg.Pool.
+The consumer provides an adapter that runs whatever their DB uses
+(e.g. `SELECT 1` for PG).
+
+#### `HealthCheck(dbPing, customChecks)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| dbPing | HealthCheckPort |  |
+| customChecks | Record<string, () => Promise<HealthCheckResult>> |  |
+
+#### `HealthCheck.checkDb(): Promise<HealthCheckResult>`
+
+#### `HealthCheck.runAll(): Promise<Record<string, HealthCheckResult>>`
+
+#### `HealthCheck.isHealthy(results): boolean`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| results | Record<string, HealthCheckResult> |  |
+
+### `HttpHeaderProvider`
+
+Adapter for raw Node.js HTTP IncomingMessage (microservices using createHttpServer).
+
+#### `HttpHeaderProvider(req)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| req | IncomingMessage |  |
+
+#### `HttpHeaderProvider.getHeader(name): string \| undefined`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | string |  |
+
+### `NatsClient`
+
+Singleton NATS connection manager. Extracted from emailsender's
+nats/client.ts:1-31.
+
+Requires `nats` as a peer dependency — consumers that don't need NATS
+can skip installing it and won't import this module.
+No DB dependency.
+
+The `publish()`, `subscribe()`, and `subscribeRequest()` methods use
+Ext-JSON (BigInt-safe) serialization automatically. Consumers pass plain
+TS objects and receive plain TS objects — they never call extJson functions
+directly.
+
+#### `NatsClient.getConnection(url): Promise<NatsConnection>`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| url | string |  |
+
+#### `NatsClient.getJetStream(): JetStreamClient`
+
+#### `NatsClient.isConnected(): boolean`
+
+Check if the NATS connection is alive.
+Returns false if the connection was never established or has been closed.
+
+#### `NatsClient.close(): Promise<void>`
+
+#### `NatsClient.publish(subject, data, hdrs): Promise<void>`
+
+Publish a message with automatic Ext-JSON serialization.
+The data object is serialized with extJsonStringify (BigInt-safe)
+and encoded as UTF-8 before publishing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| subject | string | NATS subject (e.g. "emailsender.send", "customer.created") |
+| data | unknown | Any serializable object (bigint values are preserved) |
+| hdrs | Record<string, string> |  |
+
+#### `NatsClient.subscribe(subject, handler): Promise<Subscription>`
+
+Subscribe to a NATS subject with automatic Ext-JSON deserialization.
+Each incoming message is decoded from UTF-8 and parsed with extJsonParse
+(BigInt-safe). The handler receives a typed object — no manual decode/parse.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| subject | string | NATS subject to subscribe to |
+| handler | (data: T, raw: Msg) => Promise<void> | Async function receiving the parsed message data and raw Msg |
+
+#### `NatsClient.subscribeRequest(subject, handler): Promise<Subscription>`
+
+Subscribe to a NATS subject with request-reply pattern.
+The handler receives the parsed request and returns a response that is
+automatically serialized with extJsonStringify and published back to
+`msg.reply` (if set).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| subject | string | NATS subject to subscribe to |
+| handler | (request: TRequest, raw: Msg) => Promise<TResponse> | Async function receiving parsed request, returning response |
+
+### `NatsHeaderProvider`
+
+Adapter for NATS Msg headers (NATS subscribers).
+
+#### `NatsHeaderProvider(msg)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| msg | Msg |  |
+
+#### `NatsHeaderProvider.getHeader(name): string \| undefined`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | string |  |
+
+### `RbacDeniedError`
+
+Error thrown when RBAC check fails.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| missing | string[] |  |
+| required | typeOperator |  |
+
+#### `RbacDeniedError(missing, required)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| missing | string[] |  |
+| required | typeOperator |  |
+
+### `ServiceRegistrar`
+
+Registers a microservice via NATS lifecycle events and maintains
+a heartbeat.
+
+NATS-based: publishes to service.register / service.heartbeat /
+service.unregister subjects. The BE subscribes and persists to the
+`service_registry` table. The microservice never touches the DB directly.
+
+The healthCheckFn is called on each heartbeat to include the current
+health status (HTTP + NATS + custom checks).
+
+#### `ServiceRegistrar(nats, config, healthCheckFn)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| nats | typeof NatsClient |  |
+| config | ServiceRegistrarConfig |  |
+| healthCheckFn | HealthCheckFn |  |
+
+#### `ServiceRegistrar.register(): Promise<void>`
+
+#### `ServiceRegistrar.sendHeartbeat(): Promise<void>`
+
+#### `ServiceRegistrar.unregister(): Promise<void>`
+
+#### `ServiceRegistrar.startHeartbeat(): Timeout`
+
+#### `ServiceRegistrar.stopHeartbeat()`
+
+## Interfaces
+
+### `ApiKeyPort`
+
+### `ApiKeyRecord`
+
+Port for looking up API keys by hash.
+
+Used by verifyApiKey() to verify machine-to-machine credentials.
+The `api_keys` table lives in the public schema — both BE and microservices
+can implement this (microservices read cross-schema from `public.api_keys`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| uuid | string |  |
+| name | string |  |
+| permissions | string[] |  |
+| is_system | boolean |  |
+| is_active | boolean |  |
+| expires_at | Date \| null |  |
+
+### `ApplyPatchesResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| appliedOrRegistered | number |  |
+| skipped | number |  |
+
+### `AuthConfig`
+
+Full auth configuration loaded at startup from the service's config table.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| mode | AuthMode |  |
+| roles_path | string | Path expression used to extract the roles array from a JWT payload. Examples: "roles", "realm_access.roles", "resource_access.<client>.roles" |
+| oidc | OidcConfig |  |
+| gateway | GatewayConfig |  |
+| casdoor_endpoint | string |  |
+| casdoor_organization | string |  |
+| enable_email_verification_check | boolean |  |
+
+### `AuthConfigPort`
+
+Port for loading auth configuration from the service's config store.
+
+BE implements this reading from `auth_configurations` table.
+Microservices implement this reading from their own `config` table.
+
+### `AuthPorts`
+
+Ports needed ONLY by BE (STANDALONE mode). Microservices do NOT provide these.
+
+### `ConfigRepositoryPort`
+
+Port interface for reading config rows from a DB config table.
+
+The SDK's ConfigLoader depends on this port, NOT on any specific DAL.
+The consumer provides an adapter implementation using their DAL
+(e.g. @primebrick/dal-pg's dal.findAll, or a raw SQL query).
+
+### `DatabasePort`
+
+Port interface for executing parameterized SQL queries.
+
+The SDK's migration runner (applyPatches) depends on this port,
+NOT on pg.Pool. The consumer provides an adapter that wraps their
+DB driver (pg.Pool, mssql.ConnectionPool, mariadb.Pool, etc.).
+
+The contract mirrors the minimal `query(text, params?)` shape that
+every SQL DB driver exposes.
+
+### `EnvSchema`
+
+### `EnvValidationResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| valid | boolean |  |
+| errors | string[] |  |
+| env | Record<string, string \| undefined> |  |
+
+### `GatewayConfig`
+
+Gateway configuration (GATEWAY mode).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| secret | string |  |
+| secret_header_name | string |  |
+| public_secret | string |  |
+| public_secret_header_name | string |  |
+| headers | { user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string } |  |
+
+### `HeaderProvider`
+
+### `HealthCheckPort`
+
+Port interface for a DB health check (connectivity ping).
+
+The SDK's HealthCheck depends on this port, NOT on pg.Pool.
+The consumer provides an adapter that runs whatever their DB uses
+(e.g. `SELECT 1` for PG, `SELECT 1` for MSSQL, etc.).
+
+### `HealthCheckResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| ok | boolean |  |
+
+### `HttpServerOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| port | number |  |
+| healthCheck | HealthCheck |  |
+| serviceName | string |  |
+| routeHandler | (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> | Custom route handler — receives req/res, returns true if handled. |
+
+### `IConfigEntity`
+
+Shape of a dictionary-style config row. Every microservice config table
+mirrors this: one row per key, value stored as TEXT, type conversion
+performed at read time by ConfigLoader consumers.
+
+Self-contained — does NOT extend IAuditableEntity from @primebrick/dal-pg.
+The SDK is DB-agnostic; audit fields are a DAL-specific concern handled
+by the consumer's entity class and adapter.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | string | Unique config key, e.g. "brevo_api_key". |
+| value | string \| null | Raw TEXT value. null means "not set yet". Type conversion at read time. |
+| label_key | string | Optional i18n translation key for a short title (used by BE/FE for display). |
+| description_key | string | Optional i18n translation key for a longer description (used by BE/FE for display). |
+
+### `IServiceRegistry`
+
+Shape of a row in the `service_registry` table.
+
+Self-contained interface — NO decorators, NO IAuditableEntity.
+The SDK is DB-agnostic; the consumer keeps their own decorated
+entity class (e.g. ServiceRegistryEntity with @Entity/@Column from
+@primebrick/dal-pg) and maps it to/from this interface in their adapter.
+
+Previously duplicated in emailsender (service_registry_entity.ts:1-54)
+and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| code | string |  |
+| base_url | string |  |
+| endpoints | Record<string, unknown> |  |
+| name | string |  |
+| description | string |  |
+| author | string |  |
+| github_repo_url | string |  |
+| service_version | string |  |
+| is_behind_scaler | boolean |  |
+| status | string |  |
+| last_health_check_at | Date |  |
+| is_enabled | boolean |  |
+| icon | string |  |
+| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
+
+### `NormalizedIdpUser`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| idp_code | string | IDP subject (JWT `sub`). Stable per-user IDP identifier. |
+| email | string \| null |  |
+| name | string \| null |  |
+| roles | string[] |  |
+| idp_org | string \| null | IDP organization (from `owner` or `organization` claim) |
+| idp_username | string \| null | IDP username (from `name`, `username`, or `preferred_username` claim) |
+
+### `OidcConfig`
+
+OIDC configuration (STANDALONE mode only).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| issuer_url | string |  |
+| client_id | string |  |
+| client_secret | string |  |
+| audience | string |  |
+| issuer_type | string |  |
+
+### `RbacResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| allowed | boolean |  |
+| missing | string[] | Missing permissions (only populated when not allowed) |
+
+### `ResolveInput`
+
+Port for resolving IDP subject to internal Primebrick UUID.
+
+BE-ONLY port. Microservices do NOT implement this — they use
+GATEWAY-RESOLVED mode where the BE already resolved the user and
+forwards the full AuthUser in headers.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| idp_code | string |  |
+| email | string \| null |  |
+| display_name | string \| null |  |
+| idp_org | string \| null |  |
+| idp_username | string \| null |  |
+
+### `RoleMappingEntry`
+
+Port for loading role-to-permission mappings from the database.
+
+BE-ONLY port. Microservices do NOT implement this — they use
+GATEWAY-RESOLVED mode where the BE already expanded permissions and
+forwards them in headers.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| permissions | string[] |  |
+| is_admin | boolean |  |
+| label_key | string |  |
+
+### `RoleMappingPort`
+
+### `ServiceHealthCheck`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| ok | boolean |  |
+| error | string |  |
+
+### `ServiceHeartbeatPayload`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| code | string |  |
+| base_url | string |  |
+| service_version | string |  |
+| name | string |  |
+| description | string |  |
+| author | string |  |
+| github_repo_url | string |  |
+| is_behind_scaler | boolean |  |
+| http_healthy | boolean |  |
+| nats_connected | boolean |  |
+| checks | Record<string, ServiceHealthCheck> |  |
+| icon | string |  |
+| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
+
+### `ServiceRegisterPayload`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| code | string |  |
+| base_url | string |  |
+| service_version | string |  |
+| name | string |  |
+| description | string |  |
+| author | string |  |
+| github_repo_url | string |  |
+| is_behind_scaler | boolean |  |
+| http_healthy | boolean |  |
+| nats_connected | boolean |  |
+| checks | Record<string, ServiceHealthCheck> |  |
+| icon | string |  |
+| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
+| endpoints | Record<string, unknown> |  |
+
+### `ServiceRegistrarConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| serviceCode | string |  |
+| baseUrl | string |  |
+| endpoints | Record<string, unknown> |  |
+| heartbeatIntervalMs | number |  |
+| name | string |  |
+| description | string |  |
+| author | string |  |
+| github_repo_url | string |  |
+| service_version | string |  |
+| is_behind_scaler | boolean |  |
+| icon | string |  |
+| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
+
+### `ServiceRegistryPort`
+
+Port interface for CRUD operations on the service_registry table.
+
+The BE implements this port using @primebrick/dal-pg's Repository.
+The SDK's ServiceRegistrar no longer uses this port — it publishes
+via NATS instead. The BE's NATS subscriber uses this port (via
+ServiceRegistryRepo) to persist incoming lifecycle events.
+
+### `ServiceUnregisterPayload`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| code | string |  |
+| base_url | string |  |
+| is_behind_scaler | boolean |  |
+
+### `Session`
+
+Session payload carried per HTTP request. Mirrors the relevant subset of
+`AuthUser` plus future-proofing room (e.g. tenantId, requestId, locale).
+
+Kept intentionally minimal & immutable: callers should treat it as read-only.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| actor | string | Internal Primebrick UUID of the authenticated user. Used as the value stored in audit columns (`created_by`, `updated_by`, `deleted_by`, ...).  The literal string `"system"` is reserved for non-HTTP execution paths (database seeds, scheduled jobs, migrations, system API keys) and is only set via `runAsSystem()`. |
+| roles | typeOperator | Roles attached to the user / job, useful for low-level RBAC decisions inside services. May be empty for `"system"` callers. |
+| idpCode | string \| null | Original IDP `sub` for traceability. `null` for `"system"`. |
+| idpOrg | string \| null | IDP organization (from `owner` or `organization` claim). `null` for `"system"`. |
+| idpUsername | string \| null | IDP username (from `name`, `username`, or `preferred_username` claim). `null` for `"system"`. |
+| isVerified | boolean | Email verification status from IDP. `null` for `"system"`. |
+| emailVerified | boolean | Email verification status (email-specific). `null` for `"system"`. |
+| issuer | string | IDP issuer URL (from `iss` claim). `null` for `"system"`. |
+
+### `UserResolverPort`
+
+## Types & Enums
+
+### `AuthMode`
+
+Authentication operating modes.
+
+  STANDALONE — the service itself validates the Bearer token against the IDP
+               via OIDC discovery (jose + JWKS). Used by the BE.
+
+  GATEWAY    — a trusted reverse proxy (or the BE proxy) forwards the fully
+               resolved user identity via custom HTTP headers. The service
+               verifies a shared secret header to defend against spoofing.
+               Used by microservices (GATEWAY-RESOLVED — BE already resolved
+               the user, microservice just deserializes headers).
+
+**Type:** `typeof AuthMode[typeOperator]`
+
+### `AuthUser`
+
+Authenticated user context. Produced by verifyAuth() (STANDALONE) or
+deserializeAuthUserFromHeaders() (GATEWAY-RESOLVED).
+
+Identity model:
+  - `id`         → internal Primebrick user UUID (from `user_profiles.uuid`).
+                   The literal string `"system"` for system API keys.
+  - `idp_code`   → original IDP subject (the JWT `sub`). Traceability only.
+  - `roles`      → normalized role names from the IDP token.
+  - `permissions`→ flattened set of permissions derived from `roles`.
+  - `isAdmin`    → if true, user bypasses all permission checks (admin role).
+  - `isSystem`   → if true, this is a system API key (not a user). Bypasses
+                   all RBAC. Actor defaults to `"system"` for audit fields.
+
+### `CleanupFn`
+
+**Type:** `() => Promise<void>`
+
+### `HealthCheckFn`
+
+Health check function — returns the result of local health checks
+(DB ping, NATS connectivity, etc.). The microservice injects this
+so the registrar can include health status in heartbeats.
+
+**Type:** `() => Promise<{ http_healthy: boolean; checks: Record<string, ServiceHealthCheck> }>`
+
+### `JwtClaims`
+
+Minimal shape of a decoded JWT payload (claims map).
+
+**Type:** `Record<string, unknown>`
+
+### `Permission`
+
+RBAC registry — single source of truth for permissions and role mappings.
+
+Design:
+  - Each HTTP action declares the EXACT permission(s) it requires
+    (e.g. `customers.read.all`, `emailsender.providers.create`). The endpoint,
+    not the role, determines what is needed.
+  - Role → Permission mappings are stored in the `role_mappings` table (database).
+    The auth middleware loads these mappings at startup and expands a user's
+    roles into a flat `Set<Permission>` once per request.
+  - The RBAC middleware evaluates the array with **OR** semantics by default
+    (any-of). Use `rbacHandler.all([...])` for AND semantics.
+  - Roles marked with `is_admin=true` in the database grant ALL permissions
+    (super-user wildcard).
+  - API keys marked with `is_system=true` bypass all permission checks
+    and set the actor to "system" for audit fields.
+
+Two pseudo-permissions exist as sentinels handled directly by the middleware
+(they are NOT stored in `role_mappings`):
+
+  - `Permission.PUBLIC`             → endpoint reachable without a JWT.
+  - `Permission.AUTHENTICATED_USER` → any caller with a valid identity
+                                      passes, regardless of roles.
+
+**Type:** `typeof Permission[typeOperator]`
+
+## Constants
+
+### `AuthMode`
+
+Authentication operating modes.
+
+  STANDALONE — the service itself validates the Bearer token against the IDP
+               via OIDC discovery (jose + JWKS). Used by the BE.
+
+  GATEWAY    — a trusted reverse proxy (or the BE proxy) forwards the fully
+               resolved user identity via custom HTTP headers. The service
+               verifies a shared secret header to defend against spoofing.
+               Used by microservices (GATEWAY-RESOLVED — BE already resolved
+               the user, microservice just deserializes headers).
+
+**Type:** `{ STANDALONE: "STANDALONE"; GATEWAY: "GATEWAY" }`
+
+| Field | Value |
+|-------|-------|
+| STANDALONE | "STANDALONE" |
+| GATEWAY | "GATEWAY" |
+
+### `PATCH_REGISTRY_DDL`
+
+**Type:** `"CREATE TABLE IF NOT EXISTS public.primebrick_database_patches (\n  patch_id text PRIMARY KEY,\n  content_sha256 text NOT NULL,\n  applied_at timestamptz NOT NULL DEFAULT now()\n);\nCREATE INDEX IF NOT EXISTS primebrick_database_patches_sha_idx\n  ON public.primebrick_database_patches (content_sha256);\n"`
+
+### `PATCH_REGISTRY_FQNAME`
+
+**Type:** `"public.primebrick_database_patches"`
+
+### `Permission`
+
+RBAC registry — single source of truth for permissions and role mappings.
+
+Design:
+  - Each HTTP action declares the EXACT permission(s) it requires
+    (e.g. `customers.read.all`, `emailsender.providers.create`). The endpoint,
+    not the role, determines what is needed.
+  - Role → Permission mappings are stored in the `role_mappings` table (database).
+    The auth middleware loads these mappings at startup and expands a user's
+    roles into a flat `Set<Permission>` once per request.
+  - The RBAC middleware evaluates the array with **OR** semantics by default
+    (any-of). Use `rbacHandler.all([...])` for AND semantics.
+  - Roles marked with `is_admin=true` in the database grant ALL permissions
+    (super-user wildcard).
+  - API keys marked with `is_system=true` bypass all permission checks
+    and set the actor to "system" for audit fields.
+
+Two pseudo-permissions exist as sentinels handled directly by the middleware
+(they are NOT stored in `role_mappings`):
+
+  - `Permission.PUBLIC`             → endpoint reachable without a JWT.
+  - `Permission.AUTHENTICATED_USER` → any caller with a valid identity
+                                      passes, regardless of roles.
+
+**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE: "modules.update.single"; MODULES_DELETE: "modules.delete.single"; MODULES_CONFIG_READ: "modules.config.read"; MODULES_CONFIG_UPDATE: "modules.config.update"; PROFILE_READ: "profile.read"; PROFILE_UPDATE: "profile.update"; USER_PROFILE_READ_AUDIT: "userprofile.read.audit"; USERS_READ_ALL: "users.read.all"; USERS_READ_SINGLE: "users.read.single"; USERS_CREATE_SINGLE: "users.create.single"; USERS_UPDATE_SINGLE: "users.update.single"; USERS_DELETE_SINGLE: "users.delete.single"; USERS_RESTORE_SINGLE: "users.restore.single"; ORGANIZATIONS_READ_ALL: "organizations.read.all"; ORGANIZATIONS_READ_SINGLE: "organizations.read.single"; ORGANIZATIONS_READ_AUDIT: "organizations.read.audit"; ORGANIZATIONS_CREATE_SINGLE: "organizations.create.single"; ORGANIZATIONS_UPDATE_SINGLE: "organizations.update.single"; ORGANIZATIONS_DELETE_SINGLE: "organizations.delete.single"; ORGANIZATIONS_RESTORE_SINGLE: "organizations.restore.single"; CUSTOMERS_READ_ALL: "customers.read.all"; CUSTOMERS_READ_SINGLE: "customers.read.single"; CUSTOMERS_READ_AUDIT: "customers.read.audit"; CUSTOMERS_CREATE_SINGLE: "customers.create.single"; CUSTOMERS_CREATE_BULK: "customers.create.bulk"; CUSTOMERS_UPDATE_SINGLE: "customers.update.single"; CUSTOMERS_UPDATE_BULK: "customers.update.bulk"; CUSTOMERS_DELETE_SINGLE: "customers.delete.single"; CUSTOMERS_DELETE_BULK: "customers.delete.bulk"; CUSTOMERS_RESTORE_SINGLE: "customers.restore.single"; CUSTOMERS_RESTORE_BULK: "customers.restore.bulk"; CUSTOMERS_DUPLICATE_BULK: "customers.duplicate.bulk"; CUSTOMERS_EXPORT: "customers.export"; EMAILSENDER_PROVIDERS_READ_ALL: "emailsender.providers.read.all"; EMAILSENDER_PROVIDERS_READ_SINGLE: "emailsender.providers.read.single"; EMAILSENDER_PROVIDERS_CREATE: "emailsender.providers.create"; EMAILSENDER_PROVIDERS_UPDATE: "emailsender.providers.update"; EMAILSENDER_PROVIDERS_DELETE: "emailsender.providers.delete"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE: "emailsender.log.create" }`
+
+| Field | Value |
+|-------|-------|
+| PUBLIC | "_public" |
+| AUTHENTICATED_USER | "_authenticated_user" |
+| MODULES_READ_ALL | "modules.read.all" |
+| MODULES_READ_SINGLE | "modules.read.single" |
+| MODULES_UPDATE | "modules.update.single" |
+| MODULES_DELETE | "modules.delete.single" |
+| MODULES_CONFIG_READ | "modules.config.read" |
+| MODULES_CONFIG_UPDATE | "modules.config.update" |
+| PROFILE_READ | "profile.read" |
+| PROFILE_UPDATE | "profile.update" |
+| USER_PROFILE_READ_AUDIT | "userprofile.read.audit" |
+| USERS_READ_ALL | "users.read.all" |
+| USERS_READ_SINGLE | "users.read.single" |
+| USERS_CREATE_SINGLE | "users.create.single" |
+| USERS_UPDATE_SINGLE | "users.update.single" |
+| USERS_DELETE_SINGLE | "users.delete.single" |
+| USERS_RESTORE_SINGLE | "users.restore.single" |
+| ORGANIZATIONS_READ_ALL | "organizations.read.all" |
+| ORGANIZATIONS_READ_SINGLE | "organizations.read.single" |
+| ORGANIZATIONS_READ_AUDIT | "organizations.read.audit" |
+| ORGANIZATIONS_CREATE_SINGLE | "organizations.create.single" |
+| ORGANIZATIONS_UPDATE_SINGLE | "organizations.update.single" |
+| ORGANIZATIONS_DELETE_SINGLE | "organizations.delete.single" |
+| ORGANIZATIONS_RESTORE_SINGLE | "organizations.restore.single" |
+| CUSTOMERS_READ_ALL | "customers.read.all" |
+| CUSTOMERS_READ_SINGLE | "customers.read.single" |
+| CUSTOMERS_READ_AUDIT | "customers.read.audit" |
+| CUSTOMERS_CREATE_SINGLE | "customers.create.single" |
+| CUSTOMERS_CREATE_BULK | "customers.create.bulk" |
+| CUSTOMERS_UPDATE_SINGLE | "customers.update.single" |
+| CUSTOMERS_UPDATE_BULK | "customers.update.bulk" |
+| CUSTOMERS_DELETE_SINGLE | "customers.delete.single" |
+| CUSTOMERS_DELETE_BULK | "customers.delete.bulk" |
+| CUSTOMERS_RESTORE_SINGLE | "customers.restore.single" |
+| CUSTOMERS_RESTORE_BULK | "customers.restore.bulk" |
+| CUSTOMERS_DUPLICATE_BULK | "customers.duplicate.bulk" |
+| CUSTOMERS_EXPORT | "customers.export" |
+| EMAILSENDER_PROVIDERS_READ_ALL | "emailsender.providers.read.all" |
+| EMAILSENDER_PROVIDERS_READ_SINGLE | "emailsender.providers.read.single" |
+| EMAILSENDER_PROVIDERS_CREATE | "emailsender.providers.create" |
+| EMAILSENDER_PROVIDERS_UPDATE | "emailsender.providers.update" |
+| EMAILSENDER_PROVIDERS_DELETE | "emailsender.providers.delete" |
+| EMAILSENDER_SEND | "emailsender.send" |
+| EMAILSENDER_LOG_CREATE | "emailsender.log.create" |
+
+### `resetAuthConfigForTest`
+
+Test helper alias (backward compat).
+
+**Type:** `() => void`
+
+### `SERVICE_SUBJECTS`
+
+NATS subjects and payload types for microservice lifecycle events.
+
+Microservices publish these events via NATS. The BE subscribes and
+persists the state to the `service_registry` table.
+
+Flow:
+  - On startup: microservice publishes `service.register`
+  - Every 30s: microservice publishes `service.heartbeat`
+  - On graceful shutdown: microservice publishes `service.unregister`
+  - On NATS reconnect: microservice publishes immediate `service.heartbeat`
+
+**Type:** `{ REGISTER: "service.register"; HEARTBEAT: "service.heartbeat"; UNREGISTER: "service.unregister" }`
+
+| Field | Value |
+|-------|-------|
+| REGISTER | "service.register" |
+| HEARTBEAT | "service.heartbeat" |
+| UNREGISTER | "service.unregister" |
+
+### `SYSTEM_ACTOR`
+
+Sentinel actor used by non-HTTP code paths (seeds, migrations, scheduled
+jobs, system API keys). Audit columns will record the literal string
+`"system"` so it is trivially distinguishable from any user UUID.
+
+**Type:** `"system"`
+
+## Functions
+
+### `applyPatches(patchesDir, db): Promise<ApplyPatchesResult>`
+
+Apply database SQL patches from a directory.
+
+Strategy (adapted from BE's scripts/database-patch-apply.ts:1-148):
+- Read .sql files from patchesDir sorted by filename.
+- For each file, consult public.primebrick_database_patches (patch_id + content_sha256):
+  - Same patch_id + same SHA → skip (already applied).
+  - Same patch_id + different SHA → fail (immutable patch changed).
+  - Missing patch_id but same SHA exists → register without re-executing.
+  - Otherwise → BEGIN; apply SQL; INSERT registry row; COMMIT.
+
+DB-agnostic: depends on DatabasePort, NOT on pg.Pool.
+The consumer provides an adapter that wraps their DB driver.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| patchesDir | string | Absolute path to the directory containing .sql patch files. |
+| db | DatabasePort | DatabasePort adapter (wraps the consumer's DB driver). |
+
+### `buildAuthUser(internalUuid, normalized, permissions, isAdmin): AuthUser`
+
+Combine a normalized IDP user with the internal Primebrick UUID.
+Permissions are NOT computed here - they are computed separately using
+the database-driven role mapping.
+
+Note: `id` here is the **internal** UUID from `user_profiles.uuid`, NEVER
+the IDP `sub`. The mapping is performed by the UserResolverPort.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| internalUuid | string |  |
+| normalized | NormalizedIdpUser |  |
+| permissions | Set<string> |  |
+| isAdmin | boolean |  |
+
+### `buildNatsAuthHeaders(user, config): Record<string, string>`
+
+Build NATS headers from a resolved AuthUser (publisher side, BE).
+Wraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| user | AuthUser |  |
+| config | AuthConfig |  |
+
+### `checkRbac(user, requiredPermissions, mode): RbacResult`
+
+Evaluate RBAC for a user against a list of required permissions.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| user | AuthUser | The authenticated AuthUser |
+| requiredPermissions | typeOperator | List of accepted permissions for this endpoint |
+| mode | "any" \| "all" | "any" (OR, default) or "all" (AND) |
+
+### `coerceRoles(raw): string[]`
+
+Coerce any role payload shape into a clean array of strings.
+- Strings stay as-is (after String() coercion)
+- Objects with a `name` field are reduced to that name
+- Anything else is stringified
+- Empty / non-array inputs become `[]`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | unknown |  |
+
+### `createHttpServer(options): Promise<Server<typeof IncomingMessage, typeof ServerResponse>>`
+
+Minimal HTTP server with health endpoint. Uses native http module (no Express).
+All errors (unhandled routes, route handler crashes, auth errors) are returned
+as RFC 7807 Problem Details JSON — same format as the BE error handler.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| options | HttpServerOptions |  |
+
+### `deserializeAuthUserFromHeaders(headers, config): AuthUser`
+
+Deserialize an AuthUser from headers (microservice side, GATEWAY-RESOLVED mode).
+The gateway secret is verified separately by verifyAuthGatewayResolved().
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| headers | HeaderProvider |  |
+| config | AuthConfig |  |
+
+### `enforceHttpRbac(user, requiredPermissions, mode): void`
+
+Enforce RBAC for an HTTP request. Throws RbacDeniedError on denial.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| user | AuthUser | The authenticated AuthUser |
+| requiredPermissions | typeOperator | List of accepted permissions for this endpoint |
+| mode | "any" \| "all" | "any" (OR, default) or "all" (AND) |
+
+### `enforceNatsRbac(user, requiredPermissions, mode): void`
+
+Enforce RBAC for a NATS message. Throws RbacDeniedError on denial.
+Same logic as enforceHttpRbac — separated for semantic clarity.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| user | AuthUser |  |
+| requiredPermissions | typeOperator |  |
+| mode | "any" \| "all" |  |
+
+### `expandPermissions(roles, getRoleMappingFn): Promise<{ patterns: string[]; isAdmin: boolean }>`
+
+Expand a list of role names into patterns and admin status.
+This function queries the `role_mappings` table to resolve roles to permissions.
+Roles marked with `is_admin=true` bypass all permission checks.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| roles | typeOperator | Role names from the IDP (as extracted from JWT via roles_path) |
+| getRoleMappingFn | (role: string) => Promise<{ permissions: string[]; is_admin: boolean } \| null> | Function that returns the mapping for a specific role |
+
+### `extJsonMiddleware(): (req: Request, res: Response, next: NextFunction) => void`
+
+Express middleware that replaces `res.json()` with Ext-JSON serialization.
+Install once in the Express app, before any routes.
+
+Example:
+  app.use(extJsonMiddleware());
+
+Wire format: standard JSON with numbers (not strings) for bigint values.
+
+### `extJsonParse(text): T`
+
+Parse an Ext-JSON string.
+
+ALL integers are returned as native `bigint` (via reviver — alwaysParseAsBig
+option in json-bigint v1.0.0 is broken for floats, so we use a reviver instead).
+Floats (values with decimal point or scientific notation) are returned as `number`.
+Strings, booleans, null are unaffected.
+
+This makes types predictable: every integer is always `bigint`, every float
+is always `number`. No `number | bigint` ambiguity.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| text | string |  |
+
+### `extJsonStringify(data): string`
+
+Serialize a value to an Ext-JSON string.
+BigInt values are serialized as JSON numbers (e.g. 42n → "42").
+Floats are serialized as JSON numbers (e.g. 3.14 → "3.14").
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| data | unknown |  |
+
+### `generateApiKey(): { key: string; prefix: string }`
+
+Generate a new random API key string.
+Format: `pbk_<32 random hex chars>` (36 chars total, 8-char prefix for display).
+
+### `getAuthConfig(): AuthConfig`
+
+Return the cached config. Throws if not loaded yet.
+Does NOT touch the DB on the hot path.
+
+### `getSession(): Session \| undefined`
+
+Read the current session, or `undefined` when called from outside any
+`als.run()` scope (e.g. before the auth middleware, or in a top-level
+script).
+
+### `hashApiKey(key): string`
+
+Hash an API key string using SHA-256.
+Returns a hex-encoded string.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | string |  |
+
+### `initAuthConfig(p): void`
+
+Initialize the auth config with a port implementation.
+Called once at application startup.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| p | AuthConfigPort |  |
+
+### `invalidateAuthConfig(): void`
+
+Invalidate the cache so the next loadAuthConfig() re-reads from the port.
+
+### `isPatchBodyAlreadyRecorded(db, contentSha256): Promise<boolean>`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| db | DatabasePort |  |
+| contentSha256 | string |  |
+
+### `isPermissionGranted(userPermissions, requiredPermission): boolean`
+
+Check if a permission is granted given a set of user permissions.
+Supports wildcard patterns in user permissions.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| userPermissions | Set<string> | Set of permissions granted to user (may contain wildcards) |
+| requiredPermission | string | Permission required by the endpoint |
+
+### `isPermissionSentinel(p): boolean`
+
+`true` when the given permission is a sentinel (PUBLIC / AUTHENTICATED_USER)
+handled directly by the rbac middleware rather than by role expansion.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| p | string |  |
+
+### `loadAuthConfig(): Promise<AuthConfig>`
+
+Load auth config from the port into the in-memory cache.
+Called once at startup (and on invalidation).
+Throws if the port is not initialized or the DB is unreachable.
+
+### `matchesWildcard(pattern, permission): boolean`
+
+Check if a permission string matches a pattern (supports * wildcard).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| pattern | string | Pattern with optional * wildcard (e.g., "customers.read.*") |
+| permission | string | Permission string to match (e.g., "customers.read.single") |
+
+### `normalizeIdpToken(payload, rolesPath): NormalizedIdpUser`
+
+Build a normalized user shape from a JWT payload using a configurable
+roles path. Throws on empty payload or missing `sub` claim.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| payload | JwtClaims \| null \| undefined |  |
+| rolesPath | string |  |
+
+### `patchIdFromFilename(filename): string`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| filename | string |  |
+
+### `requireActor(): string`
+
+Read the current actor (UUID or `"system"`). Throws if no session is in
+scope — meaning the caller forgot to wrap the code in `runAsSystem()` or
+is running before the auth middleware.
+
+### `requireEnv(schema): Record<string, string \| undefined>`
+
+Validate env vars and throw if any required ones are missing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| schema | EnvSchema |  |
+
+### `resetOidcRuntimeForTest(): void`
+
+Test helper: drop all cached OIDC runtimes so new discovery happens.
+
+### `runAsSystem(fn): T`
+
+Run `fn` with a synthetic "system" session in scope. The only legitimate
+use cases are bootstrap scripts (seeds, migrations) and well-isolated
+background jobs that have no real authenticated user.
+
+Do NOT use this from inside an HTTP handler to bypass auth.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| fn | () => T |  |
+
+### `runWithSession(session, fn): T`
+
+Run `fn` with the given session attached to the current async chain.
+
+Prefer the higher-level `runAsSystem()` / the auth middleware over calling
+this directly, unless you are writing infrastructure code.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| session | Session |  |
+| fn | () => T |  |
+
+### `serializeAuthUserToHeaders(user, config): Record<string, string>`
+
+Serialize a fully resolved AuthUser into a headers object for forwarding
+to microservices (HTTP proxy or NATS). Also includes the gateway secret
+header for anti-spoofing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| user | AuthUser |  |
+| config | AuthConfig |  |
+
+### `sha256Hex(body): string`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| body | string |  |
+
+### `slugifyPatchSegment(s): string`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| s | string |  |
+
+### `utcTimestampForFilename(d): string`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | Date |  |
+
+### `validateEnv(schema): EnvValidationResult`
+
+Centralized env var validation. Replaces scattered inline checks
+(emailsender: dal.ts:18-20, http-server.ts:5-9, webhook-service.ts:9-14,
+email-service.ts:12-17; BE: src/db/pool.ts).
+
+Pure process.env — no DB dependency.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| schema | EnvSchema |  |
+
+### `verifyAccessToken(token, oidc): Promise<JwtClaims>`
+
+Verify a Bearer access token against the configured IDP.
+
+Validations performed:
+  - JWT signature (via JWKS published by the IDP)
+  - `exp` (not expired) and `nbf` (not used before)
+  - `iss` matches the configured issuer
+  - `aud` matches `oidc.audience` if configured (otherwise ignored)
+
+Throws on any failure. Callers should catch and translate to 401.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| token | string | The raw JWT access token string |
+| oidc | OidcConfig | OIDC configuration (issuer_url, audience, etc.) |
+
+### `verifyApiKey(headers, apiKeyPort): Promise<AuthUser>`
+
+Verify an API key from headers and return an AuthUser.
+
+Accepts two header formats:
+  - `Authorization: ApiKey <key>`
+  - `Authorization: Bearer <key>` (when the key starts with "pbk_")
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| headers | HeaderProvider | Header provider (HTTP or NATS) |
+| apiKeyPort | ApiKeyPort | Port for looking up API keys by hash |
+
+### `verifyAuth(headers, config, ports): Promise<AuthUser>`
+
+Verify auth in STANDALONE mode (BE only).
+Needs AuthPorts (UserResolverPort + RoleMappingPort).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| headers | HeaderProvider |  |
+| config | AuthConfig |  |
+| ports | AuthPorts |  |
+
+### `verifyAuthGatewayResolved(headers, config): Promise<AuthUser>`
+
+Verify auth in GATEWAY-RESOLVED mode (microservices).
+NO ports needed. Just verifies gateway secret + deserializes AuthUser from headers.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| headers | HeaderProvider |  |
+| config | AuthConfig |  |
+
+### `verifyHttpRequest(req, config, ports): Promise<AuthUser>`
+
+Verify auth from an HTTP request.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| req | IncomingMessage | Raw Node.js IncomingMessage (or Express Request which extends it) |
+| config | AuthConfig | Auth configuration |
+| ports | AuthPorts | Auth ports (UserResolverPort + RoleMappingPort). Required for STANDALONE mode (BE). Omit for GATEWAY-RESOLVED mode (microservices). |
+
+### `verifyNatsMessage(msg, config): Promise<AuthUser>`
+
+Verify auth from a NATS message (microservice subscriber side).
+GATEWAY-RESOLVED mode — no ports needed.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| msg | Msg |  |
+| config | AuthConfig |  |
+
+<!-- END -->

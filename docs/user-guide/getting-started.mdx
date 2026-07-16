@@ -1,0 +1,97 @@
+---
+title: Getting Started
+description: Install @primebrick/sdk and wire up the core modules in a microservice.
+---
+
+# Getting Started
+
+## Installation
+
+```bash
+pnpm add @primebrick/sdk
+```
+
+The SDK has three runtime dependencies: `jose` (JWT/OIDC), `json-bigint`
+(BigInt-safe JSON), and `nats` (NATS client). These are installed automatically.
+
+## Minimal microservice setup
+
+A typical Primebrick microservice wires up the SDK in this order at startup:
+
+```ts
+import {
+  NatsClient,
+  ServiceRegistrar,
+  createHttpServer,
+  HealthCheck,
+  GracefulShutdown,
+  validateEnv,
+} from "@primebrick/sdk";
+
+// 1. Validate environment
+const env = validateEnv({
+  NATS_URL: { required: true },
+  PORT: { required: true },
+  SERVICE_CODE: { required: true },
+  BASE_URL: { required: true },
+});
+
+// 2. Connect to NATS
+await NatsClient.getConnection(env.NATS_URL);
+
+// 3. Health checks
+const healthCheck = new HealthCheck();
+healthCheck.add("nats", () => NatsClient.isConnected());
+
+// 4. Register the service via NATS lifecycle events
+const registrar = new ServiceRegistrar(NatsClient, {
+  serviceCode: env.SERVICE_CODE,
+  baseUrl: env.BASE_URL,
+  endpoints: { "POST /send": {} },
+}, async () => ({
+  http_healthy: true,
+  checks: { nats: { ok: NatsClient.isConnected() } },
+}));
+await registrar.register();
+registrar.startHeartbeat();
+
+// 5. HTTP server with health endpoint
+const server = await createHttpServer({
+  port: Number(env.PORT),
+  serviceName: env.SERVICE_CODE,
+  healthCheck,
+  routeHandler: async (req, res, url) => {
+    // your routes here
+    return false;
+  },
+});
+
+// 6. Graceful shutdown
+GracefulShutdown.register(async () => {
+  await registrar.unregister();
+  server.close();
+  await NatsClient.close();
+});
+```
+
+## Importing sub-modules
+
+The SDK exports everything from the package root:
+
+```ts
+import { NatsClient, verifyAuth, extJsonStringify, Permission } from "@primebrick/sdk";
+```
+
+The Ext-JSON module is also available as a sub-path import (useful when you need
+only JSON serialization without pulling in the NATS/auth code paths):
+
+```ts
+import { extJsonStringify, extJsonParse } from "@primebrick/sdk/json";
+```
+
+## Next steps
+
+- [Authentication](authentication) — configure auth for STANDALONE or GATEWAY-RESOLVED mode
+- [NATS Client](nats-client) — publish/subscribe patterns
+- [Service Registration](service-registration) — lifecycle events
+- [API Reference](api-reference) — full API listing
