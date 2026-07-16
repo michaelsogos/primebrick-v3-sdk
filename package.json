@@ -1,8 +1,11 @@
 {
   "name": "@primebrick/sdk",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
+  "engines": {
+    "node": "24"
+  },
   "description": "Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.",
   "license": "MIT",
   "author": "Michael Sogos",
@@ -17,31 +20,41 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./json": {
+      "types": "./dist/json/ext-json.d.ts",
+      "import": "./dist/json/ext-json.js"
+    }
   },
-  "files": ["dist/"],
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "extract-docs": "node scripts/extract-api-docs.mjs"
   },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"
   },
-  "dependencies": {},
-  "peerDependencies": {
-    "nats": "^2.28.1"
-  },
-  "peerDependenciesMeta": {
-    "nats": { "optional": true }
+  "dependencies": {
+    "jose": "6.2.3",
+    "json-bigint": "1.0.0",
+    "nats": "2.29.3"
   },
   "devDependencies": {
-    "@types/node": "^24.12.4",
-    "nats": "^2.28.1",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.0"
+    "@types/express": "5.0.6",
+    "@types/json-bigint": "1.0.4",
+    "@types/node": "24.13.3",
+    "typedoc": "0.28.20",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
   },
   "packageManager": "pnpm@9.15.9"
 }

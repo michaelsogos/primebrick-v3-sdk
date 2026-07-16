@@ -1,0 +1,121 @@
+---
+title: Service Registration
+description: NATS-based microservice registration, heartbeats, and lifecycle events.
+---
+
+# Service Registration
+
+`ServiceRegistrar` registers a microservice via NATS lifecycle events and
+maintains a heartbeat. The BE subscribes to these events and persists the state
+to the `service_registry` table. The microservice never touches the database
+directly.
+
+## Lifecycle events
+
+<Mermaid chart={`sequenceDiagram
+  participant MS as Microservice
+  participant NATS as NATS
+  participant BE as Backend
+  MS->>NATS: service.register (code, base_url, endpoints, health)
+  NATS->>BE: subscribe → persist to service_registry
+  loop every 30s
+    MS->>NATS: service.heartbeat (code, base_url, health)
+    NATS->>BE: update last_health_check_at
+  end
+  MS->>NATS: service.unregister (code, base_url)
+  NATS->>BE: mark service as offline
+`} />
+
+Three NATS subjects carry lifecycle events:
+
+| Subject | When | Payload |
+|---------|------|---------|
+| `service.register` | On startup | `ServiceRegisterPayload` — code, base_url, endpoints, health, metadata |
+| `service.heartbeat` | Every 30s (default) | `ServiceHeartbeatPayload` — code, base_url, health, metadata |
+| `service.unregister` | On graceful shutdown | `ServiceUnregisterPayload` — code, base_url |
+
+These subjects are defined in the `SERVICE_SUBJECTS` constant.
+
+## Usage
+
+```ts
+import { NatsClient, ServiceRegistrar } from "@primebrick/sdk";
+
+const registrar = new ServiceRegistrar(NatsClient, {
+  serviceCode: "emailsender",
+  baseUrl: "http://emailsender:3001",
+  endpoints: { "POST /send": {} },
+  name: "Email Sender",
+  description: "Sends emails via configured providers",
+  author: "Primebrick",
+  github_repo_url: "https://github.com/michaelsogos/primebrick-us-v3",
+  service_version: "1.0.0",
+  is_behind_scaler: true,
+}, async () => ({
+  http_healthy: true,
+  checks: {
+    nats: { ok: NatsClient.isConnected() },
+    db: { ok: await dbPing() },
+  },
+}));
+
+// Register on startup
+await registrar.register();
+
+// Start heartbeat loop (30s interval)
+registrar.startHeartbeat();
+
+// On graceful shutdown
+await registrar.unregister();
+registrar.stopHeartbeat();
+```
+
+## Health checks
+
+The `healthCheckFn` (third constructor argument) is called on each heartbeat to
+include the current health status. It returns `http_healthy` (boolean) and
+`checks` (a record of named checks with `ok` and optional `error`).
+
+If no `healthCheckFn` is provided, the registrar defaults to `http_healthy: true`
+with empty checks.
+
+## Configuration options
+
+`ServiceRegistrarConfig` supports:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `serviceCode` | yes | Unique service identifier |
+| `baseUrl` | yes | Service URL (used by BE for direct mode routing) |
+| `endpoints` | yes | Map of endpoint signatures |
+| `heartbeatIntervalMs` | no | Heartbeat interval (default: 30000) |
+| `name` | no | Display name |
+| `description` | no | Service description |
+| `author` | no | Author name |
+| `github_repo_url` | no | Repository URL |
+| `service_version` | no | Semver string |
+| `is_behind_scaler` | no | Whether the service is behind a scaler (default: false) |
+| `icon` / `icon_type` | no | Icon for UI display |
+
+## ServiceRegistryPort
+
+The BE implements `ServiceRegistryPort` to persist lifecycle events. The port
+interface supports both scaler mode (one row per code) and direct mode (multiple
+rows per code, distinguished by `base_url`):
+
+| Method | Mode | Description |
+|--------|------|-------------|
+| `findByCode(code)` | both | Find one row by code |
+| `findByCodeAndBaseUrl(code, baseUrl)` | direct | Find by code + URL |
+| `findAllByCode(code)` | direct | All rows for a code |
+| `findAll()` | both | All rows |
+| `insert(row)` | both | Insert new row |
+| `updateByCode(code, row)` | scaler | Update by code |
+| `updateByCodeAndBaseUrl(code, baseUrl, row)` | direct | Update by code + URL |
+| `deleteByCodeAndBaseUrl(code, baseUrl)` | direct | Delete by code + URL |
+
+## Next steps
+
+- [NATS Client](nats-client) — the transport used by ServiceRegistrar
+- [Authentication](authentication) — auth for NATS subscribers
+- [API Reference](api-reference) — ServiceRegistrar and payload types

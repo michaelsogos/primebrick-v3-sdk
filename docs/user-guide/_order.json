@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "overview",
+    "getting-started",
+    "authentication",
+    "ext-json",
+    "nats-client",
+    "service-registration",
+    "http-server",
+    "api-reference"
+  ]
+}

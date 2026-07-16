@@ -1,72 +1,96 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ServiceRegistrar } from "../service-registrar.js";
-import type { ServiceRegistryPort } from "../../ports/service-registry-port.js";
-import type { IServiceRegistry } from "../service-registry.js";
+import { SERVICE_SUBJECTS } from "../service-lifecycle-subjects.js";
 
-function makeRepo(): ServiceRegistryPort & {
-  findByCode: ReturnType<typeof vi.fn>;
-  insert: ReturnType<typeof vi.fn>;
-  updateByCode: ReturnType<typeof vi.fn>;
-} {
+function makeNatsMock() {
   return {
-    findByCode: vi.fn(),
-    insert: vi.fn(async () => {}),
-    updateByCode: vi.fn(async () => {}),
+    publish: vi.fn(async () => {}),
+    isConnected: vi.fn(() => true),
   };
 }
 
-const config = {
+const baseConfig = {
   serviceCode: "emailsender",
   baseUrl: "http://localhost:8081",
   endpoints: { send: "/send" },
 };
 
 describe("ServiceRegistrar", () => {
-  let repo: ReturnType<typeof makeRepo>;
+  let nats: ReturnType<typeof makeNatsMock>;
   let registrar: ServiceRegistrar;
 
   beforeEach(() => {
-    repo = makeRepo();
-    registrar = new ServiceRegistrar(repo, config);
+    nats = makeNatsMock();
+    registrar = new ServiceRegistrar(nats as any, baseConfig);
   });
 
-  it("inserts a new row when findByCode returns null", async () => {
-    repo.findByCode.mockResolvedValue(null);
+  it("register() publishes to service.register subject", async () => {
     await registrar.register();
-    expect(repo.insert).toHaveBeenCalledWith({
-      code: "emailsender",
-      base_url: "http://localhost:8081",
-      endpoints: { send: "/send" },
-    });
-    expect(repo.updateByCode).not.toHaveBeenCalled();
+    expect(nats.publish).toHaveBeenCalledTimes(1);
+    const [subject, payload] = nats.publish.mock.calls[0];
+    expect(subject).toBe(SERVICE_SUBJECTS.REGISTER);
+    expect(payload.code).toBe("emailsender");
+    expect(payload.base_url).toBe("http://localhost:8081");
+    expect(payload.endpoints).toEqual({ send: "/send" });
+    expect(payload.is_behind_scaler).toBe(false);
+    expect(payload.http_healthy).toBe(true);
+    expect(payload.nats_connected).toBe(true);
+    expect(payload.checks).toEqual({});
   });
 
-  it("updates an existing row when findByCode returns a row", async () => {
-    const existing: IServiceRegistry = {
-      code: "emailsender",
-      base_url: "http://old",
-      endpoints: {},
-    };
-    repo.findByCode.mockResolvedValue(existing);
+  it("register() includes metadata fields when provided", async () => {
+    registrar = new ServiceRegistrar(nats as any, {
+      ...baseConfig,
+      name: "Email Sender",
+      description: "Sends emails",
+      author: "PrimeBrick",
+      github_repo_url: "https://github.com/primebrick/emailsender",
+      service_version: "1.2.3",
+      is_behind_scaler: true,
+    });
     await registrar.register();
-    expect(repo.updateByCode).toHaveBeenCalledWith("emailsender", {
-      code: "emailsender",
-      base_url: "http://localhost:8081",
-      endpoints: { send: "/send" },
-    });
-    expect(repo.insert).not.toHaveBeenCalled();
+    const payload = nats.publish.mock.calls[0][1];
+    expect(payload.name).toBe("Email Sender");
+    expect(payload.description).toBe("Sends emails");
+    expect(payload.author).toBe("PrimeBrick");
+    expect(payload.github_repo_url).toBe("https://github.com/primebrick/emailsender");
+    expect(payload.service_version).toBe("1.2.3");
+    expect(payload.is_behind_scaler).toBe(true);
   });
 
-  it("updateHeartbeat calls updateByCode with base_url", async () => {
-    await registrar.updateHeartbeat();
-    expect(repo.updateByCode).toHaveBeenCalledWith("emailsender", {
-      base_url: "http://localhost:8081",
-    });
+  it("sendHeartbeat() publishes to service.heartbeat subject", async () => {
+    await registrar.sendHeartbeat();
+    expect(nats.publish).toHaveBeenCalledTimes(1);
+    const [subject, payload] = nats.publish.mock.calls[0];
+    expect(subject).toBe(SERVICE_SUBJECTS.HEARTBEAT);
+    expect(payload.code).toBe("emailsender");
+    expect(payload.base_url).toBe("http://localhost:8081");
+    // heartbeat does NOT include endpoints
+    expect(payload.endpoints).toBeUndefined();
+    expect(payload.http_healthy).toBe(true);
+    expect(payload.nats_connected).toBe(true);
   });
 
-  it("updateHeartbeat swallows errors", async () => {
-    repo.updateByCode.mockRejectedValue(new Error("db down"));
-    await expect(registrar.updateHeartbeat()).resolves.toBeUndefined();
+  it("sendHeartbeat() includes service_version when configured", async () => {
+    registrar = new ServiceRegistrar(nats as any, { ...baseConfig, service_version: "2.0.0" });
+    await registrar.sendHeartbeat();
+    const payload = nats.publish.mock.calls[0][1];
+    expect(payload.service_version).toBe("2.0.0");
+  });
+
+  it("sendHeartbeat() swallows errors", async () => {
+    nats.publish.mockRejectedValue(new Error("nats down"));
+    await expect(registrar.sendHeartbeat()).resolves.toBeUndefined();
+  });
+
+  it("unregister() publishes to service.unregister subject", async () => {
+    await registrar.unregister();
+    expect(nats.publish).toHaveBeenCalledTimes(1);
+    const [subject, payload] = nats.publish.mock.calls[0];
+    expect(subject).toBe(SERVICE_SUBJECTS.UNREGISTER);
+    expect(payload.code).toBe("emailsender");
+    expect(payload.base_url).toBe("http://localhost:8081");
+    expect(payload.is_behind_scaler).toBe(false);
   });
 
   it("startHeartbeat returns a timer and stopHeartbeat clears it", () => {
@@ -77,13 +101,34 @@ describe("ServiceRegistrar", () => {
     registrar.stopHeartbeat();
   });
 
-  it("uses default heartbeatIntervalMs when not provided", () => {
-    const r = new ServiceRegistrar(repo, {
+  it("uses default heartbeatIntervalMs (30000) when not provided", () => {
+    const r = new ServiceRegistrar(nats as any, {
       serviceCode: "x",
       baseUrl: "http://x",
       endpoints: {},
     });
     r.startHeartbeat();
     r.stopHeartbeat();
+  });
+
+  it("uses healthCheckFn when provided", async () => {
+    const healthCheckFn = vi.fn(async () => ({
+      http_healthy: false,
+      checks: { db: { ok: false, error: "connection refused" } },
+    }));
+    registrar = new ServiceRegistrar(nats as any, baseConfig, healthCheckFn);
+    await registrar.sendHeartbeat();
+    const payload = nats.publish.mock.calls[0][1];
+    expect(payload.http_healthy).toBe(false);
+    expect(payload.checks.db.ok).toBe(false);
+    expect(payload.checks.db.error).toBe("connection refused");
+    expect(healthCheckFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("nats_connected reflects NatsClient.isConnected() result", async () => {
+    nats.isConnected = vi.fn(() => false);
+    await registrar.sendHeartbeat();
+    const payload = nats.publish.mock.calls[0][1];
+    expect(payload.nats_connected).toBe(false);
   });
 });

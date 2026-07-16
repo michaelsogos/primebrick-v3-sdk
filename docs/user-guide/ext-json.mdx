@@ -1,0 +1,75 @@
+---
+title: Ext-JSON
+description: BigInt-safe JSON serialization and deserialization for Primebrick services.
+---
+
+# Ext-JSON
+
+Ext-JSON is the standard JSON serialization layer for Primebrick backend
+services. It uses `json-bigint` with `useNativeBigInt: true` to preserve
+`bigint` values across the JSON wire format.
+
+## Why Ext-JSON exists
+
+Standard `JSON.stringify()` converts `bigint` to a string or throws. Primebrick
+uses native `bigint` for all integer IDs (UUIDs are strings, but numeric IDs,
+timestamps, and counters are `bigint`). Ext-JSON makes the types predictable:
+
+- **Every integer** is serialized as a JSON number and parsed back as `bigint`
+- **Every float** is serialized as a JSON number and parsed back as `number`
+- No `number | bigint` ambiguity — the type is determined by whether the value
+  has a decimal point
+
+## Usage
+
+### Direct functions
+
+```ts
+import { extJsonStringify, extJsonParse } from "@primebrick/sdk";
+
+const data = { entity_id: 42n, price: 3.14, name: "widget" };
+const json = extJsonStringify(data);
+// → '{"entity_id":42,"price":3.14,"name":"widget"}'
+
+const parsed = extJsonParse<{ entity_id: bigint; price: number; name: string }>(json);
+// parsed.entity_id → 42n (bigint)
+// parsed.price → 3.14 (number)
+```
+
+### Express middleware (BE)
+
+```ts
+import { extJsonMiddleware } from "@primebrick/sdk";
+
+app.use(extJsonMiddleware());
+// res.json() now uses Ext-JSON serialization for all subsequent responses
+```
+
+The middleware replaces `res.json()` with Ext-JSON serialization. Install it
+once before any routes.
+
+### NATS (microservices)
+
+`NatsClient.publish()`, `subscribe()`, and `subscribeRequest()` use Ext-JSON
+internally. Microservice code never calls `extJsonStringify` / `extJsonParse`
+directly — just pass plain objects and receive plain objects.
+
+## Sub-path import
+
+If you need only the JSON functions without pulling in NATS/auth code paths:
+
+```ts
+import { extJsonStringify, extJsonParse, extJsonMiddleware } from "@primebrick/sdk/json";
+```
+
+## Not for the frontend
+
+The frontend has its own standalone wrapper (`src/lib/api-ext.ts`) that installs
+`json-bigint` directly. The FE does not depend on `@primebrick/sdk`. Ext-JSON
+is for BE and microservices only.
+
+## Next steps
+
+- [NATS Client](nats-client) — uses Ext-JSON internally
+- [HTTP Server](http-server) — uses Ext-JSON for health and error responses
+- [API Reference](api-reference) — extJsonStringify, extJsonParse, extJsonMiddleware

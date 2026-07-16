@@ -1,0 +1,73 @@
+---
+title: Overview
+description: @primebrick/sdk — shared microservice infrastructure for Primebrick v3.
+---
+
+# Overview
+
+`@primebrick/sdk` is the shared infrastructure SDK for Primebrick v3. It provides
+the building blocks that every backend service and microservice needs: config
+loading, service registration, NATS messaging, auth, JSON serialization, health
+checks, graceful shutdown, env validation, and database migrations.
+
+## Design principles
+
+- **DB-agnostic** — the SDK depends on port interfaces, not on any specific DAL.
+  Consumers provide adapters using their DAL of choice.
+- **Framework-agnostic** — auth works with raw Node.js HTTP, Express, and NATS
+  through a single `HeaderProvider` abstraction.
+- **NATS-first** — microservices register and heartbeat via NATS, not via direct
+  DB access. The BE subscribes to lifecycle events and persists them.
+- **BigInt-safe** — all JSON serialization uses `ext-json` so `bigint` values
+  survive the wire format without `number | bigint` ambiguity.
+
+## Modules
+
+| Module | What it does |
+|--------|-------------|
+| **auth** | JWT/OIDC verification, API keys, RBAC, session context (AsyncLocalStorage) |
+| **nats** | Singleton NATS client with Ext-JSON publish/subscribe/request-reply |
+| **service** | NATS-based service registration, heartbeats, and lifecycle events |
+| **json** | BigInt-safe JSON stringify/parse + Express middleware |
+| **http** | Minimal HTTP server with health endpoint and RFC 7807 error responses |
+| **config** | Dictionary-style config loader with in-memory cache |
+| **lifecycle** | Graceful shutdown coordinator |
+| **migrations** | SHA-256-enforced database patch runner |
+| **env** | Environment variable validation |
+
+## Architecture
+
+<Mermaid chart={`flowchart LR
+  subgraph BE["Backend (STANDALONE mode)"]
+    BEAuth["verifyAuth()"]
+    BEProxy["Proxy / serialize"]
+  end
+  subgraph NATS["NATS"]
+    Subjects["service.register\nservice.heartbeat\nservice.unregister\nemailsender.send"]
+  end
+  subgraph US["Microservices (GATEWAY-RESOLVED mode)"]
+    USAuth["verifyAuthGatewayResolved()"]
+    USReg["ServiceRegistrar"]
+  end
+  BEAuth --> BEProxy
+  BEProxy -->|"headers + gateway secret"| NATS
+  NATS --> USAuth
+  USReg -->|"publish lifecycle"| NATS
+  NATS -->|"BE subscribes"| BE
+`} />
+
+The BE validates JWTs against the IDP (STANDALONE mode), resolves users to
+internal UUIDs, expands roles to permissions, then serializes the full
+`AuthUser` into headers when proxying to microservices. Microservices
+(GATEWAY-RESOLVED mode) verify the gateway secret and deserialize the
+pre-resolved user — no DB access, no ports needed.
+
+## Next steps
+
+- [Getting Started](getting-started) — install and wire up the SDK
+- [Authentication](authentication) — auth modes, RBAC, session context
+- [NATS Client](nats-client) — publish/subscribe with Ext-JSON
+- [Service Registration](service-registration) — NATS-based lifecycle
+- [Ext-JSON](ext-json) — BigInt-safe serialization
+- [HTTP Server](http-server) — health checks and RFC 7807 errors
+- [API Reference](api-reference) — every exported symbol

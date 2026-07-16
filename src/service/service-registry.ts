@@ -13,4 +13,15 @@ export interface IServiceRegistry {
   code: string;
   base_url: string;
   endpoints: Record<string, unknown>;
+  name?: string;
+  description?: string;
+  author?: string;
+  github_repo_url?: string;
+  service_version?: string;
+  is_behind_scaler?: boolean;
+  status?: string;
+  last_health_check_at?: Date;
+  is_enabled?: boolean;
+  icon?: string;
+  icon_type?: 'url' | 'svg' | 'base64' | 'icon';
 }
