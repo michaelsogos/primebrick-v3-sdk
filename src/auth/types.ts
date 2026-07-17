@@ -102,4 +102,18 @@ export interface AuthConfig {
   casdoor_endpoint?: string;
   casdoor_organization?: string;
   enable_email_verification_check: boolean;
+  /**
+   * Whether WebAuthn / passkey passwordless authentication is enabled.
+   * When false, the BE WebAuthn endpoints return 503 and the FE hides the
+   * passkey button. Parsed from the "true"/"false" string in the DB.
+   */
+  enable_webauthn: boolean;
+  /**
+   * Whether username/password form login is enabled.
+   * When false, the BE login endpoint returns 503 and the FE hides the
+   * password form. Parsed from the "true"/"false" string in the DB.
+   * At least one of `enable_formauth` / `enable_webauthn` MUST be true,
+   * otherwise the startup config load throws.
+   */
+  enable_formauth: boolean;
 }
