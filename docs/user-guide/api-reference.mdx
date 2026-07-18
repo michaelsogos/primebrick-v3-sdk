@@ -1,4 +1,4 @@
-<!-- AUTO-GENERATED:reference -->
+&lt;!-- AUTO-GENERATED:reference --&gt;
 ---
 title: API Reference
 description: Complete API reference for @primebrick/sdk — every exported symbol.
@@ -74,7 +74,7 @@ Returns null if the key is missing.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | key | string |  |
-| converter | (v: string) => T |  |
+| converter | (v: string) =&gt; T |  |
 
 #### `ConfigLoader.requireTyped(key, converter): T`
 
@@ -83,7 +83,7 @@ Get a typed config value, throwing if it's missing.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | key | string |  |
-| converter | (v: string) => T |  |
+| converter | (v: string) =&gt; T |  |
 
 #### `ConfigLoader.getAll(): Record<string, string \| null>`
 
@@ -144,7 +144,7 @@ The consumer provides an adapter that runs whatever their DB uses
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | dbPing | HealthCheckPort |  |
-| customChecks | Record<string, () => Promise<HealthCheckResult>> |  |
+| customChecks | Record&lt;string, () =&gt; Promise&lt;HealthCheckResult&gt;&gt; |  |
 
 #### `HealthCheck.checkDb(): Promise<HealthCheckResult>`
 
@@ -154,7 +154,7 @@ The consumer provides an adapter that runs whatever their DB uses
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| results | Record<string, HealthCheckResult> |  |
+| results | Record&lt;string, HealthCheckResult&gt; |  |
 
 ### `HttpHeaderProvider`
 
@@ -211,7 +211,7 @@ and encoded as UTF-8 before publishing.
 |-----------|------|-------------|
 | subject | string | NATS subject (e.g. "emailsender.send", "customer.created") |
 | data | unknown | Any serializable object (bigint values are preserved) |
-| hdrs | Record<string, string> |  |
+| hdrs | Record&lt;string, string&gt; |  |
 
 #### `NatsClient.subscribe(subject, handler): Promise<Subscription>`
 
@@ -222,7 +222,7 @@ Each incoming message is decoded from UTF-8 and parsed with extJsonParse
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | subject | string | NATS subject to subscribe to |
-| handler | (data: T, raw: Msg) => Promise<void> | Async function receiving the parsed message data and raw Msg |
+| handler | (data: T, raw: Msg) =&gt; Promise&lt;void&gt; | Async function receiving the parsed message data and raw Msg |
 
 #### `NatsClient.subscribeRequest(subject, handler): Promise<Subscription>`
 
@@ -234,7 +234,7 @@ automatically serialized with extJsonStringify and published back to
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | subject | string | NATS subject to subscribe to |
-| handler | (request: TRequest, raw: Msg) => Promise<TResponse> | Async function receiving parsed request, returning response |
+| handler | (request: TRequest, raw: Msg) =&gt; Promise&lt;TResponse&gt; | Async function receiving parsed request, returning response |
 
 ### `NatsHeaderProvider`
 
@@ -333,7 +333,7 @@ Full auth configuration loaded at startup from the service's config table.
 | Field | Type | Description |
 |-------|------|-------------|
 | mode | AuthMode |  |
-| roles_path | string | Path expression used to extract the roles array from a JWT payload. Examples: "roles", "realm_access.roles", "resource_access.<client>.roles" |
+| roles_path | string | Path expression used to extract the roles array from a JWT payload. Examples: "roles", "realm_access.roles", "resource_access.&lt;client&gt;.roles" |
 | oidc | OidcConfig |  |
 | gateway | GatewayConfig |  |
 | casdoor_endpoint | string |  |
@@ -378,7 +378,7 @@ every SQL DB driver exposes.
 |-------|------|-------------|
 | valid | boolean |  |
 | errors | string[] |  |
-| env | Record<string, string \| undefined> |  |
+| env | Record&lt;string, string \| undefined&gt; |  |
 
 ### `GatewayConfig`
 
@@ -390,7 +390,7 @@ Gateway configuration (GATEWAY mode).
 | secret_header_name | string |  |
 | public_secret | string |  |
 | public_secret_header_name | string |  |
-| headers | { user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string } |  |
+| headers | &#123; user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string &#125; |  |
 
 ### `HeaderProvider`
 
@@ -415,7 +415,7 @@ The consumer provides an adapter that runs whatever their DB uses
 | port | number |  |
 | healthCheck | HealthCheck |  |
 | serviceName | string |  |
-| routeHandler | (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> | Custom route handler — receives req/res, returns true if handled. |
+| routeHandler | (req: IncomingMessage, res: ServerResponse, url: URL) =&gt; Promise&lt;boolean&gt; | Custom route handler — receives req/res, returns true if handled. |
 
 ### `IConfigEntity`
 
@@ -450,7 +450,7 @@ and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
 |-------|------|-------------|
 | code | string |  |
 | base_url | string |  |
-| endpoints | Record<string, unknown> |  |
+| endpoints | Record&lt;string, unknown&gt; |  |
 | name | string |  |
 | description | string |  |
 | author | string |  |
@@ -546,7 +546,7 @@ forwards them in headers.
 | is_behind_scaler | boolean |  |
 | http_healthy | boolean |  |
 | nats_connected | boolean |  |
-| checks | Record<string, ServiceHealthCheck> |  |
+| checks | Record&lt;string, ServiceHealthCheck&gt; |  |
 | icon | string |  |
 | icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
 
@@ -564,10 +564,10 @@ forwards them in headers.
 | is_behind_scaler | boolean |  |
 | http_healthy | boolean |  |
 | nats_connected | boolean |  |
-| checks | Record<string, ServiceHealthCheck> |  |
+| checks | Record&lt;string, ServiceHealthCheck&gt; |  |
 | icon | string |  |
 | icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
-| endpoints | Record<string, unknown> |  |
+| endpoints | Record&lt;string, unknown&gt; |  |
 
 ### `ServiceRegistrarConfig`
 
@@ -575,7 +575,7 @@ forwards them in headers.
 |-------|------|-------------|
 | serviceCode | string |  |
 | baseUrl | string |  |
-| endpoints | Record<string, unknown> |  |
+| endpoints | Record&lt;string, unknown&gt; |  |
 | heartbeatIntervalMs | number |  |
 | name | string |  |
 | description | string |  |
@@ -874,7 +874,7 @@ the IDP `sub`. The mapping is performed by the UserResolverPort.
 |-----------|------|-------------|
 | internalUuid | string |  |
 | normalized | NormalizedIdpUser |  |
-| permissions | Set<string> |  |
+| permissions | Set&lt;string&gt; |  |
 | isAdmin | boolean |  |
 
 ### `buildNatsAuthHeaders(user, config): Record<string, string>`
@@ -959,7 +959,7 @@ Roles marked with `is_admin=true` bypass all permission checks.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | roles | typeOperator | Role names from the IDP (as extracted from JWT via roles_path) |
-| getRoleMappingFn | (role: string) => Promise<{ permissions: string[]; is_admin: boolean } \| null> | Function that returns the mapping for a specific role |
+| getRoleMappingFn | (role: string) =&gt; Promise&lt;&#123; permissions: string[]; is_admin: boolean &#125; \| null&gt; | Function that returns the mapping for a specific role |
 
 ### `extJsonMiddleware(): (req: Request, res: Response, next: NextFunction) => void`
 
@@ -1049,7 +1049,7 @@ Supports wildcard patterns in user permissions.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| userPermissions | Set<string> | Set of permissions granted to user (may contain wildcards) |
+| userPermissions | Set&lt;string&gt; | Set of permissions granted to user (may contain wildcards) |
 | requiredPermission | string | Permission required by the endpoint |
 
 ### `isPermissionSentinel(p): boolean`
@@ -1120,7 +1120,7 @@ Do NOT use this from inside an HTTP handler to bypass auth.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| fn | () => T |  |
+| fn | () =&gt; T |  |
 
 ### `runWithSession(session, fn): T`
 
@@ -1132,7 +1132,7 @@ this directly, unless you are writing infrastructure code.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | session | Session |  |
-| fn | () => T |  |
+| fn | () =&gt; T |  |
 
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
@@ -1246,4 +1246,4 @@ GATEWAY-RESOLVED mode — no ports needed.
 | msg | Msg |  |
 | config | AuthConfig |  |
 
-<!-- END -->
+&lt;!-- END --&gt;
