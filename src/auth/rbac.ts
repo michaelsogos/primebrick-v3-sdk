@@ -7,6 +7,7 @@
  * Sentinel handling:
  *   - Permission.PUBLIC             → always allowed
  *   - Permission.AUTHENTICATED_USER → allowed if user is authenticated
+ *   - Permission.AUTHENTICATED_ADMIN→ allowed only if user.isAdmin === true
  *   - user.isAdmin                  → bypasses all permission checks
  *   - user.isSystem                 → bypasses all permission checks (system API key)
  */
@@ -50,6 +51,14 @@ export function checkRbac(
   // System bypass (system API keys)
   if (user.isSystem) {
     return { allowed: true };
+  }
+
+  // Sentinel: AUTHENTICATED_ADMIN → allowed only for admins.
+  // Placed AFTER the admin and system bypasses so that trusted principals
+  // (admins, system API keys) still bypass, while regular non-admin users
+  // get { allowed: false } instead of falling through to pattern matching.
+  if (requiredPermissions.includes(Permission.AUTHENTICATED_ADMIN)) {
+    return { allowed: false };
   }
 
   // Filter out sentinels — they were already checked above

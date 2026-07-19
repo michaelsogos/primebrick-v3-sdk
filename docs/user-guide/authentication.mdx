@@ -151,11 +151,12 @@ API keys accept two header formats:
 ## RBAC
 
 RBAC evaluates whether an authenticated user has the permissions required by an
-endpoint. The `Permission` constant defines all known permissions. Two
+endpoint. The `Permission` constant defines all known permissions. Three
 sentinels are handled specially:
 
 - `Permission.PUBLIC` — endpoint reachable without authentication
 - `Permission.AUTHENTICATED_USER` — any authenticated caller passes
+- `Permission.AUTHENTICATED_ADMIN` — only callers with `isAdmin === true` pass (admin-only operations, e.g. admin change-password)
 
 ```ts
 import { enforceHttpRbac, Permission } from "@primebrick/sdk";

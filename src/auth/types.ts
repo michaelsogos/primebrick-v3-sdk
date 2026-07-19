@@ -116,4 +116,10 @@ export interface AuthConfig {
    * otherwise the startup config load throws.
    */
   enable_formauth: boolean;
+  /**
+   * Whether passkey enrollment is mandatory. When true, the FE passkey prompt
+   * cannot be dismissed and the "do not show again" checkbox is hidden.
+   * Parsed from the "true"/"false" string in the DB.
+   */
+  passkey_required: boolean;
 }
