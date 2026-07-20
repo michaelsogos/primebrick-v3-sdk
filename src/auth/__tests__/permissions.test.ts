@@ -14,6 +14,7 @@ describe("Permission enum", () => {
   it("exposes the ROLE_MAPPINGS_* CRUD permissions", () => {
     expect(Permission.ROLE_MAPPINGS_READ_ALL).toBe("role_mappings.read.all");
     expect(Permission.ROLE_MAPPINGS_READ_SINGLE).toBe("role_mappings.read.single");
+    expect(Permission.ROLE_MAPPINGS_READ_AUDIT).toBe("role_mappings.read.audit");
     expect(Permission.ROLE_MAPPINGS_CREATE).toBe("role_mappings.create");
     expect(Permission.ROLE_MAPPINGS_UPDATE).toBe("role_mappings.update");
     expect(Permission.ROLE_MAPPINGS_DELETE).toBe("role_mappings.delete");

@@ -92,6 +92,7 @@ export const Permission = {
   // --- Role mappings module (admin) ---
   ROLE_MAPPINGS_READ_ALL: "role_mappings.read.all",
   ROLE_MAPPINGS_READ_SINGLE: "role_mappings.read.single",
+  ROLE_MAPPINGS_READ_AUDIT: "role_mappings.read.audit",
   ROLE_MAPPINGS_CREATE: "role_mappings.create",
   ROLE_MAPPINGS_UPDATE: "role_mappings.update",
   ROLE_MAPPINGS_DELETE: "role_mappings.delete",
