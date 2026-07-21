@@ -48,7 +48,7 @@ app.use(extJsonMiddleware());
 The middleware replaces `res.json()` with Ext-JSON serialization. Install it
 once before any routes.
 
-### NATS (microservices)
+### NATS™ (microservices)
 
 `NatsClient.publish()`, `subscribe()`, and `subscribeRequest()` use Ext-JSON
 internally. Microservice code never calls `extJsonStringify` / `extJsonParse`
@@ -56,7 +56,7 @@ directly — just pass plain objects and receive plain objects.
 
 ## Sub-path import
 
-If you need only the JSON functions without pulling in NATS/auth code paths:
+If you need only the JSON functions without pulling in NATS™/auth code paths:
 
 ```ts
 import { extJsonStringify, extJsonParse, extJsonMiddleware } from "@primebrick/sdk/json";

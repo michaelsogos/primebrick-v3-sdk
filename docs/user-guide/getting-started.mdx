@@ -12,7 +12,7 @@ pnpm add @primebrick/sdk
 ```
 
 The SDK has three runtime dependencies: `jose` (JWT/OIDC), `json-bigint`
-(BigInt-safe JSON), and `nats` (NATS client). These are installed automatically.
+(BigInt-safe JSON), and `nats` (NATS™ client). These are installed automatically.
 
 ## Minimal microservice setup
 
@@ -83,7 +83,7 @@ import { NatsClient, verifyAuth, extJsonStringify, Permission } from "@primebric
 ```
 
 The Ext-JSON module is also available as a sub-path import (useful when you need
-only JSON serialization without pulling in the NATS/auth code paths):
+only JSON serialization without pulling in the NATS™/auth code paths):
 
 ```ts
 import { extJsonStringify, extJsonParse } from "@primebrick/sdk/json";

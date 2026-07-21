@@ -1,6 +1,6 @@
 # @primebrick/sdk
 
-Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.
+Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS™ client, health checks, env validation. DB-agnostic via port interfaces.
 
 ## What the SDK provides
 
@@ -11,7 +11,7 @@ Shared microservice infrastructure for Primebrick v3 — config loading, migrati
 - **ServiceRegistrar** — register microservice in `service_registry`, maintain heartbeat.
 - **IServiceRegistry** — self-contained interface for `service_registry` rows.
 - **GracefulShutdown** — re-entrancy guard, `Promise.allSettled` for parallel resource cleanup, signal handlers.
-- **NatsClient** — singleton NATS connection management.
+- **NatsClient** — singleton NATS™ connection management.
 - **HttpServer** — minimal HTTP server with health endpoint.
 - **HealthCheck** — DB health check utility.
 - **EnvValidator** — centralized env var validation.

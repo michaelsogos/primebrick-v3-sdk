@@ -122,4 +122,10 @@ export interface AuthConfig {
    * Parsed from the "true"/"false" string in the DB.
    */
   passkey_required: boolean;
+  /**
+   * Whether MFA / 2FA is enabled (login MFA + step-up MFA).
+   * When false, login never branches to MFA and the step-up middleware
+   * passes through. Parsed from the "true"/"false" string in the DB.
+   */
+  enable_mfa: boolean;
 }

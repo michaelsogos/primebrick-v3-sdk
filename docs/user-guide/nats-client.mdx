@@ -1,14 +1,14 @@
 ---
-title: NATS Client
-description: Singleton NATS connection manager with Ext-JSON publish, subscribe, and request-reply.
+title: NATS™ Client
+description: Singleton NATS™ connection manager with Ext-JSON publish, subscribe, and request-reply.
 ---
 
-# NATS Client
+# NATS™ Client
 
-`NatsClient` is a singleton connection manager for NATS. All `publish()`,
+`NatsClient` is a singleton connection manager for NATS™. All `publish()`,
 `subscribe()`, and `subscribeRequest()` methods use Ext-JSON serialization
-automatically — consumers pass plain TypeScript objects and receive plain
-TypeScript objects. BigInt values are preserved across the wire.
+automatically — consumers pass plain TypeScript® objects and receive plain
+TypeScript® objects. BigInt values are preserved across the wire.
 
 ## Connection
 
@@ -67,7 +67,7 @@ caught and logged — they do not crash the subscription loop.
 
 ## Request-reply
 
-`subscribeRequest()` implements the NATS request-reply pattern. The handler
+`subscribeRequest()` implements the NATS™ request-reply pattern. The handler
 receives the parsed request and returns a response that is automatically
 serialized and published to `msg.reply`.
 
@@ -86,6 +86,6 @@ is published back to the reply subject (if set).
 ## Next steps
 
 - [Authentication](authentication) — verifyNatsMessage and auth headers
-- [Service Registration](service-registration) — lifecycle events over NATS
+- [Service Registration](service-registration) — lifecycle events over NATS™
 - [Ext-JSON](ext-json) — how BigInt serialization works
 - [API Reference](api-reference) — NatsClient method signatures
