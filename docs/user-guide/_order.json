@@ -5,6 +5,7 @@
     "authentication",
     "ext-json",
     "cache-layer",
+    "config-tables",
     "nats-client",
     "service-registration",
     "http-server",

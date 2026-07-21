@@ -1,0 +1,292 @@
+---
+title: Config tables & ConfigLoader
+description: The standard dictionary-style configuration table pattern used by every Primebrick module — key/value rows with type metadata, i18n labels, and a generic typed ConfigLoader.
+---
+
+# Config tables & `ConfigLoader<TResult>`
+
+Primebrick modules store their runtime configuration in **dictionary-style
+config tables**: one row per setting, keyed by a unique `key`, with the raw
+value stored as `TEXT` and a `type` column that drives automatic type
+coercion and Frontend widget selection.
+
+This is the **single standard pattern** for module configuration across the
+Backend (BE) and every microservice (US). Any new module that needs
+configuration follows this pattern and gets caching, typed access, i18n
+labels, and a reusable admin UI for free.
+
+## Why a dictionary table (not env vars)
+
+| Concern | Env vars | Config table |
+|---------|----------|--------------|
+| Update at runtime | Restart required | `PUT` → cache reload, no restart |
+| Per-row i18n label / description | Impossible | `label_key` / `description_key` columns |
+| Type-safe consumption | Manual `parseInt` everywhere | `type` column → `ConfigLoader<TResult>` auto-coerces |
+| Admin UI | None | Reusable `ConfigTable` FE component renders inputs from `type` |
+| Audit trail | None | Auditable rows (`created_at/by`, `updated_at/by`, `version`, soft-delete) |
+| Validation | App-level only | DB `enum_values` + BE upsert validation + FE widget validation |
+
+Env vars are still used for the **bootstrap connection** (`DATABASE_URL`,
+`NODE_ENV`) and for secrets that must never touch the DB. Everything else
+lives in a config table.
+
+## Standard table shape
+
+Every config table — regardless of which module owns it — uses the same
+column set, defined by `ConfigEntityBase` in `@primebrick/dal-pg`:
+
+```sql
+CREATE TABLE "<schema>"."config" (
+  "id"              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  "uuid"            uuid DEFAULT gen_random_uuid() NOT NULL,
+  "key"             varchar(100) NOT NULL,         -- unique setting key
+  "value"           text,                          -- raw TEXT; null = "not set"
+  "type"            varchar(50)  NOT NULL,         -- see type vocabulary
+  "enum_values"     text,                          -- JSON array, only for type='enum'
+  "label_key"       varchar(100),                  -- i18n key for the setting title
+  "description_key" varchar(100),                  -- i18n key for the explanatory text
+  "created_at"      timestamptz DEFAULT now(),
+  "created_by"      text,
+  "updated_at"      timestamptz DEFAULT now(),
+  "updated_by"      text,
+  "version"         integer DEFAULT 1,
+  "deleted_at"      timestamptz,
+  "deleted_by"      text,
+  CONSTRAINT "config_key_uq" UNIQUE ("key")
+);
+```
+
+### Column responsibilities
+
+| Column | Purpose |
+|--------|---------|
+| `key` | Stable, snake_case identifier (e.g. `oidc_issuer_url`, `enable_mfa`). Never renamed after release. |
+| `value` | Raw `TEXT`. `null` means "the row exists but the value is not set". Missing key means "the row does not exist". |
+| `type` | One of the values in the type vocabulary below. Drives SDK coercion and FE widget selection. |
+| `enum_values` | JSON array of allowed strings, only populated when `type = 'enum'`. |
+| `label_key` | i18n key (e.g. `config.auth.oidc_issuer_url.label`) resolved by the FE to a translated title. |
+| `description_key` | i18n key (e.g. `config.auth.oidc_issuer_url.description`) resolved by the FE to a translated help text. |
+
+## Type vocabulary (single source of truth)
+
+The `type` column is read by both the SDK (for coercion) and the FE (for
+widget selection). The vocabulary is fixed and shared:
+
+| `type` | SDK coercion | FE widget | Notes |
+|--------|--------------|-----------|-------|
+| `string` | string as-is | `Input` type=text | Single-line text. |
+| `text` | string as-is | `Textarea` | Multi-line text. |
+| `boolean` | `value === "true"` | `Switch` | DB stores only `"true"` / `"false"`. |
+| `integer` | `parseInt(value, 10)` | `Input` type=number | Empty/null stays `null`. |
+| `number` | `parseFloat(value)` | `Input` type=number | Empty/null stays `null`. |
+| `enum` | string, validated against `enum_values` | `ComboSelect` | `enum_values` is a JSON string array. |
+| `url` | string as-is | `Input` type=url | Validated at write/upsert path. |
+| `secret` | string as-is | `Password` (masked) | **Never returned in clear text to the FE**; BE masks in list/get, accepts updates only. |
+| `json` | `JSON.parse(value)` | `Textarea` | FE stringifies on save. |
+
+Adding a new type requires coordinated changes in the SDK (`coerceConfigValue`)
+and the FE (`ConfigTable` widget switch). Do not add types casually.
+
+## Data-quality rules
+
+- **Read path** (SDK `ConfigLoader`): only real type conversions
+  (`string → boolean/integer/number/json`). No lowercasing, trimming, or
+  fallback defaults. Missing keys → `undefined` in the typed result; `null`
+  rows → `null`.
+- **Write path**: FE and BE upsert validate per `type` / `enum_values`
+  before writing. Secrets are write-only from the FE perspective.
+- **No fake defaults**: if a mandatory config is missing, `load()` throws a
+  clear error. The system fails loud rather than running on invented values.
+
+## SDK: `IConfigEntity` and `ConfigRepositoryPort`
+
+The SDK defines the standard row shape and the port that consumers implement:
+
+```ts
+import type { IConfigEntity, ConfigRepositoryPort } from "@primebrick/sdk";
+
+interface IConfigEntity {
+  key: string;
+  value: string | null;
+  type: ConfigType;                 // "string" | "boolean" | "integer" | ...
+  enum_values?: string | null;      // JSON array string, only for type='enum'
+  label_key?: string;
+  description_key?: string;
+}
+
+interface ConfigRepositoryPort {
+  findAll(): Promise<IConfigEntity[]>;
+}
+```
+
+The SDK is DB-agnostic. The consumer (BE or microservice) provides an
+adapter that uses its own DAL to read the config rows.
+
+## SDK: `ConfigLoader<TResult>` — typed, cached, auto-coerced
+
+The generic `ConfigLoader<TResult>` reads all rows once at startup, coerces
+each value according to its `type` column, and builds a typed object whose
+field names match the DB keys exactly. `TResult` is the consumer's typed
+shape (e.g. `AuthConfig` for the BE auth module, `EmailSenderConfig` for the
+emailsender microservice).
+
+```ts
+import { ConfigLoader } from "@primebrick/sdk";
+import type { AuthConfig } from "@primebrick/sdk";
+
+const loader = new ConfigLoader<AuthConfig>(new BeAuthConfigRepositoryAdapter(dal));
+
+// Once at startup:
+const config = await loader.load();
+// config is now AuthConfig with boolean / number / enum fields filled in
+
+// Hot path (zero DB hits):
+const enableMfa = loader.require("enable_mfa");          // boolean
+const ttl = loader.require("mfa_challenge_token_ttl_seconds"); // number
+const issuerUrl = loader.get("oidc_issuer_url");         // string | null
+
+// After a config update via PUT:
+loader.invalidate();
+await loader.load();
+```
+
+### Why `TResult` is consumer-defined
+
+The SDK does not know which keys a module will store. The consumer declares
+the typed interface (`AuthConfig`, `EmailSenderConfig`, ...) with field
+names that match the DB keys. `ConfigLoader.load()` iterates rows and
+assigns `result[row.key] = coerceConfigValue(row)`, so the typed object is
+populated automatically as long as the field names line up.
+
+### Mandatory-field validation
+
+`ConfigLoader.load()` does NOT enforce mandatory fields — it only coerces.
+Mandatory checks (e.g. "auth_mode is required", "at least one auth method
+must be enabled") are consumer-specific and run in a `validate()` step
+after `load()`:
+
+```ts
+const config = await loader.load();
+validateAuthConfig(config);  // throws on missing mandatory fields
+```
+
+### Caching
+
+`ConfigLoader` keeps an in-memory `Map` populated by `load()`. The hot path
+(`get`, `require`) never touches the DB. After a config update, the
+consumer must call `invalidate()` then `load()` again so the running
+service picks up the new value without a restart.
+
+This in-memory cache is **complementary** to the SDK's Redis cache layer
+(`@Cached` / `withCache`). The Redis layer caches single-row DAL reads
+(`findByUUID`, `findById`); `ConfigLoader` caches the full typed
+dictionary. Config updates must invalidate both:
+
+1. Update the DB row (DAL write).
+2. If the entity is `@Cached()`, `withCache` invalidates the Redis prefix
+   automatically on write.
+3. Call `configLoader.invalidate()` + `configLoader.load()` to refresh the
+   in-memory typed cache.
+
+## DAL: `ConfigEntityBase`
+
+`@primebrick/dal-pg` provides a base entity class so every config table has
+the same column set without copy-paste:
+
+```ts
+import { ConfigEntityBase } from "@primebrick/dal-pg";
+import { Entity } from "@primebrick/dal-pg";
+
+@Entity("config", "auth")  // schema-qualified: auth.config
+export class ConfigEntryEntity extends ConfigEntityBase {}
+```
+
+For the monolithic BE, the auth module uses `@Entity("config", "public")`.
+For microservices, each service uses its own schema
+(`@Entity("config", "emailsender")`). The base class guarantees the column
+shape is identical everywhere.
+
+## HTTP API (entity CRUD)
+
+Every config table is exposed to the Frontend via the standard entity CRUD
+path pattern (see the API path conventions rule for microservices):
+
+```
+GET    /api/v1/entities/config_entries/meta       → field schema for dynamic forms
+GET    /api/v1/entities/config_entries/list       → all rows (secrets masked)
+GET    /api/v1/entities/config_entries/:uuid      → single row (secrets masked)
+PUT    /api/v1/entities/config_entries/:uuid      → update value (validates type)
+```
+
+The `meta` endpoint returns the field schema consumed by the FE
+`ConfigTable` component for dynamic rendering. The `list` endpoint returns
+rows with `type`, `enum_values`, `label_key`, `description_key` so the FE
+can pick the right widget and translate labels without any hard-coding.
+
+### Secret masking
+
+Rows with `type = 'secret'` are never returned in clear text. The BE
+returns `null` (or a fixed mask like `"••••"`) for the `value` field in
+`list` and `get` responses. The FE renders a `Password` input with a
+placeholder and only sends a value when the user explicitly types a new
+one. An empty PUT body for a secret means "leave unchanged".
+
+## Frontend: reusable `ConfigTable` component
+
+The FE has a single reusable component that renders any config table as a
+two-column layout:
+
+- **Left column**: translated label (`$t(entry.label_key)`) and translated
+  description (`$t(entry.description_key)`).
+- **Right column**: a widget chosen by `entry.type`:
+  - `string` / `url` → `Input`
+  - `text` / `json` → `Textarea`
+  - `integer` / `number` → `Input type="number"`
+  - `boolean` → `Switch`
+  - `enum` → `ComboSelect` (options from `enum_values`)
+  - `secret` → `Password` (masked)
+
+The component coerces the user-entered value back to a string before
+calling `onSave` (`'true'` / `'false'` for booleans, `String(value)` for
+numbers, `JSON.stringify` for json). The BE upsert validates the string
+against the row's `type` / `enum_values` before writing.
+
+This means **a new module's config page is created by adding a route that
+fetches `/api/v1/entities/config_entries/list` and renders
+`<ConfigTable entries={...} onSave={...} />`** — no per-module form code.
+
+## End-to-end data flow
+
+<Mermaid chart={`flowchart LR
+  FE[Frontend ConfigTable] -->|GET /entities/config_entries/list| BE[Backend / Microservice]
+  BE -->|ConfigEntryDal.findAll| DB[(config table)]
+  DB -->|rows with type/enum_values/label_key/desc_key| BE
+  BE -->|masked secrets + typed metadata| FE
+  FE -->|PUT /entities/config_entries/:uuid value=...| BE
+  BE -->|validate type + upsert| DB
+  BE -->|configLoader.invalidate + load| Cache[In-memory typed cache]
+  BE -->|withCache invalidates prefix| Redis[(Redis optional)]
+`} />
+
+## Adding a new config key
+
+1. Insert a row into the config table with `key`, `value`, `type`,
+   `enum_values` (if `enum`), `label_key`, `description_key`.
+2. Add the field to the consumer's `TResult` interface (e.g. `AuthConfig`)
+   with the matching name and TS type.
+3. Add the translation keys (`label_key`, `description_key`) to the FE
+   i18n message files.
+4. If the key is mandatory, add a check in the consumer's `validate()`
+   function.
+
+No SDK, DAL, or FE component changes are needed — the existing
+`ConfigLoader<TResult>` and `ConfigTable` handle it automatically.
+
+## Reference implementations
+
+| Module | Table | `TResult` | Location |
+|--------|-------|-----------|----------|
+| BE auth | `public.config` | `AuthConfig` | `primebrick-be-v3/src/modules/auth/` |
+| emailsender | `emailsender.config` | `EmailSenderConfig` | `primebrick-us-v3/emailsender/` |
+
+New modules should mirror one of these two references.
