@@ -11,8 +11,16 @@ description: Install @primebrick/sdk and wire up the core modules in a microserv
 pnpm add @primebrick/sdk
 ```
 
-The SDK has three runtime dependencies: `jose` (JWT/OIDC), `json-bigint`
-(BigInt-safe JSON), and `nats` (NATS™ client). These are installed automatically.
+The SDK has runtime dependencies: `jose` (JWT/OIDC), `json-bigint`
+(BigInt-safe JSON), `nats` (NATS™ client), `redis` (optional cache), and
+`reflect-metadata` (cache metadata). These are installed automatically.
+
+### Redis (optional)
+
+Redis is NOT required to run Primebrick. If you want to enable the optional
+cache layer for hot single-row reads, install Redis and set the `redis_url`
+key in the `auth_configurations` table. See [Cache layer](cache-layer) for
+details. Without `redis_url`, the system runs DB-only with no cache.
 
 ## Minimal microservice setup
 

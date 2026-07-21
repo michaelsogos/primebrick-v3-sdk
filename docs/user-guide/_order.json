@@ -4,6 +4,7 @@
     "getting-started",
     "authentication",
     "ext-json",
+    "cache-layer",
     "nats-client",
     "service-registration",
     "http-server",

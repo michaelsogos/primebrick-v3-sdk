@@ -70,5 +70,28 @@ export {
   extJsonMiddleware,
 } from "./json/ext-json.js";
 
+// Cache — best-effort Redis cache layer (BE/US; DAL is NOT involved)
+// The SDK owns the cache abstraction, decorators, key builder, withCache wrapper, and
+// the Redis implementation. The DAL is untouched — entity metadata is read via
+// Reflect.getMetadata (standard JS reflection API, no import from the DAL).
+export {
+  type CachePort,
+  CacheKeyBuilder,
+} from "./cache/cache-port.js";
+export {
+  Cached,
+  CacheKey,
+  isEntityCached,
+  getEntityCacheTtl,
+  getCacheKeyProperty,
+} from "./cache/cache-decorators.js";
+export {
+  withCache,
+  type CacheableRepository,
+  type CacheLogger,
+} from "./cache/cached-repository.js";
+export { RedisCachePort } from "./cache/redis-cache-port.js";
+export { createRedisClient, closeRedisClient } from "./cache/redis-client.js";
+
 // Auth — framework-agnostic auth for HTTP + NATS (BE + microservices)
 export * from "./auth/index.js";

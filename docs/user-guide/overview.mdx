@@ -20,6 +20,9 @@ checks, graceful shutdown, env validation, and database migrations.
   DB access. The BE subscribes to lifecycle events and persists them.
 - **BigInt-safe** — all JSON serialization uses `ext-json` so `bigint` values
   survive the wire format without `number | bigint` ambiguity.
+- **Optional Redis cache** — best-effort cache for hot single-row reads. The
+  system is fully valid without it; if Redis is unavailable, reads fall through
+  to the database with `warn` logs. See [Cache layer](cache-layer) for usage.
 
 ## Modules
 
@@ -29,6 +32,7 @@ checks, graceful shutdown, env validation, and database migrations.
 | **nats** | Singleton NATS™ client with Ext-JSON publish/subscribe/request-reply |
 | **service** | NATS™-based service registration, heartbeats, and lifecycle events |
 | **json** | BigInt-safe JSON stringify/parse + Express middleware |
+| **cache** | Optional Redis cache layer (`@Cached`, `@CacheKey`, `withCache`, `RedisCachePort`) |
 | **http** | Minimal HTTP server with health endpoint and RFC 7807 error responses |
 | **config** | Dictionary-style config loader with in-memory cache |
 | **lifecycle** | Graceful shutdown coordinator |
@@ -69,5 +73,6 @@ pre-resolved user — no DB access, no ports needed.
 - [NATS Client](nats-client) — publish/subscribe with Ext-JSON
 - [Service Registration](service-registration) — NATS™-based lifecycle
 - [Ext-JSON](ext-json) — BigInt-safe serialization
+- [Cache layer](cache-layer) — optional Redis cache for hot single-row reads
 - [HTTP Server](http-server) — health checks and RFC 7807 errors
 - [API Reference](api-reference) — every exported symbol

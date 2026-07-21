@@ -128,4 +128,11 @@ export interface AuthConfig {
    * passes through. Parsed from the "true"/"false" string in the DB.
    */
   enable_mfa: boolean;
+  /**
+   * Redis cache URL (e.g. `redis://localhost:6379` or `rediss://host:6380` for TLS).
+   * Empty string or `undefined` = cache disabled — the system runs without cache, with
+   * `warn` logs. Cache is a feature, not a requirement; the system is fully valid without
+   * it. Read from the `auth_configurations` table by the BE's `initCache()` at startup.
+   */
+  redis_url?: string;
 }
