@@ -13,6 +13,7 @@
  * - nats: NatsClient
  * - http: createHttpServer, HealthCheck
  * - env: validateEnv, requireEnv
+ * - sse: createSseWriter, createSseEventBus, bridgeNatsToSse
  */
 
 // Ports (dependency inversion — consumer implements these)
@@ -47,6 +48,7 @@ export {
   type ServiceHeartbeatPayload,
   type ServiceRegisterPayload,
   type ServiceUnregisterPayload,
+  type ServiceStalePayload,
   type ServiceHealthCheck,
 } from "./service/service-lifecycle-subjects.js";
 
@@ -108,3 +110,16 @@ export {
 
 // Auth — framework-agnostic auth for HTTP + NATS (BE + microservices)
 export * from "./auth/index.js";
+
+// SSE — Server-Sent Events infrastructure (BE only)
+// Provides the writer, event bus, and NATS bridge for SSE endpoints.
+// @see docs/user-guide/sse-standard.mdx for the full SSE development standard.
+export { createSseWriter, SSE_HEADERS } from "./sse/sse-writer.js";
+export { createSseEventBus } from "./sse/sse-event-bus.js";
+export { bridgeNatsToSse, type NatsSseBridgeMapping } from "./sse/nats-sse-bridge.js";
+export type {
+  SseEvent,
+  SseWriter,
+  SseEventBus,
+  SseEventBusSubscription,
+} from "./sse/types.js";

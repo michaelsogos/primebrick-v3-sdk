@@ -9,6 +9,7 @@
     "nats-client",
     "service-registration",
     "http-server",
+    "sse-standard",
     "api-reference"
   ]
 }

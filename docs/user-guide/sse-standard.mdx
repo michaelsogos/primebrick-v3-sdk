@@ -1,0 +1,301 @@
+---
+title: SSE Standard
+description: Server-Sent Events infrastructure and development standard for Primebrick BE.
+---
+
+# SSE Standard
+
+Primebrick uses Server-Sent Events (SSE) to push real-time updates from the BE
+to connected FE clients. SSE replaces polling for data that changes
+event-driven (e.g. service health status).
+
+The SDK provides three building blocks: `createSseWriter` (wire format),
+`createSseEventBus` (in-process distribution), and `bridgeNatsToSse` (NATS →
+bus bridge). SSE endpoints exist only on the BE — microservices do NOT expose
+SSE. The BE is the sole public attack surface.
+
+## Architecture
+
+```ts
+// NATS is the fanout mechanism for multi-instance BE deployments.
+// Each BE instance subscribes to the same NATS subjects and bridges
+// them to its local SseEventBus. SSE endpoints subscribe to the bus
+// and forward events to connected clients.
+
+// Microservice → NATS → BE (all instances) → local SseEventBus → SSE clients
+```
+
+Multi-instance fanout is handled by NATS, not Redis pubsub. Redis is used only
+for caching. Every BE instance subscribes to the same NATS subjects; each
+bridges events to its own local `SseEventBus`, which feeds its own SSE
+connections.
+
+## SDK building blocks
+
+### createSseWriter
+
+Sets SSE headers on an Express `Response` and returns an `SseWriter` that
+handles the W3C EventSource wire format. Uses `extJsonStringify` for
+BigInt-safe serialization of event data.
+
+```ts
+import { createSseWriter } from "@primebrick/sdk";
+import type { Response } from "express";
+
+function sseEndpoint(res: Response) {
+  const writer = createSseWriter(res);
+
+  // Send an event
+  writer.send({
+    id: "service:heartbeat:1700000000:abc",
+    event: "service.heartbeat",
+    data: { code: "emailsender", status: "online" },
+  });
+
+  // Keep-alive comment (no event type, just a comment line)
+  writer.comment("keep-alive");
+
+  // Close on disconnect
+  res.on("close", () => writer.close());
+}
+```
+
+### createSseEventBus
+
+In-process event bus. Typically created once as a singleton per BE process and
+shared across all SSE endpoints that need the same event stream.
+
+```ts
+import { createSseEventBus } from "@primebrick/sdk";
+
+export const serviceEventsBus = createSseEventBus();
+
+// Emit from anywhere in the BE process:
+serviceEventsBus.emit({
+  id: "service:heartbeat:1700000000",
+  event: "service.heartbeat",
+  data: { code: "emailsender", status: "online" },
+});
+
+// Subscribe in an SSE endpoint:
+const sub = serviceEventsBus.subscribe((event) => {
+  writer.send(event);
+});
+// Cleanup on disconnect:
+sub.unsubscribe();
+```
+
+### bridgeNatsToSse
+
+Subscribes to NATS subjects and forwards each message as an `SseEvent` on the
+bus. Returns a cleanup function that unsubscribes all NATS subscriptions.
+
+```ts
+import { bridgeNatsToSse, NatsClient, SERVICE_SUBJECTS } from "@primebrick/sdk";
+
+const cleanup = await bridgeNatsToSse(NatsClient, serviceEventsBus, [
+  {
+    subject: SERVICE_SUBJECTS.HEARTBEAT,
+    eventType: "service.heartbeat",
+    transform: (p) => ({
+      id: `hb:${p.code}:${Date.now()}`,
+      data: p,
+    }),
+  },
+  {
+    subject: SERVICE_SUBJECTS.REGISTER,
+    eventType: "service.register",
+    transform: (p) => ({
+      id: `reg:${p.code}:${Date.now()}`,
+      data: p,
+    }),
+  },
+]);
+
+// On graceful shutdown:
+cleanup();
+```
+
+## SSE development standard
+
+When creating a new SSE endpoint in Primebrick, follow these rules:
+
+### 1. URL convention
+
+```
+GET /api/v1/<module>/<resource>/events
+```
+
+Example: `GET /api/v1/system/services/events`
+
+Each SSE endpoint is specific to a resource. There is no generic event hub.
+
+### 2. Auth and RBAC
+
+Reuse the same middleware as regular REST endpoints: `authMiddleware()` +
+`rbacHandler([Permission.X])`. Cookie-based auth (`credentials: 'include'`)
+works with SSE — cookies are sent automatically.
+
+If the token expires during an SSE connection, the BE sends an `error` event
+with `{ type: "auth_expired" }` and closes the connection. The FE refreshes
+the token and reconnects.
+
+### 3. Response headers
+
+`createSseWriter` sets these headers automatically:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Content-Type` | `text/event-stream; charset=utf-8` | SSE wire format |
+| `Cache-Control` | `no-cache, no-transform` | Prevent proxy buffering |
+| `Connection` | `keep-alive` | Persistent connection |
+| `X-Accel-Buffering` | `no` | Disable nginx buffering |
+| `X-Content-Type-Options` | `nosniff` | Security header |
+
+### 4. Event format
+
+Every event follows the W3C EventSource format:
+
+```
+id: <event-id>
+event: <event-type>
+data: <json-single-line>
+
+```
+
+- **`id`**: Unique, deterministic where possible. Used for `Last-Event-ID` on
+  reconnect and FE-side deduplication.
+- **`event`**: Type in dot notation (e.g. `service.heartbeat`, `snapshot`).
+- **`data`**: Single-line JSON serialized via `extJsonStringify`. BigInt values
+  are preserved; `Date` objects become ISO strings.
+
+### 5. Snapshot on connect
+
+Immediately after the SSE connection is established, send a `snapshot` event
+with the current state. This gives the FE the full picture without needing a
+separate REST call.
+
+```ts
+writer.send({
+  id: `snapshot:${Date.now()}`,
+  event: "snapshot",
+  data: { services: await repo.findAll() },
+});
+```
+
+### 6. Keep-alive
+
+Send a comment every 15 seconds to keep the TCP connection alive and detect
+disconnected clients (write fails on broken sockets):
+
+```ts
+const keepAlive = setInterval(() => writer.comment("keep-alive"), 15_000);
+```
+
+### 7. Connection lifecycle
+
+1. **Connect**: auth middleware validates → `createSseWriter` sets headers →
+   send `snapshot` → subscribe to `SseEventBus`
+2. **Stream**: forward bus events to client + keep-alive every 15s
+3. **Disconnect** (`req.on('close')`): unsubscribe from bus, clear keep-alive
+   interval, close writer
+4. **Graceful shutdown** (SIGTERM): emit `error` event with
+   `{ type: "server_shutdown" }`, close all connections, close bus
+
+### 8. Server timeout
+
+Set `server.timeout = 300_000` (5 minutes) on the HTTP server. This is a
+socket inactivity timeout — it resets on every `res.write()`, so active SSE
+connections with 15s keep-alive never hit it. It only fires when no data flows
+for 5 minutes (zombie connections), allowing the server to reclaim resources.
+
+**Never set `server.timeout = 0`.** Zero timeout means connections never
+expire, leading to zombie accumulation, memory leaks, and GC pressure over
+time. 5 minutes is the trade-off: survives micro-oscillations (lost 1-2
+keep-alives) but reclaims dead connections.
+
+### 9. FE client
+
+The FE uses `@microsoft/fetch-event-source` (not native `EventSource`) for
+control over reconnection, backoff, and headers. The FE client implements:
+
+- Exponential backoff: 1s → 2s → 4s → 8s → 16s → 30s (cap)
+- Visibility-aware: pauses when tab is hidden, resumes when visible
+- Cookie auth: `credentials: 'include'` (same as REST)
+
+### 10. FE deserialization
+
+The FE MUST use `extJsonParse()` (from `$lib/api-ext`) to parse SSE event
+data — never native `JSON.parse()`. This preserves BigInt values across the
+wire. Using `JSON.parse()` would silently lose precision on integers larger
+than `Number.MAX_SAFE_INTEGER`.
+
+### 11. NATS as fanout, not Redis
+
+NATS is the messaging backbone for SSE fanout across BE instances. Redis
+pubsub is NOT used for SSE — Redis is cache-only in Primebrick. Every BE
+instance subscribes to the same NATS subjects and bridges them to its local
+`SseEventBus`.
+
+### 12. Microservices do NOT expose SSE
+
+SSE endpoints exist only on the BE. Microservices communicate via NATS
+(register, heartbeat, unregister). The BE bridges NATS events to SSE clients.
+This keeps the BE as the sole public attack surface.
+
+## Complete endpoint example
+
+```ts
+import { Router } from "express";
+import { createSseWriter, type SseEventBus, Permission } from "@primebrick/sdk";
+import { rbacHandler } from "../../http/rbac-handler.js";
+import { asyncHandler } from "../../http/async-handler.js";
+import { ServiceRegistryRepo } from "../proxy/service-registry-repo.js";
+import { getPool } from "../../db/pool.js";
+import { serviceEventsBus } from "../proxy/service-events-bus.js";
+
+const KEEPALIVE_MS = 15_000;
+
+export function servicesEventsRouter(): Router {
+  const router = Router();
+
+  router.get(
+    "/api/v1/system/services/events",
+    rbacHandler([Permission.AUTHENTICATED_USER]),
+    asyncHandler(async (req, res) => {
+      const writer = createSseWriter(res);
+
+      // 1. Send initial snapshot
+      const repo = new ServiceRegistryRepo(getPool());
+      const services = await repo.findAll();
+      writer.send({
+        id: `snapshot:${Date.now()}`,
+        event: "snapshot",
+        data: { services },
+      });
+
+      // 2. Subscribe to event bus
+      const sub = serviceEventsBus.subscribe((event) => writer.send(event));
+
+      // 3. Keep-alive
+      const ka = setInterval(() => writer.comment("keep-alive"), KEEPALIVE_MS);
+
+      // 4. Cleanup on disconnect
+      req.on("close", () => {
+        sub.unsubscribe();
+        clearInterval(ka);
+        writer.close();
+      });
+    }),
+  );
+
+  return router;
+}
+```
+
+## Next steps
+
+- [NATS Client](nats-client) — the messaging backbone for SSE fanout
+- [Service Registration](service-registration) — lifecycle events that feed SSE
+- [Ext-JSON](ext-json) — BigInt-safe serialization used by the SSE writer
+- [API Reference](api-reference) — full type definitions for SSE modules
