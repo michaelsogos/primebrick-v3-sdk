@@ -45,6 +45,184 @@ The BE reads `redis_url` at startup via `loadAuthConfig`. If Redis is
 unreachable, the BE logs a `warn` and continues without cache — no fail-fast,
 no crash.
 
+> **Microservices do NOT set `redis_url` in their own config tables.** They
+> discover it from the BE via the NATS `config.get` protocol (see [Redis for
+> microservices](#redis-for-microservices-mandatory-sdk-pattern) below). The
+> SQL `INSERT` above applies only to the BE's `auth_configurations` table.
+
+## Redis for microservices (mandatory SDK pattern)
+
+Microservices must connect to Redis if they use `@Cached()` entities. Without
+a shared Redis connection, cache invalidation from the BE (or other
+microservices) cannot propagate, and the microservice would serve stale data
+from its own Redis reads.
+
+`redis_url` is stored **only** in the BE's `auth_configurations` table — it is
+never duplicated in microservice config tables. Microservices discover it from
+the BE via the NATS `config.get` request/reply protocol (see [Shared config
+protocol](#shared-config-protocol-nats-configget) below).
+
+The SDK provides `initCacheFromSharedConfig(natsClient, logger)` as a one-liner
+that handles the NATS request, Redis connection, version logging, and error
+handling. **Microservices MUST use this instead of calling `createRedisClient`
+directly with a hard-coded URL.**
+
+### Microservice side (one-liner)
+
+```ts
+import { NatsClient, initCacheFromSharedConfig } from "@primebrick/sdk";
+
+// After NATS connection is established:
+await NatsClient.getConnection(natsUrl);
+const { cachePort } = await initCacheFromSharedConfig(NatsClient, console);
+if (cachePort) {
+  console.log("Redis cache enabled for my-service");
+} else {
+  console.log("Redis cache disabled for my-service (best-effort)");
+}
+```
+
+If a microservice does not use `@Cached()` entities, Redis is optional — but
+calling `initCacheFromSharedConfig` is still recommended so the startup banner
+is consistent across all services.
+
+### BE side (subscribe to `config.get`)
+
+The BE subscribes to `config.get` on NATS and responds with the shared config
+object. This is done in the BE's startup sequence, right after the NATS
+connection is established:
+
+```ts
+import { subscribeSharedConfig } from "@primebrick/sdk";
+import { getAuthConfig } from "./modules/auth/config.js";
+
+await NatsClient.getConnection();
+await subscribeSharedConfig(NatsClient, () => {
+  const cfg = getAuthConfig();
+  return { redis_url: cfg.redis_url };
+});
+```
+
+The `getConfig` function is called on each request — it reads from the BE's
+in-memory auth config (already loaded at startup via `loadAuthConfig`).
+
+## Shared config protocol (NATS `config.get`)
+
+`config.get` is a generic NATS subject for sharing configuration from the BE
+to microservices. It is not Redis-specific — future shared config fields
+(`s3_url`, `feature_flags`, etc.) can be added to the `SharedConfig` interface
+without changing the protocol or breaking consumers.
+
+### The `SharedConfig` interface
+
+```ts
+import type { SharedConfig } from "@primebrick/sdk";
+
+interface SharedConfig {
+  /** Redis cache URL. Empty/undefined = cache disabled. */
+  redis_url?: string;
+  // Future: s3_url?, feature_flags?, etc.
+}
+```
+
+All fields are optional: the BE only includes what it has configured. The
+microservice checks individual fields rather than assuming the whole object is
+populated.
+
+### Request/reply flow
+
+<Mermaid chart={`sequenceDiagram
+  participant MS as Microservice
+  participant NATS as NATS
+  participant BE as Backend
+  BE->>NATS: subscribe config.get
+  MS->>NATS: request config.get (timeout 5s)
+  NATS->>BE: deliver request
+  BE->>BE: getAuthConfig() → { redis_url }
+  BE->>NATS: reply { redis_url: "redis://..." }
+  NATS->>MS: deliver reply
+  MS->>MS: createRedisClient(redis_url)
+  MS->>MS: log "[cache] Redis connected (v7.4.0)"
+`} />
+
+### Timeout and best-effort behavior
+
+The NATS request has a 5-second timeout. If the BE doesn't respond (e.g. BE is
+still starting up, or NATS is flaky), `fetchSharedConfig` returns an empty
+object `{}`. The microservice continues without Redis — all cache calls are
+no-ops. The system is fully valid without Redis.
+
+### Direct API (advanced)
+
+For cases where the one-liner `initCacheFromSharedConfig` is too coarse, the
+SDK exposes the building blocks:
+
+```ts
+import { fetchSharedConfig, createRedisClient, RedisCachePort, getRedisInfo } from "@primebrick/sdk";
+
+const shared = await fetchSharedConfig(NatsClient);
+if (shared.redis_url) {
+  const redis = await createRedisClient(shared.redis_url);
+  const cachePort = new RedisCachePort(redis);
+  const info = await getRedisInfo(redis);
+  console.log(`[cache] Redis connected (v${info?.version ?? "unknown"})`);
+}
+```
+
+## Health endpoint & version logging
+
+### Startup banner
+
+Both the BE and microservices log a startup banner showing the Redis
+connection status and server version:
+
+| State | Log output |
+|-------|------------|
+| Connected | `[cache] Redis connected (v7.4.0)` |
+| Connected (version unknown) | `[cache] Redis connected (version unknown)` |
+| Not configured | `[cache] redis_url not set — cache disabled (best-effort, system valid without it)` |
+| Not received from BE (microservice) | `[cache] redis_url not received from BE — cache disabled (best-effort)` |
+| Connection failed | `[cache] Redis connection failed — cache disabled: <error>` |
+
+The version is queried via `getRedisInfo(redis)` which calls the Redis `INFO`
+command and parses `redis_version` from the `# Server` section.
+
+### BE health endpoint
+
+The BE's `GET /api/v1/health` now includes a `redis` field:
+
+```json
+{
+  "ok": true,
+  "service": "primebrick-api",
+  "version": "0.30.0",
+  "db": { "ok": true },
+  "idp": { "ok": true, "type": "Casdoor", "version": "1.x.x" },
+  "redis": { "ok": true, "version": "7.4.0" }
+}
+```
+
+When Redis is not configured or unreachable:
+
+```json
+{
+  "redis": { "ok": false }
+}
+```
+
+The URL is **never** exposed in the health endpoint — only the connection
+status and server version.
+
+### FE VersionsPanel
+
+The Frontend's VersionsPanel (sidebar sheet) shows a "Redis" row after the
+Identity Provider row, with:
+
+- An "Online" badge (green) or "Offline" badge (red)
+- A version badge (e.g. `7.4.0`) or `unknown`
+
+The Redis URL is not shown in the FE — it is only in the BE console log.
+
 ## Mark an entity as cacheable
 
 Import `@Cached` and `@CacheKey` from `@primebrick/sdk` and decorate your

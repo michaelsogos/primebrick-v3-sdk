@@ -52,6 +52,34 @@ export class NatsClient {
   }
 
   /**
+   * Send a request-reply message and wait for the response.
+   * The request data is serialized with extJsonStringify (BigInt-safe) and
+   * the response is parsed with extJsonParse.
+   *
+   * @param subject - NATS subject to send the request to
+   * @param data - Request payload (any serializable object). Pass `null` or `""` for an empty request.
+   * @param timeoutMs - Timeout in milliseconds. If the responder doesn't reply within this time, the promise rejects.
+   * @returns The parsed response object, or `null` if the response was empty.
+   *
+   * Example:
+   *   const config = await NatsClient.request<SharedConfig>("config.get", null, 5000);
+   */
+  static async request<TResponse = unknown>(
+    subject: string,
+    data: unknown = null,
+    timeoutMs: number = 5000,
+  ): Promise<TResponse | null> {
+    const nc = await NatsClient.getConnection();
+    const payload = data === null || data === undefined
+      ? new Uint8Array(0)
+      : new TextEncoder().encode(extJsonStringify(data));
+    const msg = await nc.request(subject, payload, { timeout: timeoutMs });
+    const text = new TextDecoder().decode(msg.data);
+    if (text === "") return null;
+    return extJsonParse<TResponse>(text);
+  }
+
+  /**
    * Publish a message with automatic Ext-JSON serialization.
    * The data object is serialized with extJsonStringify (BigInt-safe)
    * and encoded as UTF-8 before publishing.

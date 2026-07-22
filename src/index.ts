@@ -92,6 +92,19 @@ export {
 } from "./cache/cached-repository.js";
 export { RedisCachePort } from "./cache/redis-cache-port.js";
 export { createRedisClient, closeRedisClient } from "./cache/redis-client.js";
+export { getRedisInfo, type RedisInfo } from "./cache/redis-info.js";
+export {
+  initCacheFromSharedConfig,
+  type CacheBootstrapResult,
+} from "./cache/cache-bootstrap.js";
+
+// Shared config — NATS `config.get` protocol for BE→microservice config sharing
+export {
+  type SharedConfig,
+  SHARED_CONFIG_SUBJECT,
+  subscribeSharedConfig,
+  fetchSharedConfig,
+} from "./config/shared-config.js";
 
 // Auth — framework-agnostic auth for HTTP + NATS (BE + microservices)
 export * from "./auth/index.js";
