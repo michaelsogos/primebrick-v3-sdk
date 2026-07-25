@@ -44,6 +44,15 @@ export interface CachePort {
    * Implementations should use SCAN + DEL (not KEYS) to avoid blocking Redis.
    */
   delByPrefix(prefix: string): Promise<void>;
+
+  /**
+   * Check if the cache backend is reachable and responsive.
+   * Used by the /health endpoint. Returns true if the backend
+   * responds to a ping/echo command within the timeout.
+   *
+   * Implementations should NOT throw — return false on any error.
+   */
+  ping(): Promise<boolean>;
 }
 
 /**
@@ -62,8 +71,14 @@ export interface CachePort {
  *   3. Else the `@Key()` column value, read via
  *      `Reflect.getMetadata("primebrick:keyColumn", ctor)` (written by the DAL's `@Key`
  *      decorator) → `dal:{table}:{row[keyPropertyKey]}`
- *   4. Else throw — `@CacheKey()` is required for entities without a `uuid` property and
- *      without a `@Key()` column exposed via Reflect.
+ *   4. Else, if the class has NO `@CacheKey()` AND NO `@Key()` Reflect metadata at all
+ *      → **throw** (genuine entity misconfiguration — the dev must add `@CacheKey()` or
+ *      `@Key()`). This is the dev guardrail.
+ *   5. Else (the class HAS a key source, but THIS row carries none of the key values —
+ *      e.g. an aggregate/projection result like `{ cnt: 123n }` from `COUNT(*)`) →
+ *      **return `null`** → the wrapper skips `port.set` silently. Caching a non-entity-
+ *      shaped row would be wrong anyway (no stable identity to key on); the row is
+ *      returned to the caller unchanged.
  *
  * The key is always derived from the RESULT ROW, never from the input argument of
  * `findById` / `findByUUID`. This ensures `findById(42)` and `findByUUID(<uuid>)` on the
@@ -89,9 +104,21 @@ export class CacheKeyBuilder {
 
   /**
    * Build the cache key for a single result row.
-   * Resolution order: `@CacheKey()` → `row.uuid` → `@Key()` column (via Reflect) → throw.
+   *
+   * Resolution order: `@CacheKey()` → `row.uuid` → `@Key()` column (via Reflect) →
+   * `null` (silent skip) if the class has a key source but the row lacks the value, or
+   * throw if the class has NO key source at all (genuine misconfiguration).
+   *
+   * @returns The cache key string, or `null` to signal "skip caching this row silently"
+   *          (the row is not entity-shaped — e.g. an aggregate result like `{ cnt }`).
+   * @throws  When the class has neither `@CacheKey()` nor `@Key()` Reflect metadata —
+   *          the dev must annotate the entity. This guardrail is preserved so genuine
+   *          misconfigurations are not silently swallowed.
    */
-  static forRowFromMeta(entityClass: new (...args: any[]) => any, row: Record<string, unknown>): string {
+  static forRowFromMeta(
+    entityClass: new (...args: any[]) => any,
+    row: Record<string, unknown>,
+  ): string | null {
     const prefix = CacheKeyBuilder.forEntity(entityClass);
 
     // 1. @CacheKey() — read from the SDK's own metadata (see cache-decorators.ts)
@@ -113,11 +140,21 @@ export class CacheKeyBuilder {
       return `${prefix}${row[keyCol.propertyKey]}`;
     }
 
-    // 4. No fallback — require @CacheKey() for entities without uuid and without @Key
-    throw new Error(
-      `Entity ${entityClass.name} has no @CacheKey() property, no row.uuid, and no @Key() column ` +
-        `exposed via Reflect — cannot build cache key. Add @CacheKey() to the property to use ` +
-        `as the cache key.`,
-    );
+    // 4. Class-level guardrail: the entity has NO key source at all → genuine
+    //    misconfiguration. Throw so the dev is forced to add @CacheKey() or @Key().
+    if (!cacheKeyProp && !keyCol) {
+      throw new Error(
+        `Entity ${entityClass.name} has no @CacheKey() property and no @Key() column ` +
+          `exposed via Reflect — cannot build cache key. Add @CacheKey() to the property ` +
+          `to use as the cache key, or @Key() on the primary key.`,
+      );
+    }
+
+    // 5. Row-level silent skip: the class HAS a key source, but THIS row carries none
+    //    of the key values (aggregate/projection result like `{ cnt: 123n }`). Return
+    //    null so the wrapper skips port.set silently — caching a non-entity-shaped row
+    //    would be wrong (no stable identity), and warning on every aggregate would be
+    //    pure noise.
+    return null;
   }
 }

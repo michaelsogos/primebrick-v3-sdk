@@ -105,6 +105,7 @@ export function withCache<R extends CacheableRepository>(
     if (row) {
       try {
         const key = CacheKeyBuilder.forRowFromMeta(cls, row);
+        if (key === null) return row; // non-entity-shaped row → skip cache silently
         port.set(key, row, getEntityCacheTtl(cls)).catch((e) =>
           logger?.warn(`[cache] set failed for ${cls.name}: ${e}`),
         );
@@ -135,6 +136,7 @@ export function withCache<R extends CacheableRepository>(
     if (row) {
       try {
         const key = CacheKeyBuilder.forRowFromMeta(cls, row);
+        if (key === null) return row; // non-entity-shaped row → skip cache silently
         port.set(key, row, getEntityCacheTtl(cls)).catch((e) =>
           logger?.warn(`[cache] set failed for ${cls.name}: ${e}`),
         );
@@ -153,6 +155,7 @@ export function withCache<R extends CacheableRepository>(
     if (row) {
       try {
         const key = CacheKeyBuilder.forRowFromMeta(cls, row);
+        if (key === null) return row; // non-entity-shaped row (e.g. aggregate) → skip cache silently
         port.set(key, row, getEntityCacheTtl(cls)).catch((e) =>
           logger?.warn(`[cache] set failed for ${cls.name}: ${e}`),
         );

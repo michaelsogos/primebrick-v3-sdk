@@ -61,6 +61,10 @@ export { NatsClient } from "./nats/nats-client.js";
 // HTTP
 export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";
 export { HealthCheck, type HealthCheckResult } from "./http/health-check.js";
+export { type HealthResponse } from "./http/health-response.js";
+
+// Lifecycle — startup logging
+export { logModuleStartup, logServiceStartup } from "./lifecycle/startup-logger.js";
 
 // Env validation
 export { validateEnv, requireEnv, type EnvSchema, type EnvValidationResult } from "./env/env-validator.js";
@@ -99,6 +103,13 @@ export {
   initCacheFromSharedConfig,
   type CacheBootstrapResult,
 } from "./cache/cache-bootstrap.js";
+export { createRedisHealthCheck } from "./cache/cache-health.js";
+export {
+  setSdkCachePort,
+  getSdkCachePort,
+  getSdkRedisInfo,
+  resetSdkCachePort,
+} from "./cache/cache-port-holder.js";
 
 // Shared config — NATS `config.get` protocol for BE→microservice config sharing
 export {
@@ -123,3 +134,17 @@ export type {
   SseEventBus,
   SseEventBusSubscription,
 } from "./sse/types.js";
+
+// Presence & collaboration — real-time awareness for shared entities (BE only)
+// Provides the presence port, Redis implementation, NATS subject builders, and
+// shared types. The BE combines these with the SSE primitives above to expose
+// collaboration SSE endpoints. See docs/user-guide/collaboration.mdx.
+export * from "./presence/types.js";
+export { type PresencePort } from "./presence/presence-port.js";
+export { RedisPresencePort } from "./presence/redis-presence-port.js";
+export {
+  presenceSubject,
+  entityChangedSubject,
+  publishPresence,
+  publishEntityChanged,
+} from "./presence/nats-subjects.js";

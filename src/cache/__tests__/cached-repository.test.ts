@@ -94,6 +94,9 @@ class FakeCachePort implements CachePort {
       if (key.startsWith(prefix)) this.store.delete(key);
     }
   }
+  async ping(): Promise<boolean> {
+    return true;
+  }
 }
 
 // ─── FakeRepository ────────────────────────────────────────────────────────────
@@ -110,6 +113,9 @@ class FakeRepository implements CacheableRepository {
   upsertCalls = 0;
   upsertManyCalls = 0;
   updateManyCalls = 0;
+  /** When set, `find` returns this instead of the default entity-shaped row. Used to
+   *  simulate aggregate/projection results (e.g. `{ cnt: 5n }` from `COUNT(*)`). */
+  findReturnValueOverride: any = undefined;
 
   async findById(cls: any, id: any): Promise<any> {
     this.findByIdCalls++;
@@ -121,6 +127,7 @@ class FakeRepository implements CacheableRepository {
   }
   async find(cls: any, fields?: any): Promise<any> {
     this.findCalls++;
+    if (this.findReturnValueOverride !== undefined) return this.findReturnValueOverride;
     return { id: 42n, uuid: "uuid-from-filters", name: "from-db", created_at: "2026-07-21T10:00:00Z" };
   }
   async add(cls: any, ...args: any[]): Promise<any> {
@@ -218,9 +225,26 @@ describe("CacheKeyBuilder", () => {
     expect(CacheKeyBuilder.forRowFromMeta(WeirdEntity, row)).toBe("dal:weird_table:99");
   });
 
-  it("forRowFromMeta throws when no @CacheKey, no uuid, and no @Key", () => {
+  it("forRowFromMeta throws when the class has no @CacheKey AND no @Key metadata at all", () => {
+    // NoKeyEntity has no @CacheKey() and no @Key() Reflect metadata → genuine
+    // misconfiguration, the dev guardrail fires.
     class NoKeyEntity {}
     expect(() => CacheKeyBuilder.forRowFromMeta(NoKeyEntity, { foo: "bar" })).toThrow();
+  });
+
+  it("forRowFromMeta returns null when the class has @Key but the row lacks uuid and id (aggregate result)", () => {
+    // CustomerEntity has @Key id (Reflect metadata), but the row is a COUNT(*) aggregate
+    // shaped like { cnt } — no uuid, no id. The class is correctly configured, the row
+    // is just not entity-shaped → silent skip (null), not a throw.
+    const aggregateRow = { cnt: 5n };
+    expect(CacheKeyBuilder.forRowFromMeta(CustomerEntity, aggregateRow)).toBeNull();
+  });
+
+  it("forRowFromMeta returns null when the class has @CacheKey but the row lacks that property", () => {
+    // IdpCodeMapEntity has @CacheKey idp_code, but the row doesn't carry it (e.g. a
+    // partial projection). Silent skip.
+    const partialRow = { uuid: undefined, cnt: 3n };
+    expect(CacheKeyBuilder.forRowFromMeta(IdpCodeMapEntity, partialRow)).toBeNull();
   });
 
   it("forRowFromMeta ignores undefined/null values in fallback chain", () => {
@@ -274,6 +298,18 @@ describe("withCache — reads", () => {
     expect(port.store.size).toBe(0);
     await repo.findByUUID(AuditLogEntity, "abc-123");
     expect(repo.findByUUIDCalls).toBe(2); // second call also hits DB
+  });
+
+  it("find with aggregate projection skips cache silently (no warn, no set)", async () => {
+    // Simulates organizations_dal.getUserCountForOrganization: a COUNT(*) on a @Cached
+    // entity (UserProfileEntity → here CustomerEntity) whose result row is { cnt } —
+    // no uuid, no id. The wrapper must skip port.set silently and NOT log a warn.
+    repo.findReturnValueOverride = { cnt: 5n };
+    const result = await repo.find(CustomerEntity, [{ kind: "expr", expr: "COUNT(*)", alias: "cnt" }]);
+    expect(repo.findCalls).toBe(1);
+    expect(result).toEqual({ cnt: 5n });
+    expect(port.store.size).toBe(0); // nothing cached
+    expect(logger.warn).not.toHaveBeenCalled(); // silent skip — no warn
   });
 });
 

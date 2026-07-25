@@ -17,13 +17,19 @@ import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 export class NatsClient {
   private static nc: NatsConnection | null = null;
   private static js: JetStreamClient | null = null;
+  private static serverVersion: string | null = null;
+  private static serverUrl: string | null = null;
 
   static async getConnection(url?: string): Promise<NatsConnection> {
     if (NatsClient.nc) return NatsClient.nc;
     const natsUrl = url ?? process.env.NATS_URL ?? "nats://127.0.0.1:4222";
     NatsClient.nc = await connect({ servers: natsUrl });
     NatsClient.js = NatsClient.nc.jetstream();
-    console.log(`Connected to NATS at ${natsUrl}`);
+    NatsClient.serverUrl = natsUrl;
+    // nc.info is populated by the INFO handshake at connect time.
+    // ServerInfo.version is a string like "2.14.3".
+    NatsClient.serverVersion = NatsClient.nc.info?.version ?? null;
+    console.log(`[startup] NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`);
     return NatsClient.nc;
   }
 
@@ -42,11 +48,29 @@ export class NatsClient {
     return NatsClient.nc !== null && !NatsClient.nc.isClosed();
   }
 
+  /**
+   * Returns the NATS server version (from the INFO handshake), or null
+   * if the connection was never established or the version was not available.
+   */
+  static getServerVersion(): string | null {
+    return NatsClient.serverVersion;
+  }
+
+  /**
+   * Returns the NATS server URL used for the connection, or null if
+   * the connection was never established.
+   */
+  static getServerUrl(): string | null {
+    return NatsClient.serverUrl;
+  }
+
   static async close(): Promise<void> {
     if (NatsClient.nc) {
       await NatsClient.nc.close();
       NatsClient.nc = null;
       NatsClient.js = null;
+      NatsClient.serverVersion = null;
+      NatsClient.serverUrl = null;
       console.log("NATS connection closed");
     }
   }

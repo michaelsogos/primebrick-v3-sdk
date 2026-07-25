@@ -53,11 +53,11 @@ checks, graceful shutdown, env validation, and database migrations.
     USAuth["verifyAuthGatewayResolved()"]
     USReg["ServiceRegistrar"]
   end
-  BEAuth --&gt; BEProxy
-  BEProxy --&gt;|"headers + gateway secret"| NATS
-  NATS --&gt; USAuth
-  USReg --&gt;|"publish lifecycle"| NATS
-  NATS --&gt;|"BE subscribes"| BE
+  BEAuth --> BEProxy
+  BEProxy -->|"headers + gateway secret"| NATS
+  NATS --> USAuth
+  USReg -->|"publish lifecycle"| NATS
+  NATS -->|"BE subscribes"| BE
 `} />
 
 The BE validates JWTs against the IDP (STANDALONE mode), resolves users to

@@ -48,4 +48,13 @@ export class RedisCachePort implements CachePort {
       await this.redis.del(key);
     }
   }
+
+  async ping(): Promise<boolean> {
+    try {
+      const result = await this.redis.ping();
+      return result === "PONG";
+    } catch {
+      return false;
+    }
+  }
 }
