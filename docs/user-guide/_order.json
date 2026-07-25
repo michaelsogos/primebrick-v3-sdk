@@ -10,6 +10,7 @@
     "service-registration",
     "http-server",
     "sse-standard",
+    "presence",
     "api-reference"
   ]
 }

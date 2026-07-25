@@ -33,11 +33,13 @@ checks, graceful shutdown, env validation, and database migrations.
 | **service** | NATS™-based service registration, heartbeats, and lifecycle events |
 | **json** | BigInt-safe JSON stringify/parse + Express middleware |
 | **cache** | Optional Redis cache layer (`@Cached`, `@CacheKey`, `withCache`, `RedisCachePort`) |
-| **http** | Minimal HTTP server with health endpoint and RFC 7807 error responses |
-| **config** | Dictionary-style config loader with in-memory cache |
-| **lifecycle** | Graceful shutdown coordinator |
+| **http** | Minimal HTTP server with unified `/health` endpoint and RFC 7807 error responses |
+| **config** | Dictionary-style config loader with in-memory cache + NATS™ `config.get` sharing |
+| **lifecycle** | Graceful shutdown coordinator + consistent `[startup]` logging banner |
 | **migrations** | SHA-256-enforced database patch runner |
 | **env** | Environment variable validation |
+| **sse** | Server-Sent Events writer, event bus, and NATS™→SSE bridge (BE only) |
+| **presence** | Real-time collaboration awareness — who is viewing/editing an entity (BE only) |
 
 ## Architecture
 
@@ -45,9 +47,10 @@ checks, graceful shutdown, env validation, and database migrations.
   subgraph BE["Backend (STANDALONE mode)"]
     BEAuth["verifyAuth()"]
     BEProxy["Proxy / serialize"]
+    BESse["SSE + Presence"]
   end
   subgraph NATS["NATS"]
-    Subjects["service.register\nservice.heartbeat\nservice.unregister\nemailsender.send"]
+    Subjects["service.register\nservice.heartbeat\nservice.unregister\nemailsender.send\npresence.*.*\nentity.*.*.changed"]
   end
   subgraph US["Microservices (GATEWAY-RESOLVED mode)"]
     USAuth["verifyAuthGatewayResolved()"]
@@ -58,6 +61,7 @@ checks, graceful shutdown, env validation, and database migrations.
   NATS --> USAuth
   USReg -->|"publish lifecycle"| NATS
   NATS -->|"BE subscribes"| BE
+  BESse -->|"presence + changed markers"| NATS
 `} />
 
 The BE validates JWTs against the IDP (STANDALONE mode), resolves users to
@@ -65,6 +69,41 @@ internal UUIDs, expands roles to permissions, then serializes the full
 `AuthUser` into headers when proxying to microservices. Microservices
 (GATEWAY-RESOLVED mode) verify the gateway secret and deserialize the
 pre-resolved user — no DB access, no ports needed.
+
+The BE also publishes presence deltas and entity-changed markers to NATS™
+(`presence.{entityType}.{entityUuid}` and `entity.{entityType}.{entityUuid}.changed`),
+bridges them to per-entity SSE event buses, and forwards them to connected FE
+clients. See [Presence](presence) for the collaboration awareness contract.
+
+## Quick start
+
+The fastest way to verify a service built on the SDK is up is the `/health`
+endpoint. Every service that uses `createHttpServer()` exposes it, and the BE
+exposes it at `/api/v1/health`.
+
+```bash
+# Microservice (US) — uses createHttpServer() from the SDK
+curl http://localhost:3002/health
+```
+
+```json
+{
+  "ok": true,
+  "service": "emailsender",
+  "version": "1.4.0",
+  "url": "http://localhost:3002",
+  "checks": {
+    "db":   { "ok": true, "version": "18.0" },
+    "nats": { "ok": true, "version": "2.14.3" },
+    "redis":{ "ok": true, "version": "8.8.0" }
+  }
+}
+```
+
+If any check fails, `ok` is `false` and the HTTP status is `503`. The FE's 503
+interceptor probes `/health` and shows the right health chip. See
+[HTTP Server](http-server) for the full `HealthResponse` shape and
+[Getting Started](getting-started) for the complete service bootstrap.
 
 ## Next steps
 
@@ -74,5 +113,7 @@ pre-resolved user — no DB access, no ports needed.
 - [Service Registration](service-registration) — NATS™-based lifecycle
 - [Ext-JSON](ext-json) — BigInt-safe serialization
 - [Cache layer](cache-layer) — optional Redis cache for hot single-row reads
-- [HTTP Server](http-server) — health checks and RFC 7807 errors
+- [HTTP Server](http-server) — unified health checks and RFC 7807 errors
+- [SSE standard](sse-standard) — Server-Sent Events writer, event bus, NATS™ bridge
+- [Presence](presence) — real-time collaboration awareness
 - [API Reference](api-reference) — every exported symbol
