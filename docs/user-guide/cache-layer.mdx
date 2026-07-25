@@ -1,0 +1,387 @@
+---
+title: Redis cache layer
+description: Optional best-effort Redis cache for hot single-row reads. Zero DAL coupling, zero downtime when Redis is unavailable.
+---
+
+# Redis cache layer
+
+Primebrick provides an **optional** Redis cache layer for hot single-row reads.
+It is a feature, not a requirement — the system is fully valid without it. If
+Redis is not configured or unreachable, the system runs exactly as today
+(DB-only), with `warn` logs (never `error`).
+
+## What gets cached
+
+- **Only single-row finders**: `findById`, `findByUUID`, `find`.
+- **Only entities marked `@Cached()`**. Other entities pass through untouched.
+- **`findAll` and `findByPage` are NOT cached** — high-cardinality keys, memory
+  bomb risk on large tables, stale-on-write window dangerous for list views.
+  Cache dropdown/autocomplete lists at the BE application level with
+  hand-written `be:dropdowns:*` keys via the same `CachePort`.
+
+## What does NOT get cached (and why)
+
+| Operation | Cached? | Reason |
+|-----------|---------|--------|
+| `findById` | Yes | Single row, stable key from result row |
+| `findByUUID` | Yes | Single row, input IS the cache key |
+| `find` | Yes | Returns 1 row by construction (limit: 1) |
+| `findAll` | No | List — high cardinality, stale risk |
+| `findByPage` | No | Paginated list — same as above |
+| Writes (`add`, `update`, …) | No (invalidate) | Writes go DB-first, then invalidate |
+
+## Enable Redis
+
+`redis_url` is a new optional key in the `auth_configurations` table. Empty or
+missing = cache disabled. Set it to your Redis URL:
+
+```sql
+INSERT INTO "public"."auth_configurations" ("key", "value", "description", "created_by")
+VALUES ('redis_url', 'redis://localhost:6379', 'Redis cache URL', 'system')
+ON CONFLICT ("key") DO NOTHING;
+```
+
+The BE reads `redis_url` at startup via `loadAuthConfig`. If Redis is
+unreachable, the BE logs a `warn` and continues without cache — no fail-fast,
+no crash.
+
+> **Microservices do NOT set `redis_url` in their own config tables.** They
+> discover it from the BE via the NATS `config.get` protocol (see [Redis for
+> microservices](#redis-for-microservices-mandatory-sdk-pattern) below). The
+> SQL `INSERT` above applies only to the BE's `auth_configurations` table.
+
+## Redis for microservices (mandatory SDK pattern)
+
+Microservices must connect to Redis if they use `@Cached()` entities. Without
+a shared Redis connection, cache invalidation from the BE (or other
+microservices) cannot propagate, and the microservice would serve stale data
+from its own Redis reads.
+
+`redis_url` is stored **only** in the BE's `auth_configurations` table — it is
+never duplicated in microservice config tables. Microservices discover it from
+the BE via the NATS `config.get` request/reply protocol (see [Shared config
+protocol](#shared-config-protocol-nats-configget) below).
+
+The SDK provides `initCacheFromSharedConfig(natsClient, logger)` as a one-liner
+that handles the NATS request, Redis connection, version logging, and error
+handling. **Microservices MUST use this instead of calling `createRedisClient`
+directly with a hard-coded URL.**
+
+### Microservice side (one-liner)
+
+```ts
+import { NatsClient, initCacheFromSharedConfig } from "@primebrick/sdk";
+
+// After NATS connection is established:
+await NatsClient.getConnection(natsUrl);
+const { cachePort } = await initCacheFromSharedConfig(NatsClient, console);
+if (cachePort) {
+  console.log("Redis cache enabled for my-service");
+} else {
+  console.log("Redis cache disabled for my-service (best-effort)");
+}
+```
+
+If a microservice does not use `@Cached()` entities, Redis is optional — but
+calling `initCacheFromSharedConfig` is still recommended so the startup banner
+is consistent across all services.
+
+### BE side (subscribe to `config.get`)
+
+The BE subscribes to `config.get` on NATS and responds with the shared config
+object. This is done in the BE's startup sequence, right after the NATS
+connection is established:
+
+```ts
+import { subscribeSharedConfig } from "@primebrick/sdk";
+import { getAuthConfig } from "./modules/auth/config.js";
+
+await NatsClient.getConnection();
+await subscribeSharedConfig(NatsClient, () => {
+  const cfg = getAuthConfig();
+  return { redis_url: cfg.redis_url };
+});
+```
+
+The `getConfig` function is called on each request — it reads from the BE's
+in-memory auth config (already loaded at startup via `loadAuthConfig`).
+
+## Shared config protocol (NATS `config.get`)
+
+`config.get` is a generic NATS subject for sharing configuration from the BE
+to microservices. It is not Redis-specific — future shared config fields
+(`s3_url`, `feature_flags`, etc.) can be added to the `SharedConfig` interface
+without changing the protocol or breaking consumers.
+
+### The `SharedConfig` interface
+
+```ts
+import type { SharedConfig } from "@primebrick/sdk";
+
+interface SharedConfig {
+  /** Redis cache URL. Empty/undefined = cache disabled. */
+  redis_url?: string;
+  // Future: s3_url?, feature_flags?, etc.
+}
+```
+
+All fields are optional: the BE only includes what it has configured. The
+microservice checks individual fields rather than assuming the whole object is
+populated.
+
+### Request/reply flow
+
+<Mermaid chart={`sequenceDiagram
+  participant MS as Microservice
+  participant NATS as NATS
+  participant BE as Backend
+  BE->>NATS: subscribe config.get
+  MS->>NATS: request config.get (timeout 5s)
+  NATS->>BE: deliver request
+  BE->>BE: getAuthConfig() → { redis_url }
+  BE->>NATS: reply { redis_url: "redis://..." }
+  NATS->>MS: deliver reply
+  MS->>MS: createRedisClient(redis_url)
+  MS->>MS: log "[cache] Redis connected (v7.4.0)"
+`} />
+
+### Timeout and best-effort behavior
+
+The NATS request has a 5-second timeout. If the BE doesn't respond (e.g. BE is
+still starting up, or NATS is flaky), `fetchSharedConfig` returns an empty
+object `{}`. The microservice continues without Redis — all cache calls are
+no-ops. The system is fully valid without Redis.
+
+### Direct API (advanced)
+
+For cases where the one-liner `initCacheFromSharedConfig` is too coarse, the
+SDK exposes the building blocks:
+
+```ts
+import { fetchSharedConfig, createRedisClient, RedisCachePort, getRedisInfo } from "@primebrick/sdk";
+
+const shared = await fetchSharedConfig(NatsClient);
+if (shared.redis_url) {
+  const redis = await createRedisClient(shared.redis_url);
+  const cachePort = new RedisCachePort(redis);
+  const info = await getRedisInfo(redis);
+  console.log(`[cache] Redis connected (v${info?.version ?? "unknown"})`);
+}
+```
+
+## Health endpoint & version logging
+
+### Startup banner
+
+Both the BE and microservices log a startup banner showing the Redis
+connection status and server version:
+
+| State | Log output |
+|-------|------------|
+| Connected | `[cache] Redis connected (v7.4.0)` |
+| Connected (version unknown) | `[cache] Redis connected (version unknown)` |
+| Not configured | `[cache] redis_url not set — cache disabled (best-effort, system valid without it)` |
+| Not received from BE (microservice) | `[cache] redis_url not received from BE — cache disabled (best-effort)` |
+| Connection failed | `[cache] Redis connection failed — cache disabled: <error>` |
+
+The version is queried via `getRedisInfo(redis)` which calls the Redis `INFO`
+command and parses `redis_version` from the `# Server` section.
+
+### BE health endpoint
+
+The BE's `GET /api/v1/health` now includes a `redis` field:
+
+```json
+{
+  "ok": true,
+  "service": "primebrick-api",
+  "version": "0.30.0",
+  "db": { "ok": true },
+  "idp": { "ok": true, "type": "Casdoor", "version": "1.x.x" },
+  "redis": { "ok": true, "version": "7.4.0" }
+}
+```
+
+When Redis is not configured or unreachable:
+
+```json
+{
+  "redis": { "ok": false }
+}
+```
+
+The URL is **never** exposed in the health endpoint — only the connection
+status and server version.
+
+### FE VersionsPanel
+
+The Frontend's VersionsPanel (sidebar sheet) shows a "Redis" row after the
+Identity Provider row, with:
+
+- An "Online" badge (green) or "Offline" badge (red)
+- A version badge (e.g. `7.4.0`) or `unknown`
+
+The Redis URL is not shown in the FE — it is only in the BE console log.
+
+## Mark an entity as cacheable
+
+Import `@Cached` and `@CacheKey` from `@primebrick/sdk` and decorate your
+entity:
+
+```ts
+import { Cached, CacheKey } from "@primebrick/sdk";
+import { Entity, Key, Column } from "@primebrick/dal-pg";
+
+@Entity("customers")
+@Cached(300_000)  // 5 minutes TTL — for mutable data
+export class CustomerEntity {
+  @Key() id!: bigint;
+  uuid!: string;  // CacheKeyBuilder falls back to row.uuid
+  @Column({ pgType: "varchar" }) name!: string;
+}
+```
+
+### Choosing a TTL
+
+- **`@Cached()` with no argument** = **no TTL, immutable data only**. Use this
+  ONLY for genuinely immutable data (the cached value can never change). There
+  is NO implicit default — omitting the TTL is a deliberate statement that the
+  data is immutable.
+- **`@Cached(300_000)`** = 5 minutes. Recommended starting point for mutable
+  data. The TTL bounds the staleness window if Redis is intermittently
+  unavailable during invalidation.
+- The TTL is a **correctness parameter**, not just a performance one. Pick a
+  TTL that bounds how stale a read can be in the worst case (Redis down during
+  a write invalidation).
+
+### Choosing the cache key
+
+`CacheKeyBuilder` derives the key from the **result row**, never from the
+input argument. Resolution order:
+
+1. The property marked `@CacheKey()` → `dal:{table}:{row[propertyKey]}`
+2. Else `row.uuid` (JS property convention) → `dal:{table}:{row.uuid}`
+3. Else the `@Key()` column (read via Reflect) → `dal:{table}:{row[keyPropertyKey]}`
+4. Else throw — add `@CacheKey()` to the property to use as the cache key.
+
+**Why result-row-derived keys?** `findById(42)` and `findByUUID(<uuid>)` on
+the same row produce the SAME cache key. This avoids duplicate entries and
+ensures invalidation works correctly.
+
+**When to use `@CacheKey()` explicitly:**
+
+```ts
+@Entity("idp_code_map")
+@Cached()  // No TTL — immutable mapping
+export class IdpCodeMapEntity {
+  @CacheKey() idp_code!: string;  // Use idp_code as the cache key
+  uuid!: string;
+}
+```
+
+Use `@CacheKey()` when:
+
+- The entity has no `uuid` property.
+- You want the cache key to match the FE-facing identifier (usually `uuid` —
+  but `@CacheKey` makes it explicit).
+- The entity has multiple unique columns and you want a predictable key.
+
+## Wire the cache into your Repository
+
+The `withCache` wrapper is opt-in. Call it once at bootstrap:
+
+```ts
+import { withCache, RedisCachePort, createRedisClient } from "@primebrick/sdk";
+import { Repository } from "@primebrick/dal-pg";
+
+// In your BE startup (after loadAuthConfig):
+if (authConfig.redis_url) {
+  const redis = await createRedisClient(authConfig.redis_url);
+  const cachePort = new RedisCachePort(redis);
+  // Wrap each Repository instance once at creation:
+  const repo = withCache(new Repository(pool), cachePort, logger);
+  // Use `repo` as normal — cache is transparent.
+}
+```
+
+If `redis_url` is empty or Redis is unreachable, skip `withCache` — the bare
+`Repository` works exactly as before.
+
+## Failure behavior (best-effort)
+
+The `withCache` wrapper NEVER lets a cache failure break a request:
+
+| Failure | Behavior |
+|---------|----------|
+| Redis down on read | `warn` log, fall through to DB, return the row |
+| Redis down on write | DB write succeeds first, invalidation fails with `warn` |
+| Redis down on hydrate | Read returns the DB row; `set` failure is fire-and-forget |
+| `CacheKeyBuilder` throws | `warn` log, fall through to DB |
+
+**The caller never sees a cache error.** All failures are `warn` logs, never
+`error`. The cache is a feature, not a requirement.
+
+## Serialization
+
+Cache values are serialized with the SDK's canonical `extJsonStringify` /
+`extJsonParse` (json-bigint, `useNativeBigInt: true`) — the same serializer
+used for HTTP responses and NATS™ messages. `bigint` PKs and `Date` fields
+round-trip correctly. No custom `$bigint:` hack.
+
+See [Ext-JSON](ext-json) for details on the serialization format.
+
+## Cache keys
+
+Keys are namespaced as `dal:{tableName}:{identifier}`:
+
+| Entity | Key example |
+|--------|-------------|
+| `CustomerEntity` (`@Entity("customers")`) | `dal:customers:abc-123-uuid` |
+| `IdpCodeMapEntity` (`@Entity("idp_code_map")`, `@CacheKey() idp_code`) | `dal:idp_code_map:ACME` |
+| Entity without `@Entity` (no DAL) | `dal:MyClass:abc-123` (falls back to class name) |
+
+The table name is read from the DAL's `@Entity` decorator via standard JS
+reflection (`Reflect.getMetadata`). The SDK has **zero dependency on the DAL**
+— no `import`, no package dependency. The DAL is completely untouched by the
+cache layer.
+
+## Multi-instance BE (pods behind a load balancer)
+
+Redis is the single shared cache. When pod #1 invalidates a key, pod #2's next
+read sees the miss in Redis and re-hydrates from PostgreSQL. There is no
+cross-pod stale-cache problem. No NATS™ invalidation broadcaster is needed.
+
+<Mermaid chart={`flowchart TB
+  BE1["BE pod #1"] -- "withCache(Repository, RedisCachePort)" --> Redis[("Redis (shared cache)")]
+  BE2["BE pod #2"] -- "withCache(Repository, RedisCachePort)" --> Redis
+  Redis -- "miss -> hydrate" --> PG[("PostgreSQL (source of truth)")]
+  BE1 -- "write -> invalidate prefix" --> Redis
+`} />
+
+An L1 in-process cache in front of Redis is **deferred** — it would require a
+NATS™ broadcaster to stay consistent across pods, and Redis latency is not
+measurably painful at fewer than 5 pods. If L1 becomes needed, it will be a
+separate plan.
+
+## Under the hood (for contributors)
+
+- The cache module lives entirely in `@primebrick/sdk` (`src/cache/`). The DAL
+  is NOT involved — it has zero cache knowledge.
+- The SDK reads entity metadata (table name, key column) via
+  `Reflect.getMetadata("primebrick:tableName", ctor)` — the DAL's `@Entity`
+  and `@Key` decorators write this metadata via `Reflect.defineMetadata`. No
+  package dependency between the SDK and the DAL.
+- `@Cached` and `@CacheKey` use the SDK's own WeakMap — separate from the
+  DAL's `ClassEntityMeta`. Two metadata systems coexist without interacting.
+- `withCache` uses a structural `CacheableRepository` interface — TypeScript®
+  structural typing means a DAL `Repository` is assignable without any
+  `import type` from the DAL.
+- `RedisCachePort` uses `node-redis` (the `redis` npm package, v6.x) — the
+  official Redis client, recommended by Redis org for new projects.
+
+## Next steps
+
+- [Ext-JSON](ext-json) — the serialization layer used by the cache
+- [Authentication](authentication) — auth modes, RBAC, session context
+- [API Reference](api-reference) — every exported symbol, including `CachePort`,
+  `CacheKeyBuilder`, `Cached`, `CacheKey`, `withCache`, `RedisCachePort`

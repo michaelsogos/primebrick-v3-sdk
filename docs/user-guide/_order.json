@@ -4,9 +4,13 @@
     "getting-started",
     "authentication",
     "ext-json",
+    "cache-layer",
+    "config-tables",
     "nats-client",
     "service-registration",
     "http-server",
+    "sse-standard",
+    "presence",
     "api-reference"
   ]
 }

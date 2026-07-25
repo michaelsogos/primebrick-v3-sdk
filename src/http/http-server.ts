@@ -6,6 +6,10 @@ export interface HttpServerOptions {
   port: number;
   healthCheck?: HealthCheck;
   serviceName?: string;
+  /** Service version (from package.json) — included in /health response. */
+  serviceVersion?: string;
+  /** Base URL the service is listening on — included in /health response. */
+  serviceUrl?: string;
   /** Custom route handler — receives req/res, returns true if handled. */
   routeHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>;
 }
@@ -48,13 +52,22 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
       // Health check endpoint (public, no auth)
       if (url.pathname === "/health" && req.method === "GET") {
         if (options.healthCheck) {
-          const results = await options.healthCheck.runAll();
-          const healthy = options.healthCheck.isHealthy(results);
-          res.writeHead(healthy ? 200 : 503, { "Content-Type": "application/json" });
-          res.end(extJsonStringify({ status: healthy ? "healthy" : "degraded", checks: results }));
+          const payload = await options.healthCheck.toResponse(
+            options.serviceName ?? "microservice",
+            options.serviceVersion ?? "unknown",
+            options.serviceUrl,
+          );
+          res.writeHead(payload.ok ? 200 : 503, { "Content-Type": "application/json" });
+          res.end(extJsonStringify(payload));
         } else {
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(extJsonStringify({ status: "healthy" }));
+          res.end(extJsonStringify({
+            ok: true,
+            service: options.serviceName ?? "microservice",
+            version: options.serviceVersion ?? "unknown",
+            url: options.serviceUrl,
+            checks: {},
+          }));
         }
         return;
       }

@@ -6,45 +6,150 @@ description: Minimal HTTP server with health endpoint and RFC 7807 Problem Detai
 # HTTP Server
 
 `createHttpServer()` creates a minimal HTTP server using Node's native `http`
-module — no Express dependency. It provides a `/health` endpoint and delegates
-custom routes to a `routeHandler` callback. All errors are returned as RFC 7807
-Problem Details JSON.
+module — no Express dependency. It provides a unified `/health` endpoint and
+delegates custom routes to a `routeHandler` callback. All errors are returned
+as RFC 7807 Problem Details JSON, serialized with Ext-JSON (BigInt-safe).
 
 ## Usage
 
 ```ts
-import { createHttpServer, HealthCheck } from "@primebrick/sdk";
+import { createHttpServer, HealthCheck, logServiceStartup } from "@primebrick/sdk";
 
-const healthCheck = new HealthCheck();
-healthCheck.add("db", () => dbPing());
+// HealthCheck takes a DB ping (HealthCheckPort) and optional custom checks.
+// Each service registers only the checks it has:
+//   - US: db, redis, nats (no IDP)
+//   - BE: db, redis, nats, idp (the BE wraps this in Express — see below)
+const healthCheck = new HealthCheck(dbPing, {
+  nats:  () => NatsClient.isConnected(),
+  redis: () => redisHealthCheck(),
+});
 
 const server = await createHttpServer({
-  port: 3001,
+  port: 3002,
   serviceName: "emailsender",
+  serviceVersion: "1.4.0",        // from package.json — included in /health
+  serviceUrl: "http://localhost:3002",
   healthCheck,
   routeHandler: async (req, res, url) => {
     if (url.pathname === "/send" && req.method === "POST") {
-      // handle the request
+      // handle the request — use extJsonStringify for BigInt-safe responses
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true }));
+      res.end(extJsonStringify({ success: true }));
       return true; // handled
     }
-    return false; // not handled — server returns 404
+    return false; // not handled — server returns 404 RFC 7807
   },
 });
+logServiceStartup("emailsender", "1.4.0", "http://localhost:3002");
 ```
+
+### `HttpServerOptions`
+
+| Option | Type | Required | Purpose |
+|--------|------|----------|---------|
+| `port` | `number` | yes | Port to listen on |
+| `healthCheck` | `HealthCheck` | no | If provided, `/health` runs all checks and returns 200/503. If omitted, `/health` returns 200 with `ok: true` and empty `checks`. |
+| `serviceName` | `string` | no | Service identifier in the `/health` response (default `"microservice"`) |
+| `serviceVersion` | `string` | no | Service version in the `/health` response (default `"unknown"`) |
+| `serviceUrl` | `string` | no | Base URL in the `/health` response |
+| `routeHandler` | `(req, res, url) => Promise<boolean>` | no | Custom routes. Return `true` if handled, `false` to fall through to 404. |
+
+## The `HealthCheck` class
+
+`HealthCheck` produces the unified `HealthResponse` shape consumed by both the
+BE (Express) and US (`createHttpServer`) `/health` endpoints. The SDK owns the
+type so the FE can parse a single shape regardless of which service produced it.
+
+```ts
+import { HealthCheck, type HealthCheckResult, type HealthResponse } from "@primebrick/sdk";
+
+// Constructor: (dbPing: HealthCheckPort, customChecks?: Record<string, () => Promise<HealthCheckResult>>)
+const healthCheck = new HealthCheck(dbPing, {
+  nats:  async () => ({ ok: NatsClient.isConnected(), version: NatsClient.getServerVersion() ?? undefined }),
+  redis: async () => ({ ok: await cachePort.ping(), version: redisInfo.version }),
+});
+
+// toResponse() runs all checks and builds the unified HealthResponse:
+const payload: HealthResponse = await healthCheck.toResponse("emailsender", "1.4.0", "http://localhost:3002");
+// → {
+//   ok: true,                         // false if ANY check fails
+//   service: "emailsender",
+//   version: "1.4.0",
+//   url: "http://localhost:3002",
+//   checks: {
+//     db:    { ok: true, version: "18.0" },
+//     nats:  { ok: true, version: "2.14.3" },
+//     redis: { ok: true, version: "8.8.0" }
+//   }
+// }
+```
+
+### `HealthCheckResult`
+
+| Field | Type | Required | Purpose |
+|-------|------|----------|---------|
+| `ok` | `boolean` | yes | Whether the check passed |
+| `version` | `string` | no | Server version (e.g. `"18.0"` for PG, `"8.8.0"` for Redis) |
+| `type` | `string` | no | Service type (e.g. `"Casdoor"` for IDP) |
+| `error` | `string` | no | Error message if `ok` is false |
+| `[key: string]` | `unknown` | no | Allow service-specific fields |
+
+### `HealthResponse`
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `ok` | `boolean` | `true` only if ALL checks pass (HTTP 200). `false` if any check fails (HTTP 503). |
+| `service` | `string` | Service identifier (e.g. `"primebrick-api"`, `"emailsender"`) |
+| `version` | `string` | Service version (from `package.json`) |
+| `url` | `string?` | Base URL the service is listening on |
+| `checks` | `Record<string, HealthCheckResult>` | Map of check name → result. Keys are service-specific (db, redis, nats, idp). |
 
 ## Health endpoint
 
-`GET /health` is public (no auth). If a `HealthCheck` is provided, it runs all
-registered checks and returns `200` with `{ status: "healthy", checks: {...} }`
-or `503` with `{ status: "degraded", checks: {...} }`. If no `HealthCheck` is
-provided, it returns `200` with `{ status: "healthy" }`.
+`GET /health` is public (no auth). The response is the `HealthResponse` above,
+serialized with Ext-JSON.
+
+```bash
+curl http://localhost:3002/health
+```
+
+```json
+{
+  "ok": true,
+  "service": "emailsender",
+  "version": "1.4.0",
+  "url": "http://localhost:3002",
+  "checks": {
+    "db":    { "ok": true, "version": "18.0" },
+    "nats":  { "ok": true, "version": "2.14.3" },
+    "redis": { "ok": true, "version": "8.8.0" }
+  }
+}
+```
+
+If any check fails, `ok` is `false` and the HTTP status is `503`:
+
+```bash
+curl -i http://localhost:3002/health
+# HTTP/1.1 503 Service Unavailable
+# { "ok": false, "service": "emailsender", "version": "1.4.0", "checks": { "redis": { "ok": false, "error": "ECONNREFUSED" } } }
+```
+
+If no `HealthCheck` is provided, `/health` returns `200` with `ok: true` and
+empty `checks`.
+
+### BE integration
+
+The BE does NOT use `createHttpServer()` — it uses Express and mounts its own
+`/api/v1/health` route. But it uses the same `HealthCheck` class and
+`HealthResponse` shape, so the FE parses a single shape regardless of which
+service produced it. The BE registers `db`, `redis`, `nats`, and `idp` checks;
+the US microservices register `db`, `redis`, `nats` (no IDP).
 
 ## RFC 7807 error responses
 
 All non-health errors — unmatched routes, route handler crashes, auth errors —
-are returned as RFC 7807 Problem Details JSON:
+are returned as RFC 7807 Problem Details JSON, serialized with Ext-JSON:
 
 ```json
 {
@@ -61,14 +166,25 @@ are returned as RFC 7807 Problem Details JSON:
 Auth errors (`AuthError`) and RBAC errors (`RbacDeniedError`) carry an
 `internal_code` and `status` on the error object. The server extracts these to
 produce the correct RFC 7807 response. Other errors default to `500` with
-`internal_code: "INTERNAL_ERROR"`.
+`internal_code: "INTERNAL_ERROR"` and `severity: "HIGH"`.
 
 If the route handler has already started writing the response (headers sent)
 and then throws, the server logs the error and destroys the socket — it cannot
 send a proper RFC 7807 response at that point.
 
+### Error `internal_code` values
+
+| `internal_code` | HTTP | When |
+|-----------------|------|------|
+| `ROUTE_NOT_FOUND` | 404 | No route matched (routeHandler returned `false` or was not set) |
+| `UNAUTHORIZED` | 401 | `AuthError` — missing/invalid JWT or gateway secret |
+| `RBAC_PERMISSION_DENIED` | 403 | `RbacDeniedError` — user lacks required permission(s) |
+| `INTERNAL_ERROR` | 500 | Any other unhandled error in the route handler |
+
 ## Next steps
 
+- [Getting Started](getting-started) — the full service bootstrap with `createHttpServer`
 - [Authentication](authentication) — auth errors and internal codes
 - [Ext-JSON](ext-json) — used for health and error response serialization
-- [API Reference](api-reference) — createHttpServer and HttpServerOptions
+- [Cache layer](cache-layer) — `createRedisHealthCheck()` for the Redis check
+- [API Reference](api-reference) — `createHttpServer`, `HttpServerOptions`, `HealthCheck`, `HealthResponse`

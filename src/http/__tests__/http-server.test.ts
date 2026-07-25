@@ -32,8 +32,9 @@ describe("HttpServer", () => {
   it("GET /health returns 200 with healthy status when DB ping succeeds", async () => {
     const { status, body } = await fetchUrl(`http://127.0.0.1:${port}/health`);
     expect(status).toBe(200);
-    const json = extJsonParse(body) as { status: string; checks: { db: { ok: boolean } } };
-    expect(json.status).toBe("healthy");
+    const json = extJsonParse(body) as { ok: boolean; service: string; checks: { db: { ok: boolean } } };
+    expect(json.ok).toBe(true);
+    expect(json.service).toBe("test");
     expect(json.checks.db.ok).toBe(true);
   });
 
@@ -60,8 +61,9 @@ describe("HttpServer without healthCheck", () => {
   it("GET /health returns 200 with healthy status (no checks)", async () => {
     const { status, body } = await fetchUrl(`http://127.0.0.1:${port}/health`);
     expect(status).toBe(200);
-    const json = extJsonParse(body) as { status: string };
-    expect(json.status).toBe("healthy");
+    const json = extJsonParse(body) as { ok: boolean; service: string; checks: Record<string, unknown> };
+    expect(json.ok).toBe(true);
+    expect(json.service).toBe("microservice");
   });
 });
 

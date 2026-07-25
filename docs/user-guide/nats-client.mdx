@@ -22,13 +22,34 @@ await NatsClient.getConnection();
 // Check if the connection is alive
 NatsClient.isConnected(); // boolean
 
+// Server metadata (from the INFO handshake) — useful for health checks + startup logs
+NatsClient.getServerVersion(); // "2.14.3" or null
+NatsClient.getServerUrl();     // "nats://broker:4222" or null
+
 // Close on shutdown
 await NatsClient.close();
 ```
 
 The connection is a singleton — subsequent `getConnection()` calls return the
 existing connection. The JetStream client is also available via
-`getJetStreamClient()`.
+`getJetStream()` (throws if `getConnection()` was not called first).
+
+`getConnection()` logs a `[startup] NATS <version> connected (<url>)` banner
+automatically. Use `NatsClient.getServerVersion()` in your health check so the
+`/health` response includes the NATS server version:
+
+```ts
+import { HealthCheck } from "@primebrick/sdk";
+
+const healthCheck = new HealthCheck(dbPing, {
+  nats: async () => ({
+    ok: NatsClient.isConnected(),
+    version: NatsClient.getServerVersion() ?? undefined,
+  }),
+});
+```
+
+See [HTTP Server](http-server) for the full `HealthResponse` shape.
 
 ## Publish
 
@@ -65,11 +86,11 @@ await NatsClient.subscribe<SendEmailRequest>(
 Empty payloads are passed as `null` to the handler. Processing errors are
 caught and logged — they do not crash the subscription loop.
 
-## Request-reply
+## Request-reply (responder side)
 
-`subscribeRequest()` implements the NATS™ request-reply pattern. The handler
-receives the parsed request and returns a response that is automatically
-serialized and published to `msg.reply`.
+`subscribeRequest()` implements the NATS™ request-reply pattern on the
+responder side. The handler receives the parsed request and returns a response
+that is automatically serialized and published to `msg.reply`.
 
 ```ts
 await NatsClient.subscribeRequest<SendEmailRequest, SendEmailResponse>(
@@ -83,9 +104,44 @@ await NatsClient.subscribeRequest<SendEmailRequest, SendEmailResponse>(
 If the handler throws, an error response `{ success: false, error, requestId }`
 is published back to the reply subject (if set).
 
+## Request-reply (caller side)
+
+`request()` is the caller-side counterpart — send a request and wait for the
+response. The request is serialized with `extJsonStringify`, the response is
+parsed with `extJsonParse`. Pass `null` or `undefined` for an empty request.
+
+```ts
+import { NatsClient } from "@primebrick/sdk";
+
+// Fetch shared config from the BE (the BE subscribes via subscribeSharedConfig)
+const config = await NatsClient.request<SharedConfig>("config.get", null, 5000);
+// → { auth_mode: "STANDALONE", casdoor_endpoint: "...", redis_url: "..." }
+
+// Send a request with a payload
+const result = await NatsClient.request<SendEmailResponse>(
+  "emailsender.send",
+  { requestId: "req-1", to: "alice@example.com", template: "welcome" },
+  10_000,
+);
+```
+
+If the responder doesn't reply within `timeoutMs`, the promise rejects with a
+NATS timeout error. The default timeout is 5000ms.
+
+## Shared config over NATS™
+
+The SDK uses `request()` internally for the BE→microservice config sharing
+protocol. The BE subscribes to `config.get` via `subscribeSharedConfig()` and
+responds with the `SharedConfig` payload; microservices call
+`fetchSharedConfig()` (which wraps `NatsClient.request("config.get", null)`)
+at startup to get their `auth_mode`, `casdoor_endpoint`, `redis_url`, etc. See
+[Config tables](config-tables) for the full protocol.
+
 ## Next steps
 
 - [Authentication](authentication) — verifyNatsMessage and auth headers
 - [Service Registration](service-registration) — lifecycle events over NATS™
+- [Config tables](config-tables) — the `config.get` request-reply protocol
+- [HTTP Server](http-server) — using `getServerVersion()` in the health check
 - [Ext-JSON](ext-json) — how BigInt serialization works
 - [API Reference](api-reference) — NatsClient method signatures

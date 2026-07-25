@@ -11,14 +11,48 @@ services. It uses `json-bigint` with `useNativeBigInt: true` to preserve
 
 ## Why Ext-JSON exists
 
-Standard `JSON.stringify()` converts `bigint` to a string or throws. Primebrick
-uses native `bigint` for all integer IDs (UUIDs are strings, but numeric IDs,
-timestamps, and counters are `bigint`). Ext-JSON makes the types predictable:
+Standard `JSON.stringify()` throws on `bigint`:
 
-- **Every integer** is serialized as a JSON number and parsed back as `bigint`
-- **Every float** is serialized as a JSON number and parsed back as `number`
-- No `number | bigint` ambiguity — the type is determined by whether the value
-  has a decimal point
+```ts
+JSON.stringify({ id: 42n });
+// TypeError: Do not know how to serialize a BigInt
+```
+
+Primebrick uses native `bigint` for all integer IDs (UUIDs are strings, but
+numeric IDs, timestamps, and counters are `bigint`). Ext-JSON makes the types
+predictable across the wire format:
+
+| JSON value | Wire format | Parsed TS type |
+|------------|-------------|----------------|
+| `42n` (bigint) | `42` | `bigint` |
+| `42` (small int) | `42` | `bigint` (reviver forces it) |
+| `3.14` (float) | `3.14` | `number` |
+| `1e5` (scientific) | `100000` | `bigint` (integer) |
+| `"alice"` (string) | `"alice"` | `string` |
+| `true` (boolean) | `true` | `boolean` |
+| `null` | `null` | `null` |
+
+The rule is simple: **every integer is `bigint`, every float is `number`**.
+No `number | bigint` ambiguity — the type is determined by whether the value
+has a decimal point, not by its magnitude.
+
+## The reviver
+
+`extJsonParse` uses a reviver that forces every integer to `bigint`:
+
+```ts
+extJsonParse(text, (_key, value) => {
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return BigInt(value);
+  }
+  return value;
+});
+```
+
+`json-bigint`'s `alwaysParseAsBig` option would do this, but it is broken for
+floats in v1.0.0 — so the SDK uses a reviver instead. The reviver is the
+reason `42` (a small integer that `json-bigint` returns as `number`) becomes
+`bigint` on the receiving end, matching the `42n` the sender wrote.
 
 ## Usage
 
@@ -35,6 +69,35 @@ const parsed = extJsonParse<{ entity_id: bigint; price: number; name: string }>(
 // parsed.entity_id → 42n (bigint)
 // parsed.price → 3.14 (number)
 ```
+
+### Round-trip type preservation
+
+The round-trip preserves types exactly — `bigint` in, `bigint` out; `number`
+in, `number` out. This is what makes the SDK's NATS™ and HTTP layers safe for
+DAL rows that mix `bigint` IDs with `number` floats:
+
+```ts
+const original = {
+  id: 42n,              // bigint  → bigint
+  count: 7,             // number (integer) → bigint (reviver forces it)
+  price: 3.14,          // number (float)   → number
+  name: "widget",       // string → string
+  active: true,         // boolean → boolean
+  nested: { qty: 100n },// bigint nested → bigint
+};
+
+const roundTrip = extJsonParse<typeof original>(extJsonStringify(original));
+// typeof roundTrip.id       → "bigint"
+// typeof roundTrip.count    → "bigint"   (was a number, now bigint — by design)
+// typeof roundTrip.price    → "number"
+// typeof roundTrip.name     → "string"
+// typeof roundTrip.nested.qty → "bigint"
+```
+
+The one asymmetry to know about: a plain `number` integer on the sender
+becomes `bigint` on the receiver. This is intentional — it makes every
+integer `bigint` everywhere, so consumers never write `number | bigint` union
+types. If you send a `number` integer, expect a `bigint` back.
 
 ### Express middleware (BE)
 

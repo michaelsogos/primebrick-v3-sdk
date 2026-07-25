@@ -13,6 +13,7 @@
  * - nats: NatsClient
  * - http: createHttpServer, HealthCheck
  * - env: validateEnv, requireEnv
+ * - sse: createSseWriter, createSseEventBus, bridgeNatsToSse
  */
 
 // Ports (dependency inversion — consumer implements these)
@@ -47,6 +48,7 @@ export {
   type ServiceHeartbeatPayload,
   type ServiceRegisterPayload,
   type ServiceUnregisterPayload,
+  type ServiceStalePayload,
   type ServiceHealthCheck,
 } from "./service/service-lifecycle-subjects.js";
 
@@ -59,6 +61,10 @@ export { NatsClient } from "./nats/nats-client.js";
 // HTTP
 export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";
 export { HealthCheck, type HealthCheckResult } from "./http/health-check.js";
+export { type HealthResponse } from "./http/health-response.js";
+
+// Lifecycle — startup logging
+export { logModuleStartup, logServiceStartup } from "./lifecycle/startup-logger.js";
 
 // Env validation
 export { validateEnv, requireEnv, type EnvSchema, type EnvValidationResult } from "./env/env-validator.js";
@@ -70,5 +76,75 @@ export {
   extJsonMiddleware,
 } from "./json/ext-json.js";
 
+// Cache — best-effort Redis cache layer (BE/US; DAL is NOT involved)
+// The SDK owns the cache abstraction, decorators, key builder, withCache wrapper, and
+// the Redis implementation. The DAL is untouched — entity metadata is read via
+// Reflect.getMetadata (standard JS reflection API, no import from the DAL).
+export {
+  type CachePort,
+  CacheKeyBuilder,
+} from "./cache/cache-port.js";
+export {
+  Cached,
+  CacheKey,
+  isEntityCached,
+  getEntityCacheTtl,
+  getCacheKeyProperty,
+} from "./cache/cache-decorators.js";
+export {
+  withCache,
+  type CacheableRepository,
+  type CacheLogger,
+} from "./cache/cached-repository.js";
+export { RedisCachePort } from "./cache/redis-cache-port.js";
+export { createRedisClient, closeRedisClient } from "./cache/redis-client.js";
+export { getRedisInfo, type RedisInfo } from "./cache/redis-info.js";
+export {
+  initCacheFromSharedConfig,
+  type CacheBootstrapResult,
+} from "./cache/cache-bootstrap.js";
+export { createRedisHealthCheck } from "./cache/cache-health.js";
+export {
+  setSdkCachePort,
+  getSdkCachePort,
+  getSdkRedisInfo,
+  resetSdkCachePort,
+} from "./cache/cache-port-holder.js";
+
+// Shared config — NATS `config.get` protocol for BE→microservice config sharing
+export {
+  type SharedConfig,
+  SHARED_CONFIG_SUBJECT,
+  subscribeSharedConfig,
+  fetchSharedConfig,
+} from "./config/shared-config.js";
+
 // Auth — framework-agnostic auth for HTTP + NATS (BE + microservices)
 export * from "./auth/index.js";
+
+// SSE — Server-Sent Events infrastructure (BE only)
+// Provides the writer, event bus, and NATS bridge for SSE endpoints.
+// @see docs/user-guide/sse-standard.mdx for the full SSE development standard.
+export { createSseWriter, SSE_HEADERS } from "./sse/sse-writer.js";
+export { createSseEventBus } from "./sse/sse-event-bus.js";
+export { bridgeNatsToSse, type NatsSseBridgeMapping } from "./sse/nats-sse-bridge.js";
+export type {
+  SseEvent,
+  SseWriter,
+  SseEventBus,
+  SseEventBusSubscription,
+} from "./sse/types.js";
+
+// Presence & collaboration — real-time awareness for shared entities (BE only)
+// Provides the presence port, Redis implementation, NATS subject builders, and
+// shared types. The BE combines these with the SSE primitives above to expose
+// collaboration SSE endpoints. See docs/user-guide/collaboration.mdx.
+export * from "./presence/types.js";
+export { type PresencePort } from "./presence/presence-port.js";
+export { RedisPresencePort } from "./presence/redis-presence-port.js";
+export {
+  presenceSubject,
+  entityChangedSubject,
+  publishPresence,
+  publishEntityChanged,
+} from "./presence/nats-subjects.js";

@@ -11,8 +11,22 @@ description: Install @primebrick/sdk and wire up the core modules in a microserv
 pnpm add @primebrick/sdk
 ```
 
-The SDK has three runtime dependencies: `jose` (JWT/OIDC), `json-bigint`
-(BigInt-safe JSON), and `nats` (NATS™ client). These are installed automatically.
+The SDK has runtime dependencies: `jose` (JWT/OIDC), `json-bigint`
+(BigInt-safe JSON), `nats` (NATS™ client), `redis` (optional cache), and
+`reflect-metadata` (cache metadata). These are installed automatically.
+
+### Redis (optional)
+
+Redis is NOT required to run Primebrick. If you want to enable the optional
+cache layer for hot single-row reads, install Redis and set the `redis_url`
+key in the `auth_configurations` table. See [Cache layer](cache-layer) for
+details. Without `redis_url`, the system runs DB-only with no cache.
+
+Redis is also used by the optional **presence** module (collaboration
+awareness — who is viewing/editing an entity). Like the cache, presence is
+best-effort: if Redis is unavailable, the BE wrapper turns presence calls
+into no-ops and the UI simply shows no other users. See [Presence](presence)
+for the contract.
 
 ## Minimal microservice setup
 
@@ -26,6 +40,8 @@ import {
   HealthCheck,
   GracefulShutdown,
   validateEnv,
+  logModuleStartup,
+  logServiceStartup,
 } from "@primebrick/sdk";
 
 // 1. Validate environment
@@ -36,10 +52,12 @@ const env = validateEnv({
   BASE_URL: { required: true },
 });
 
-// 2. Connect to NATS
+// 2. Connect to NATS — getConnection() logs the [startup] banner automatically
 await NatsClient.getConnection(env.NATS_URL);
+logModuleStartup("NATS", NatsClient.getServerVersion(), env.NATS_URL);
 
-// 3. Health checks
+// 3. Health checks — the HealthCheck class produces the unified HealthResponse
+//    shape consumed by both BE and US /health endpoints.
 const healthCheck = new HealthCheck();
 healthCheck.add("nats", () => NatsClient.isConnected());
 
@@ -55,16 +73,20 @@ const registrar = new ServiceRegistrar(NatsClient, {
 await registrar.register();
 registrar.startHeartbeat();
 
-// 5. HTTP server with health endpoint
+// 5. HTTP server with health endpoint — serviceVersion + serviceUrl are
+//    included in the /health response so the FE can display them.
 const server = await createHttpServer({
   port: Number(env.PORT),
   serviceName: env.SERVICE_CODE,
+  serviceVersion: "1.0.0",           // from package.json
+  serviceUrl: env.BASE_URL,
   healthCheck,
   routeHandler: async (req, res, url) => {
     // your routes here
     return false;
   },
 });
+logServiceStartup(env.SERVICE_CODE, "1.0.0", env.BASE_URL);
 
 // 6. Graceful shutdown
 GracefulShutdown.register(async () => {
@@ -73,6 +95,29 @@ GracefulShutdown.register(async () => {
   await NatsClient.close();
 });
 ```
+
+## Verify the health endpoint
+
+After running the service, verify it is up with a single curl:
+
+```bash
+curl http://localhost:3002/health
+```
+
+```json
+{
+  "ok": true,
+  "service": "emailsender",
+  "version": "1.0.0",
+  "url": "http://localhost:3002",
+  "checks": { "nats": { "ok": true } }
+}
+```
+
+If any check fails, the HTTP status is `503` and `ok` is `false` — the FE's 503
+interceptor probes `/health` and shows the right health chip. See
+[HTTP Server](http-server) for the full `HealthResponse` shape and how to
+register custom checks (db, redis, idp).
 
 ## Importing sub-modules
 
@@ -94,4 +139,7 @@ import { extJsonStringify, extJsonParse } from "@primebrick/sdk/json";
 - [Authentication](authentication) — configure auth for STANDALONE or GATEWAY-RESOLVED mode
 - [NATS Client](nats-client) — publish/subscribe patterns
 - [Service Registration](service-registration) — lifecycle events
+- [HTTP Server](http-server) — the unified `/health` response shape and custom checks
+- [Cache layer](cache-layer) — optional Redis cache for hot single-row reads
+- [Presence](presence) — optional real-time collaboration awareness
 - [API Reference](api-reference) — full API listing
