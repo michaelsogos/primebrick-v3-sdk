@@ -11,7 +11,7 @@
 
 `@primebrick/sdk` is the shared microservice infrastructure SDK for Primebrick v3.
 It provides config loading, migration runner, service registration, graceful
-shutdown, NATS client, health checks, and env validation.
+shutdown, NATS™ client, health checks, and env validation.
 
 **Documentation language:** All `*.md` files use **English**.
 

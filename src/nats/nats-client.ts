@@ -17,13 +17,19 @@ import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 export class NatsClient {
   private static nc: NatsConnection | null = null;
   private static js: JetStreamClient | null = null;
+  private static serverVersion: string | null = null;
+  private static serverUrl: string | null = null;
 
   static async getConnection(url?: string): Promise<NatsConnection> {
     if (NatsClient.nc) return NatsClient.nc;
     const natsUrl = url ?? process.env.NATS_URL ?? "nats://127.0.0.1:4222";
     NatsClient.nc = await connect({ servers: natsUrl });
     NatsClient.js = NatsClient.nc.jetstream();
-    console.log(`Connected to NATS at ${natsUrl}`);
+    NatsClient.serverUrl = natsUrl;
+    // nc.info is populated by the INFO handshake at connect time.
+    // ServerInfo.version is a string like "2.14.3".
+    NatsClient.serverVersion = NatsClient.nc.info?.version ?? null;
+    console.log(`[startup] NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`);
     return NatsClient.nc;
   }
 
@@ -42,13 +48,59 @@ export class NatsClient {
     return NatsClient.nc !== null && !NatsClient.nc.isClosed();
   }
 
+  /**
+   * Returns the NATS server version (from the INFO handshake), or null
+   * if the connection was never established or the version was not available.
+   */
+  static getServerVersion(): string | null {
+    return NatsClient.serverVersion;
+  }
+
+  /**
+   * Returns the NATS server URL used for the connection, or null if
+   * the connection was never established.
+   */
+  static getServerUrl(): string | null {
+    return NatsClient.serverUrl;
+  }
+
   static async close(): Promise<void> {
     if (NatsClient.nc) {
       await NatsClient.nc.close();
       NatsClient.nc = null;
       NatsClient.js = null;
+      NatsClient.serverVersion = null;
+      NatsClient.serverUrl = null;
       console.log("NATS connection closed");
     }
+  }
+
+  /**
+   * Send a request-reply message and wait for the response.
+   * The request data is serialized with extJsonStringify (BigInt-safe) and
+   * the response is parsed with extJsonParse.
+   *
+   * @param subject - NATS subject to send the request to
+   * @param data - Request payload (any serializable object). Pass `null` or `""` for an empty request.
+   * @param timeoutMs - Timeout in milliseconds. If the responder doesn't reply within this time, the promise rejects.
+   * @returns The parsed response object, or `null` if the response was empty.
+   *
+   * Example:
+   *   const config = await NatsClient.request<SharedConfig>("config.get", null, 5000);
+   */
+  static async request<TResponse = unknown>(
+    subject: string,
+    data: unknown = null,
+    timeoutMs: number = 5000,
+  ): Promise<TResponse | null> {
+    const nc = await NatsClient.getConnection();
+    const payload = data === null || data === undefined
+      ? new Uint8Array(0)
+      : new TextEncoder().encode(extJsonStringify(data));
+    const msg = await nc.request(subject, payload, { timeout: timeoutMs });
+    const text = new TextDecoder().decode(msg.data);
+    if (text === "") return null;
+    return extJsonParse<TResponse>(text);
   }
 
   /**

@@ -1,13 +1,13 @@
 ---
 title: Authentication
-description: Framework-agnostic auth for HTTP and NATS — STANDALONE and GATEWAY-RESOLVED modes, RBAC, API keys, and session context.
+description: Framework-agnostic auth for HTTP and NATS™ — STANDALONE and GATEWAY-RESOLVED modes, RBAC, API keys, and session context.
 ---
 
 # Authentication
 
 The auth module provides JWT/OIDC verification, API key auth, RBAC, and session
 context propagation via `AsyncLocalStorage`. It is framework-agnostic: the same
-`verifyAuth()` works with raw Node.js HTTP, Express, and NATS messages through
+`verifyAuth()` works with raw Node.js® HTTP, Express, and NATS™ messages through
 a single `HeaderProvider` abstraction.
 
 ## Auth modes
@@ -78,7 +78,7 @@ const user = await verifyHttpRequest(req, config, ports);
 ## GATEWAY-RESOLVED mode (microservices)
 
 Microservices do not validate JWTs or touch the database. The BE serializes the
-fully resolved `AuthUser` into headers (HTTP proxy or NATS), and the microservice
+fully resolved `AuthUser` into headers (HTTP proxy or NATS™), and the microservice
 verifies the gateway secret and deserializes the user.
 
 ```ts
@@ -88,7 +88,7 @@ import { verifyHttpRequest } from "@primebrick/sdk";
 const user = await verifyHttpRequest(req, config);
 ```
 
-For NATS subscribers:
+For NATS™ subscribers:
 
 ```ts
 import { verifyNatsMessage } from "@primebrick/sdk";
@@ -100,7 +100,7 @@ NatsClient.subscribe("emailsender.send", async (data, msg) => {
 ```
 
 The BE publisher side uses `buildNatsAuthHeaders()` to serialize the user into
-NATS headers with the gateway secret:
+NATS™ headers with the gateway secret:
 
 ```ts
 import { buildNatsAuthHeaders } from "@primebrick/sdk";
@@ -151,11 +151,12 @@ API keys accept two header formats:
 ## RBAC
 
 RBAC evaluates whether an authenticated user has the permissions required by an
-endpoint. The `Permission` constant defines all known permissions. Two
+endpoint. The `Permission` constant defines all known permissions. Three
 sentinels are handled specially:
 
 - `Permission.PUBLIC` — endpoint reachable without authentication
 - `Permission.AUTHENTICATED_USER` — any authenticated caller passes
+- `Permission.AUTHENTICATED_ADMIN` — only callers with `isAdmin === true` pass (admin-only operations, e.g. admin change-password)
 
 ```ts
 import { enforceHttpRbac, Permission } from "@primebrick/sdk";
@@ -172,7 +173,7 @@ Admin users (`isAdmin=true`) and system API keys (`isSystem=true`) bypass all
 permission checks. Wildcard patterns in role mappings (e.g. `customers.read.*`)
 are supported via `matchesWildcard()`.
 
-For NATS subscribers, use `enforceNatsRbac()` — same logic, semantic separation.
+For NATS™ subscribers, use `enforceNatsRbac()` — same logic, semantic separation.
 
 The non-throwing variant `checkRbac()` returns `{ allowed, missing? }` instead
 of throwing.
@@ -219,6 +220,6 @@ produce RFC 7807 responses. Common codes:
 ## Next steps
 
 - [NATS Client](nats-client) — publish/subscribe with auth headers
-- [Service Registration](service-registration) — lifecycle events over NATS
+- [Service Registration](service-registration) — lifecycle events over NATS™
 - [HTTP Server](http-server) — how auth errors become RFC 7807 responses
 - [API Reference](api-reference) — full auth API listing

@@ -1,11 +1,11 @@
 ---
 title: Service Registration
-description: NATS-based microservice registration, heartbeats, and lifecycle events.
+description: NATS™-based microservice registration, heartbeats, and lifecycle events.
 ---
 
 # Service Registration
 
-`ServiceRegistrar` registers a microservice via NATS lifecycle events and
+`ServiceRegistrar` registers a microservice via NATS™ lifecycle events and
 maintains a heartbeat. The BE subscribes to these events and persists the state
 to the `service_registry` table. The microservice never touches the database
 directly.
@@ -26,7 +26,7 @@ directly.
   NATS->>BE: mark service as offline
 `} />
 
-Three NATS subjects carry lifecycle events:
+Three NATS™ subjects carry lifecycle events:
 
 | Subject | When | Payload |
 |---------|------|---------|
@@ -117,5 +117,5 @@ rows per code, distinguished by `base_url`):
 ## Next steps
 
 - [NATS Client](nats-client) — the transport used by ServiceRegistrar
-- [Authentication](authentication) — auth for NATS subscribers
+- [Authentication](authentication) — auth for NATS™ subscribers
 - [API Reference](api-reference) — ServiceRegistrar and payload types

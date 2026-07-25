@@ -1,9 +1,7 @@
 import type { HealthCheckPort } from "../ports/health-check-port.js";
+import type { HealthCheckResult, HealthResponse } from "./health-response.js";
 
-export interface HealthCheckResult {
-  ok: boolean;
-  [key: string]: unknown;
-}
+export type { HealthCheckResult, HealthResponse } from "./health-response.js";
 
 /**
  * Health check utility. Extracted from BE's index.ts:126-148 pattern.
@@ -12,6 +10,9 @@ export interface HealthCheckResult {
  * DB-agnostic: depends on HealthCheckPort, NOT on pg.Pool.
  * The consumer provides an adapter that runs whatever their DB uses
  * (e.g. `SELECT 1` for PG).
+ *
+ * Produces a unified `HealthResponse` via `toResponse()` — used by both
+ * the BE (Express) and US (createHttpServer) `/health` endpoints.
  */
 export class HealthCheck {
   constructor(
@@ -44,5 +45,20 @@ export class HealthCheck {
 
   isHealthy(results: Record<string, HealthCheckResult>): boolean {
     return Object.values(results).every((r) => r.ok);
+  }
+
+  /**
+   * Build a unified `HealthResponse` from all checks.
+   * Used by both BE and US `/health` endpoints.
+   */
+  async toResponse(service: string, version: string, url?: string): Promise<HealthResponse> {
+    const checks = await this.runAll();
+    return {
+      ok: this.isHealthy(checks),
+      service,
+      version,
+      url,
+      checks,
+    };
   }
 }

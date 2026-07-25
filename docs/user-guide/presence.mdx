@@ -1,0 +1,319 @@
+---
+title: Presence
+description: "Real-time collaboration awareness — who is viewing/editing an entity, what field they are editing, and what the latest server-side change is."
+---
+
+# Presence
+
+The presence module provides the contract for real-time collaboration
+awareness in Primebrick: who is viewing or editing an entity, what field they
+are editing, and what the latest server-side change is. The SDK owns the
+types, the `PresencePort` abstraction, the Redis implementation, and the NATS™
+subject builders. The BE combines these with the [SSE primitives](sse-standard)
+to expose collaboration SSE endpoints.
+
+Presence is **best-effort and optional**. The system is fully valid without
+it — if Redis is unavailable, the BE wrapper turns presence calls into no-ops
+and the UI simply shows no other users. This mirrors the
+[cache layer](cache-layer) pattern.
+
+## Architecture
+
+<Mermaid chart={`flowchart LR
+  subgraph FE["Frontend (browser)"]
+    FESig["POST /presence<br/>(PresenceSignal)"]
+    FESse["EventSource /sse"]
+  end
+  subgraph BE["Backend"]
+    BEWrap["presence-store-holder<br/>(best-effort wrapper)"]
+    BEBridge["bridgeNatsToSse"]
+  end
+  subgraph SDK["@primebrick/sdk"]
+    Port["PresencePort"]
+    Redis["RedisPresencePort"]
+    Subjects["publishPresence<br/>publishEntityChanged"]
+  end
+  subgraph Redis["Redis"]
+    Users["presence:*:*:users"]
+    Editors["presence:*:*:editors"]
+    Tabs["presence:*:*:tabs:*"]
+    Changed["presence:*:*:changed"]
+  end
+  subgraph NATS["NATS"]
+    Subj["presence.{type}.{uuid}<br/>entity.{type}.{uuid}.changed"]
+  end
+  FESig --> BEWrap
+  BEWrap --> Port
+  Port --> Redis
+  BEWrap --> Subjects
+  Subjects --> Subj
+  Subj --> BEBridge
+  BEBridge --> FESse
+`} />
+
+1. The FE sends a `PresenceSignal` (READING / EDITING / HEARTBEAT / LEAVE) to
+   `POST /api/v1/entities/:entity/:uuid/presence`.
+2. The BE wrapper calls `PresencePort.upsertReading()` / `upsertEditing()` /
+   `remove()` / `heartbeat()` on Redis, then publishes a `PresenceDelta` to
+   the NATS™ `presence.{entityType}.{entityUuid}` subject.
+3. When an auditable entity is saved, the BE audit hook calls
+   `PresencePort.setChanged()` on Redis and `publishEntityChanged()` on NATS™
+   (subject `entity.{entityType}.{entityUuid}.changed`).
+4. The BE bridges both subjects to per-entity `SseEventBus` instances via
+   `bridgeNatsToSse()`. Connected FE clients receive the deltas as SSE events.
+
+## Types
+
+All types are in `snake_case` per the BE/FE/DAL data-model convention. They are
+exported from the package root: `import type { PresenceSignal, PresenceEntry, ... } from "@primebrick/sdk"`.
+
+### `PresenceSignal` — client → BE
+
+The wire payload for `POST /api/v1/entities/:entity/:uuid/presence`. Sent by
+the FE on open, on field focus, on field blur, on heartbeat, and on close.
+
+```typescript
+import type { PresenceSignal } from "@primebrick/sdk";
+
+const signal: PresenceSignal = {
+  action: "EDITING",        // "READING" | "EDITING" | "HEARTBEAT" | "LEAVE"
+  field: "name",            // EDITING only — the field being edited
+  value: "Alice 2",         // EDITING only — the current draft value
+  loaded_version: 3,        // READING/HEARTBEAT — the version the client loaded
+  session_id: "tab-uuid",   // deduplicates tabs for the same user (FE-generated)
+};
+```
+
+| `action` | Meaning | State change |
+|----------|---------|--------------|
+| `READING` | User opened the entity | Upsert READING entry; clear from editors if was EDITING |
+| `EDITING` | User is editing a field | Upsert EDITING entry with `field` + `value` |
+| `HEARTBEAT` | Keep-alive | Refresh Redis TTL; update `last_seen_at`; no status change |
+| `LEAVE` | User closed the tab / navigated away | Remove the user entirely (if last tab) |
+
+### `PresenceEntry` — stored in Redis
+
+One entry per `(entity_type, entity_uuid, user_uuid)`. Stored as JSON in the
+Redis hash `presence:{entityType}:{entityUuid}:users`.
+
+```typescript
+import type { PresenceEntry } from "@primebrick/sdk";
+
+const entry: PresenceEntry = {
+  user_uuid: "550e8400-e29b-41d4-a716-446655440000",
+  user_name: "Alice",
+  avatar_color: "#7c3aed",
+  avatar_initials: "A",
+  status: "EDITING",        // "READING" | "EDITING"
+  field: "name",            // EDITING only
+  value: "Alice 2",         // EDITING only
+  last_seen_at: 1753468800000,  // epoch ms
+  tab_count: 2,             // number of open tabs for this user (deduped by session_id)
+};
+```
+
+### `PresenceSnapshot` — BE → FE (initial SSE event + GET)
+
+Returned by `GET /api/v1/entities/:entity/:uuid/presence` and sent as the
+initial SSE `snapshot` event on connect.
+
+```typescript
+import type { PresenceSnapshot } from "@primebrick/sdk";
+
+const snapshot: PresenceSnapshot = {
+  readers: [/* PresenceEntry[] — users in READING status */],
+  editors: [/* PresenceEntry[] — users in EDITING status */],
+  changed: {                // EntityChangedMarker | null — most recent save in the TTL window
+    entity_type: "customer",
+    entity_uuid: "550e8400-...",
+    version: 4,
+    audit_log_id: 42,
+    changed_by: "alice-uuid",
+    changed_at: 1753468800000,
+  },
+  current_version: 4,       // filled in by the BE (the SDK is DB-agnostic)
+};
+```
+
+### `PresenceDelta` — NATS™ → SSE
+
+Published on `presence.{entityType}.{entityUuid}`. Consumed by the BE SSE
+bridge and forwarded to connected FE clients.
+
+```typescript
+import type { PresenceDelta } from "@primebrick/sdk";
+
+const delta: PresenceDelta = {
+  user_uuid: "alice-uuid",
+  action: "EDITING",
+  entry: { /* PresenceEntry */ },
+  emitted_at: 1753468800000,
+};
+```
+
+### `EntityChangedMarker` — server-side save marker
+
+Published on `entity.{entityType}.{entityUuid}.changed` by the BE audit hook
+after a successful save. Stored in Redis with a 5-minute TTL so late-joining
+clients can see the most recent change without scanning the audit log.
+
+```typescript
+import type { EntityChangedMarker } from "@primebrick/sdk";
+
+const marker: EntityChangedMarker = {
+  entity_type: "customer",
+  entity_uuid: "550e8400-...",
+  version: 4,
+  audit_log_id: 42,
+  changed_by: "alice-uuid",
+  changed_at: 1753468800000,
+};
+```
+
+## The `PresencePort` interface
+
+The SDK owns the port. Consumers (BE) inject their own implementation —
+typically `RedisPresencePort` (also in the SDK), but any implementation is
+accepted (useful for tests with a fake/in-memory port).
+
+```typescript
+import type { PresencePort } from "@primebrick/sdk";
+
+const port: PresencePort = {
+  upsertReading(entityType, entityUuid, entry) { /* ... */ },
+  upsertEditing(entityType, entityUuid, entry) { /* ... */ },
+  remove(entityType, entityUuid, userUuid)      { /* ... */ },
+  heartbeat(entityType, entityUuid, userUuid, sessionId) { /* ... */ },
+  getSnapshot(entityType, entityUuid)           { /* ... */ },
+  setChanged(marker, ttlMs?)                    { /* ... */ },
+  clearChanged(entityType, entityUuid)          { /* ... */ },
+};
+```
+
+All methods MUST be best-effort safe: the BE wrapper swallows rejections
+(mirror the [cache-port-holder](cache-layer) pattern). Presence is a feature,
+not a requirement.
+
+## `RedisPresencePort` — the Redis implementation
+
+Uses `node-redis` (the `redis` npm package, v6.x) — the same client the
+`RedisCachePort` uses. Serialization uses the SDK's canonical
+`extJsonStringify` / `extJsonParse` (BigInt-safe).
+
+### Redis key design
+
+| Key | Type | TTL | Purpose |
+|-----|------|-----|---------|
+| `presence:{type}:{uuid}:users` | Hash | 30s | field = `userUuid`, value = JSON `PresenceEntry` (READING or EDITING) |
+| `presence:{type}:{uuid}:editors` | Hash | 30s | field = `userUuid`, value = JSON `{ field, value, since }` |
+| `presence:{type}:{uuid}:tabs:{userUuid}` | Set | 30s | members = `sessionId` strings. `tab_count = scard` |
+| `presence:{type}:{uuid}:changed` | String | 5min | value = JSON `EntityChangedMarker` |
+
+A user is in `users` with status EDITING **and** in `editors` while editing.
+LEAVE removes from both. On LEAVE of a tab, `srem` that sessionId; if the tabs
+set is empty, remove the user from `users` and `editors`.
+
+### Construction
+
+```typescript
+import { RedisPresencePort, createRedisClient } from "@primebrick/sdk";
+
+const redis = await createRedisClient("redis://127.0.0.1:6379");
+const presencePort = new RedisPresencePort(redis);          // default 30s TTL
+// or: new RedisPresencePort(redis, 60_000);                 // custom 60s TTL
+```
+
+The TTL is refreshed by every signal (READING/EDITING) and every HEARTBEAT.
+If a client stops sending signals, its entry expires automatically after the
+TTL window — no cleanup job needed.
+
+## NATS™ subject builders
+
+The SDK provides subject builders and publish helpers. Subscription is handled
+by the SDK's existing `bridgeNatsToSse()` — the BE bridges these subjects to
+per-entity `SseEventBus` instances.
+
+```typescript
+import {
+  presenceSubject,
+  entityChangedSubject,
+  publishPresence,
+  publishEntityChanged,
+  NatsClient,
+} from "@primebrick/sdk";
+
+presenceSubject("customer", "550e8400-...");    // → "presence.customer.550e8400-..."
+entityChangedSubject("customer", "550e8400-..."); // → "entity.customer.550e8400-....changed"
+
+// After updating Redis via PresencePort, publish the delta:
+await publishPresence(NatsClient, "customer", "550e8400-...", delta);
+
+// From the audit hook after a successful save:
+await publishEntityChanged(NatsClient, marker);
+```
+
+`NatsClient.publish()` uses `extJsonStringify` (BigInt-safe) internally — pass
+plain objects, receive plain objects.
+
+## BE integration pattern
+
+The BE wraps the port in a best-effort holder that swallows rejections (so a
+Redis outage does not break the API). The pattern mirrors the cache-port-holder:
+
+```typescript
+// src/modules/collaboration/presence-store-holder.ts (simplified)
+import type { PresencePort, PresenceEntry, PresenceSnapshot } from "@primebrick/sdk";
+
+let presencePort: PresencePort | null = null;
+
+export function initPresenceStore(port: PresencePort) { presencePort = port; }
+export function closePresenceStore() { presencePort = null; }
+
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  if (!presencePort) return fallback;
+  try { return await fn(); }
+  catch (e) { console.warn("[presence] best-effort op failed:", e); return fallback; }
+}
+
+export const presenceStore = {
+  upsertReading: (t: string, u: string, e: PresenceEntry) =>
+    safe(() => presencePort!.upsertReading(t, u, e), undefined),
+  upsertEditing: (t: string, u: string, e: PresenceEntry) =>
+    safe(() => presencePort!.upsertEditing(t, u, e), undefined),
+  remove: (t: string, u: string, userUuid: string) =>
+    safe(() => presencePort!.remove(t, u, userUuid), undefined),
+  heartbeat: (t: string, u: string, userUuid: string, sid: string) =>
+    safe(() => presencePort!.heartbeat(t, u, userUuid, sid), undefined),
+  getSnapshot: (t: string, u: string) =>
+    safe(() => presencePort!.getSnapshot(t, u), { readers: [], editors: [], changed: null, current_version: 0 } as PresenceSnapshot),
+};
+```
+
+The BE presence route handler calls `presenceStore.*` (best-effort) and then
+`publishPresence()` (also best-effort). If Redis is down, both are no-ops and
+the API returns 200 — the FE simply shows no other users.
+
+## TTL and cleanup
+
+There is no cleanup job. Presence entries expire automatically:
+
+- The `users` and `editors` hashes have a 30s TTL, refreshed by every signal
+  and heartbeat. If a client stops sending signals (browser crash, network
+  loss), its entry expires after 30s.
+- The `tabs` set has a 30s TTL per user. On LEAVE of a tab, `srem` removes that
+  sessionId; if the set is empty, the user is removed from `users` and
+  `editors`.
+- The `changed` marker has a 5-minute TTL. Late-joining clients see the most
+  recent change without scanning the audit log.
+
+## Next steps
+
+- [SSE standard](sse-standard) — the SSE writer, event bus, and NATS™ bridge
+  that the BE uses to forward presence deltas to FE clients.
+- [Cache layer](cache-layer) — the same best-effort Redis pattern used by the
+  cache port.
+- [NATS Client](nats-client) — `publish()` and `request()` with Ext-JSON.
+- [Config tables](config-tables) — `redis_url` is read from the shared config
+  at startup to initialize the Redis client.
+- [API Reference](api-reference) — `PresencePort`, `RedisPresencePort`,
+  `publishPresence`, `publishEntityChanged`, and all the types.

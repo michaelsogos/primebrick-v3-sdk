@@ -18,7 +18,7 @@ export { normalizeIdpToken, coerceRoles, buildAuthUser, type NormalizedIdpUser, 
 export { verifyAccessToken, resetOidcRuntimeForTest } from "./oidc-verifier.js";
 
 // Permissions
-export { Permission, isPermissionSentinel, matchesWildcard, isPermissionGranted, expandPermissions, type Permission as PermissionType } from "./permissions.js";
+export { Permission, isPermissionSentinel, listNonSentinelPermissions, matchesWildcard, isPermissionGranted, expandPermissions, type Permission as PermissionType } from "./permissions.js";
 
 // Session context
 export { runWithSession, getSession, requireActor, runAsSystem, SYSTEM_ACTOR, type Session } from "./session-context.js";

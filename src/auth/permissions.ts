@@ -15,12 +15,15 @@
  *   - API keys marked with `is_system=true` bypass all permission checks
  *     and set the actor to "system" for audit fields.
  *
- * Two pseudo-permissions exist as sentinels handled directly by the middleware
+ * Three pseudo-permissions exist as sentinels handled directly by the middleware
  * (they are NOT stored in `role_mappings`):
  *
  *   - `Permission.PUBLIC`             → endpoint reachable without a JWT.
  *   - `Permission.AUTHENTICATED_USER` → any caller with a valid identity
  *                                       passes, regardless of roles.
+ *   - `Permission.AUTHENTICATED_ADMIN`→ only callers with `isAdmin === true`
+ *                                       pass. Use for high-risk non-CRUD
+ *                                       operations (e.g. admin change-password).
  */
 
 export const Permission = {
@@ -29,6 +32,8 @@ export const Permission = {
   PUBLIC: "_public",
   /** Any caller whose identity has been authenticated, regardless of roles. */
   AUTHENTICATED_USER: "_authenticated_user",
+  /** Only callers with `isAdmin === true` pass. Use for high-risk non-CRUD admin-only operations. */
+  AUTHENTICATED_ADMIN: "_authenticated_admin",
 
   // --- System / cross-module ---
   MODULES_READ_ALL: "modules.read.all",
@@ -83,16 +88,38 @@ export const Permission = {
   EMAILSENDER_PROVIDERS_DELETE: "emailsender.providers.delete",
   EMAILSENDER_SEND: "emailsender.send",
   EMAILSENDER_LOG_CREATE: "emailsender.log.create",
+
+  // --- Role mappings module (admin) ---
+  ROLE_MAPPINGS_READ_ALL: "role_mappings.read.all",
+  ROLE_MAPPINGS_READ_SINGLE: "role_mappings.read.single",
+  ROLE_MAPPINGS_READ_AUDIT: "role_mappings.read.audit",
+  ROLE_MAPPINGS_CREATE: "role_mappings.create",
+  ROLE_MAPPINGS_UPDATE: "role_mappings.update",
+  ROLE_MAPPINGS_DELETE: "role_mappings.delete",
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];
 
 /**
- * `true` when the given permission is a sentinel (PUBLIC / AUTHENTICATED_USER)
- * handled directly by the rbac middleware rather than by role expansion.
+ * `true` when the given permission is a sentinel (PUBLIC / AUTHENTICATED_USER /
+ * AUTHENTICATED_ADMIN) handled directly by the rbac middleware rather than by
+ * role expansion.
  */
 export function isPermissionSentinel(p: string): boolean {
-  return p === Permission.PUBLIC || p === Permission.AUTHENTICATED_USER;
+  return (
+    p === Permission.PUBLIC ||
+    p === Permission.AUTHENTICATED_USER ||
+    p === Permission.AUTHENTICATED_ADMIN
+  );
+}
+
+/**
+ * Returns all non-sentinel permission strings (i.e. the real RBAC permissions,
+ * excluding PUBLIC / AUTHENTICATED_USER / AUTHENTICATED_ADMIN).
+ * Used by the BE to build the permissions catalog for the FE role-management UI.
+ */
+export function listNonSentinelPermissions(): string[] {
+  return Object.values(Permission).filter((p) => !isPermissionSentinel(p));
 }
 
 /**

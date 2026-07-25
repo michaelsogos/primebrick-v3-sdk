@@ -45,7 +45,7 @@ changes detected. Docs are current." and stop.
 For this repo (SDK library), user-facing changes include:
 - Public API changes (src/index.ts exports, new/removed exports)
 - Service registration / heartbeat changes (src/service/**)
-- NATS client changes (src/nats/**)
+- NATS™ client changes (src/nats/**)
 - Auth middleware changes (src/auth/**)
 - Config / env validation changes (src/config/**, src/env/**)
 - HTTP helpers changes (src/http/**)

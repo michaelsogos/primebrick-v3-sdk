@@ -273,7 +273,7 @@ Error thrown when RBAC check fails.
 Registers a microservice via NATS lifecycle events and maintains
 a heartbeat.
 
-NATS-based: publishes to service.register / service.heartbeat /
+NATS™-based: publishes to service.register / service.heartbeat /
 service.unregister subjects. The BE subscribes and persists to the
 `service_registry` table. The microservice never touches the DB directly.
 
@@ -812,9 +812,9 @@ Test helper alias (backward compat).
 
 ### `SERVICE_SUBJECTS`
 
-NATS subjects and payload types for microservice lifecycle events.
+NATS™ subjects and payload types for microservice lifecycle events.
 
-Microservices publish these events via NATS. The BE subscribes and
+Microservices publish these events via NATS™. The BE subscribes and
 persists the state to the `service_registry` table.
 
 Flow:
@@ -1137,7 +1137,7 @@ this directly, unless you are writing infrastructure code.
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
 Serialize a fully resolved AuthUser into a headers object for forwarding
-to microservices (HTTP proxy or NATS). Also includes the gateway secret
+to microservices (HTTP proxy or NATS™). Also includes the gateway secret
 header for anti-spoofing.
 
 | Parameter | Type | Description |
@@ -1202,7 +1202,7 @@ Accepts two header formats:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| headers | HeaderProvider | Header provider (HTTP or NATS) |
+| headers | HeaderProvider | Header provider (HTTP or NATS™) |
 | apiKeyPort | ApiKeyPort | Port for looking up API keys by hash |
 
 ### `verifyAuth(headers, config, ports): Promise<AuthUser>`
