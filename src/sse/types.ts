@@ -11,15 +11,16 @@
 /**
  * A single SSE event to be sent to a client.
  *
- * - `id`: Unique event identifier. Used by the FE for `Last-Event-ID` on reconnect
- *   and for deduplication. Format: `<resource>:<timestamp>:<nonce>` or any
- *   deterministic string.
+ * - `id`: Optional unique event identifier. Used by the FE for `Last-Event-ID`
+ *   on reconnect and for deduplication. Omitted for one-shot streams (e.g. AI
+ *   chat) where reconnection is not applicable. Format when present:
+ *   `<resource>:<timestamp>:<nonce>` or any deterministic string.
  * - `event`: Event type in dot notation (e.g. `service.heartbeat`, `snapshot`).
  * - `data`: Payload object. Serialized via `extJsonStringify` (BigInt-safe).
  *   Date objects are serialized as ISO strings (standard JSON behavior).
  */
 export interface SseEvent<T = unknown> {
-  id: string;
+  id?: string;
   event: string;
   data: T;
 }

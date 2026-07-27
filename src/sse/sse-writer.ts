@@ -1,14 +1,18 @@
 /**
- * SSE writer utility for Express responses.
+ * SSE writer utility for Node.js HTTP responses.
  *
  * Sets the correct SSE headers and provides a typed `SseWriter` that handles
  * the W3C EventSource wire format. Uses `extJsonStringify` for BigInt-safe
  * serialization of event data.
  *
+ * Accepts a raw `http.ServerResponse` — works with both Express (whose
+ * `Response` extends `ServerResponse`) and framework-agnostic microservices
+ * that use the raw Node.js HTTP server (e.g. the AI microservice).
+ *
  * @see {@link docs/user-guide/sse-standard.mdx} for the full SSE standard.
  */
 
-import type { Response } from "express";
+import type { ServerResponse } from "node:http";
 import { extJsonStringify } from "../json/ext-json.js";
 import type { SseWriter, SseEvent } from "./types.js";
 
@@ -29,12 +33,16 @@ export const SSE_HEADERS: Record<string, string> = {
 };
 
 /**
- * Create an `SseWriter` backed by an Express `Response`.
+ * Create an `SseWriter` backed by a Node.js HTTP `ServerResponse`.
+ *
+ * Works with both Express responses (Express `Response` extends
+ * `http.ServerResponse`) and raw `http.ServerResponse` from framework-agnostic
+ * microservices (e.g. the AI microservice's `createMicroservice` route handler).
  *
  * Immediately writes the SSE headers and flushes them. The caller is responsible
  * for sending an initial `snapshot` event and setting up keep-alive + cleanup.
  *
- * @example
+ * @example Express
  * ```typescript
  * router.get("/api/v1/system/services/events", rbacHandler([...]), (req, res) => {
  *   const writer = createSseWriter(res);
@@ -44,8 +52,17 @@ export const SSE_HEADERS: Record<string, string> = {
  *   req.on("close", () => { sub.unsubscribe(); clearInterval(ka); writer.close(); });
  * });
  * ```
+ *
+ * @example Raw http.ServerResponse (microservice)
+ * ```typescript
+ * function handleChat(req: IncomingMessage, res: ServerResponse) {
+ *   const writer = createSseWriter(res);
+ *   writer.send({ event: "text-delta", data: { text: "Hello" } });
+ *   writer.close();
+ * }
+ * ```
  */
-export function createSseWriter(res: Response): SseWriter {
+export function createSseWriter(res: ServerResponse): SseWriter {
   res.writeHead(200, SSE_HEADERS);
   // flushHeaders ensures headers are sent immediately, before any event data.
   res.flushHeaders?.();
