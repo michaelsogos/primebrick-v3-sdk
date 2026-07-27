@@ -66,6 +66,14 @@ export { type HealthResponse } from "./http/health-response.js";
 // Lifecycle — startup logging
 export { logModuleStartup, logServiceStartup } from "./lifecycle/startup-logger.js";
 
+// Microservice bootstrap builder — eliminates ~140 lines of boilerplate
+export {
+  createMicroservice,
+  readServiceVersion,
+  type MicroserviceOptions,
+  type MicroserviceContext,
+} from "./microservice/create-microservice.js";
+
 // Env validation
 export { validateEnv, requireEnv, type EnvSchema, type EnvValidationResult } from "./env/env-validator.js";
 
