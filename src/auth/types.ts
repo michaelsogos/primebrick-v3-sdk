@@ -109,14 +109,6 @@ export interface AuthConfig {
    */
   enable_webauthn: boolean;
   /**
-   * Whether username/password form login is enabled.
-   * When false, the BE login endpoint returns 503 and the FE hides the
-   * password form. Parsed from the "true"/"false" string in the DB.
-   * At least one of `enable_formauth` / `enable_webauthn` MUST be true,
-   * otherwise the startup config load throws.
-   */
-  enable_formauth: boolean;
-  /**
    * Whether passkey enrollment is mandatory. When true, the FE passkey prompt
    * cannot be dismissed and the "do not show again" checkbox is hidden.
    * Parsed from the "true"/"false" string in the DB.
