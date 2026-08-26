@@ -23,7 +23,7 @@ export { type ServiceRegistryPort } from "./ports/service-registry-port.js";
 export { type HealthCheckPort } from "./ports/health-check-port.js";
 
 // Config
-export { type IConfigEntity } from "./config/iconfig-entity.js";
+export { type IConfigEntity, type ConfigType } from "./config/iconfig-entity.js";
 export { ConfigLoader } from "./config/config-loader.js";
 
 // Migrations
