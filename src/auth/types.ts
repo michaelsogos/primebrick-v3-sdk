@@ -65,7 +65,7 @@ export interface OidcConfig {
   client_id?: string;
   client_secret?: string;
   audience?: string;
-  issuer_type?: string;
+  idp_type?: string;
 }
 
 /** Gateway configuration (GATEWAY mode). */
@@ -99,8 +99,8 @@ export interface AuthConfig {
   roles_path: string;
   oidc: OidcConfig;
   gateway: GatewayConfig;
-  casdoor_endpoint?: string;
-  casdoor_organization?: string;
+  idp_endpoint?: string;
+  idp_organization?: string;
   enable_email_verification_check: boolean;
   /**
    * Whether WebAuthn / passkey passwordless authentication is enabled.

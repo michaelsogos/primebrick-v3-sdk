@@ -23,8 +23,19 @@ export { type ServiceRegistryPort } from "./ports/service-registry-port.js";
 export { type HealthCheckPort } from "./ports/health-check-port.js";
 
 // Config
-export { type IConfigEntity, type ConfigType } from "./config/iconfig-entity.js";
+export {
+  type IConfigEntity,
+  type ConfigType,
+  type ConfigValidation,
+  type ConfigValidationRules,
+  type ValidationRuleMin,
+  type ValidationRuleMax,
+  type ValidationRuleUrl,
+  type ValidationRuleEmail,
+  type ValidationRuleRegex,
+} from "./config/iconfig-entity.js";
 export { ConfigLoader } from "./config/config-loader.js";
+export { validateConfigValue, ConfigValidationError } from "./config/config-validator.js";
 
 // Migrations
 export {

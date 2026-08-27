@@ -22,6 +22,8 @@ export interface IConfigEntity {
   description_key?: string;
   /** If true, the row is system-critical: editable but not deletable. */
   reserved?: boolean;
+  /** Optional grouping key for UI display. null/empty = ungrouped (top of list). */
+  group_key?: string | null;
 }
 
 /**
@@ -49,3 +51,72 @@ export type ConfigType =
   | "date"
   | "datetime"
   | "time";
+
+// ─── Validation rules (type_config.validation) ─────────────────────────────
+
+/**
+ * Validation rules for a config row, stored inside `type_config` JSON under
+ * the `validation` key. This is the shared schema used by SDK consumers (BE,
+ * microservices) and the FE JSON-to-Zod builder.
+ *
+ * Example type_config JSON:
+ * ```json
+ * {
+ *   "values": { ... },
+ *   "validation": {
+ *     "required": true,
+ *     "rules": {
+ *       "min": { "value": 1, "error_label_key": "config.auth.x.errors.min" },
+ *       "max": { "value": 90, "error_label_key": "config.auth.x.errors.max" }
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export interface ConfigValidation {
+  /** If true, empty/null values are rejected (except secrets with empty = "leave unchanged"). */
+  required: boolean;
+  /** Optional i18n key for the required error message. Falls back to "validation.required". */
+  required_error_label_key?: string;
+  /** Map of rule type → rule config. Each rule has its own error_label_key for i18n. */
+  rules: ConfigValidationRules;
+}
+
+export interface ConfigValidationRules {
+  /** Minimum value (for integer/number) or minimum length (for string/secret). */
+  min?: ValidationRuleMin;
+  /** Maximum value (for integer/number) or maximum length (for string/secret). */
+  max?: ValidationRuleMax;
+  /** URL protocol validation (for url type). */
+  url?: ValidationRuleUrl;
+  /** Email format validation (for string type). */
+  email?: ValidationRuleEmail;
+  /** Regex pattern validation (for string/secret type). */
+  regex?: ValidationRuleRegex;
+}
+
+export interface ValidationRuleMin {
+  value: number;
+  error_label_key: string;
+}
+
+export interface ValidationRuleMax {
+  value: number;
+  error_label_key: string;
+}
+
+export interface ValidationRuleUrl {
+  /** Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. */
+  protocols: string[];
+  error_label_key: string;
+}
+
+export interface ValidationRuleEmail {
+  error_label_key: string;
+}
+
+export interface ValidationRuleRegex {
+  /** Regex pattern string (parsed via new RegExp(pattern)). */
+  pattern: string;
+  error_label_key: string;
+}
