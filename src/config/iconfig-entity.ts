@@ -32,7 +32,8 @@ export interface IConfigEntity {
  *
  * - `string` / `text` / `url` / `secret` / `json`: string as-is (SDK) / various FE widgets.
  * - `boolean`: SDK coerces via `value === "true"`.
- * - `integer` / `number`: SDK coerces via `parseInt` / `parseFloat`.
+ * - `bigint` / `number`: SDK coerces via `BigInt` / `Number`.
+ * - `money`: SDK coerces via `Number` (amount only; currency is in `type_config`).
  * - `badge`: static set of options defined inline in `type_config.values`.
  * - `list`: dynamic options loaded from a BE API URL in `type_config.api_url`.
  * - `date` / `datetime` / `time`: ISO date/datetime/time strings.
@@ -41,8 +42,9 @@ export type ConfigType =
   | "string"
   | "text"
   | "boolean"
-  | "integer"
+  | "bigint"
   | "number"
+  | "money"
   | "badge"
   | "list"
   | "url"
@@ -51,6 +53,18 @@ export type ConfigType =
   | "date"
   | "datetime"
   | "time";
+
+/**
+ * type_config shape for `money` config type.
+ * The amount is stored in the `value` column (as a TEXT string);
+ * the currency and optional allowed-currencies list live in `type_config` JSON.
+ */
+export interface ConfigTypeMoneyConfig {
+  /** ISO 4217 currency code, e.g. "EUR", "USD". Set by user, stored in type_config. */
+  currency: string;
+  /** Optional: restrict selectable currencies. If absent, all ISO 4217 codes are allowed. */
+  allowed_currencies?: string[];
+}
 
 // ─── Validation rules (type_config.validation) ─────────────────────────────
 
@@ -78,14 +92,22 @@ export interface ConfigValidation {
   required: boolean;
   /** Optional i18n key for the required error message. Falls back to "validation.required". */
   required_error_label_key?: string;
+  /**
+   * If true, numeric values (bigint/number/money) are treated as unsigned:
+   * - Sign characters (`-`, `+`) are rejected at the type-validation level.
+   * - The effective minimum defaults to 0 when no explicit `rules.min` is set.
+   * Absent or false → signed (default, backward compatible).
+   * Only `unsigned: true` activates unsigned behavior.
+   */
+  unsigned?: boolean;
   /** Map of rule type → rule config. Each rule has its own error_label_key for i18n. */
   rules: ConfigValidationRules;
 }
 
 export interface ConfigValidationRules {
-  /** Minimum value (for integer/number) or minimum length (for string/secret). */
+  /** Minimum value (for bigint/number/money) or minimum length (for string/secret). */
   min?: ValidationRuleMin;
-  /** Maximum value (for integer/number) or maximum length (for string/secret). */
+  /** Maximum value (for bigint/number/money) or maximum length (for string/secret). */
   max?: ValidationRuleMax;
   /** URL protocol validation (for url type). */
   url?: ValidationRuleUrl;
@@ -96,12 +118,12 @@ export interface ConfigValidationRules {
 }
 
 export interface ValidationRuleMin {
-  value: number;
+  value: number | bigint;
   error_label_key: string;
 }
 
 export interface ValidationRuleMax {
-  value: number;
+  value: number | bigint;
   error_label_key: string;
 }
 

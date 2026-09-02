@@ -102,14 +102,21 @@ types. If you send a `number` integer, expect a `bigint` back.
 ### Express middleware (BE)
 
 ```ts
-import { extJsonMiddleware } from "@primebrick/sdk";
+import { extJsonMiddleware, extJsonBodyParser } from "@primebrick/sdk";
 
+// Parse request bodies with BigInt-safe JSON (replaces express.json())
+app.use(extJsonBodyParser());
+
+// Serialize responses with Ext-JSON
 app.use(extJsonMiddleware());
 // res.json() now uses Ext-JSON serialization for all subsequent responses
 ```
 
-The middleware replaces `res.json()` with Ext-JSON serialization. Install it
-once before any routes.
+The middleware replaces `res.json()` with Ext-JSON serialization. The body
+parser replaces `express.json()` with BigInt-safe parsing so that large
+integer values in request bodies (e.g. `bigint` config values) are parsed
+as native `bigint` instead of losing precision through `JSON.parse`. Install
+both once before any routes.
 
 ### NATS™ (microservices)
 
@@ -122,7 +129,7 @@ directly — just pass plain objects and receive plain objects.
 If you need only the JSON functions without pulling in NATS™/auth code paths:
 
 ```ts
-import { extJsonStringify, extJsonParse, extJsonMiddleware } from "@primebrick/sdk/json";
+import { extJsonStringify, extJsonParse, extJsonMiddleware, extJsonBodyParser } from "@primebrick/sdk/json";
 ```
 
 ## Not for the frontend
@@ -135,4 +142,4 @@ is for BE and microservices only.
 
 - [NATS Client](nats-client) — uses Ext-JSON internally
 - [HTTP Server](http-server) — uses Ext-JSON for health and error responses
-- [API Reference](api-reference) — extJsonStringify, extJsonParse, extJsonMiddleware
+- [API Reference](api-reference) — extJsonStringify, extJsonParse, extJsonMiddleware, extJsonBodyParser

@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { extJsonStringify, extJsonParse } from "../ext-json.js";
+import { describe, it, expect, vi } from "vitest";
+import { extJsonStringify, extJsonParse, extJsonBodyParser } from "../ext-json.js";
+import type { Request, Response, NextFunction } from "express";
+import { PassThrough } from "node:stream";
 
 describe("ext-json", () => {
   describe("extJsonStringify", () => {
@@ -136,6 +138,98 @@ describe("ext-json", () => {
       expect(parsed.total).toBe(15n);
       expect(parsed.tax).toBe(1.5);
       expect(typeof parsed.tax).toBe("number");
+    });
+  });
+
+  describe("extJsonBodyParser", () => {
+    function makeReq(body: string, contentType = "application/json"): Request {
+      const stream = new PassThrough();
+      stream.write(body);
+      stream.end();
+      // Mimic Express Request enough for the parser
+      const req = {
+        headers: { "content-type": contentType },
+        on: stream.on.bind(stream),
+        destroy: stream.destroy.bind(stream),
+        body: undefined as unknown,
+      } as unknown as Request;
+      return req;
+    }
+
+    function makeRes(): Response {
+      return {} as unknown as Response;
+    }
+
+    it("parses JSON body with bigint values", async () => {
+      const json = '{"value":42,"name":"test"}';
+      const req = makeReq(json);
+      const res = makeRes();
+      const next: NextFunction = vi.fn();
+
+      await extJsonBodyParser()(req, res, next);
+
+      expect((req.body as any).value).toBe(42n);
+      expect(typeof (req.body as any).value).toBe("bigint");
+      expect((req.body as any).name).toBe("test");
+      expect(next).toHaveBeenCalled();
+    });
+
+    it("parses large bigint without precision loss", async () => {
+      const json = '{"value":99999999999999999999}';
+      const req = makeReq(json);
+      const res = makeRes();
+      const next: NextFunction = vi.fn();
+
+      await extJsonBodyParser()(req, res, next);
+
+      expect((req.body as any).value).toBe(99999999999999999999n);
+      expect(typeof (req.body as any).value).toBe("bigint");
+    });
+
+    it("preserves float as number", async () => {
+      const json = '{"price":3.14}';
+      const req = makeReq(json);
+      const res = makeRes();
+      const next: NextFunction = vi.fn();
+
+      await extJsonBodyParser()(req, res, next);
+
+      expect((req.body as any).price).toBe(3.14);
+      expect(typeof (req.body as any).price).toBe("number");
+    });
+
+    it("skips parsing for non-JSON content type", async () => {
+      const req = makeReq("raw text", "text/plain");
+      const res = makeRes();
+      const next: NextFunction = vi.fn();
+
+      await extJsonBodyParser()(req, res, next);
+
+      expect(req.body).toBeUndefined();
+      expect(next).toHaveBeenCalled();
+    });
+
+    it("sets empty object for empty body", async () => {
+      const req = makeReq("");
+      const res = makeRes();
+      const next: NextFunction = vi.fn();
+
+      await extJsonBodyParser()(req, res, next);
+
+      expect(req.body).toEqual({});
+      expect(next).toHaveBeenCalled();
+    });
+
+    it("calls next with error for invalid JSON", async () => {
+      const req = makeReq("{invalid json}");
+      const res = makeRes();
+      const next: NextFunction = vi.fn();
+
+      await extJsonBodyParser()(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(Error));
+      const err = (next as any).mock.calls[0][0];
+      expect(err.status).toBe(400);
     });
   });
 });

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      countries-list:
+        specifier: 3.4.1
+        version: 3.4.1
       jose:
         specifier: 6.2.3
         version: 6.2.3
@@ -326,6 +329,9 @@ packages:
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
+
+  countries-list@3.4.1:
+    resolution: {integrity: sha512-sKLGAZD5EAdzQwQ19vOp/9u33MTjmZ0CkdXPYtp/An6cyIlJ/E8TwGf2FcPe1AnzHO+h7nbTfoHyXIi58Hpa+Q==}
 
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
@@ -900,6 +906,8 @@ snapshots:
   cluster-key-slot@1.1.2: {}
 
   convert-source-map@2.0.0: {}
+
+  countries-list@3.4.1: {}
 
   detect-libc@2.1.2: {}
 

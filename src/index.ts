@@ -26,6 +26,7 @@ export { type HealthCheckPort } from "./ports/health-check-port.js";
 export {
   type IConfigEntity,
   type ConfigType,
+  type ConfigTypeMoneyConfig,
   type ConfigValidation,
   type ConfigValidationRules,
   type ValidationRuleMin,
@@ -35,7 +36,15 @@ export {
   type ValidationRuleRegex,
 } from "./config/iconfig-entity.js";
 export { ConfigLoader } from "./config/config-loader.js";
-export { validateConfigValue, ConfigValidationError } from "./config/config-validator.js";
+export {
+  validateConfigValue,
+  ConfigValidationError,
+  coerceConfigValue,
+  serializeConfigValue,
+} from "./config/config-validator.js";
+
+// Currency helpers (BE/US only — FE has its own independent copy)
+export * from "./currency/index.js";
 
 // Migrations
 export {
@@ -93,6 +102,7 @@ export {
   extJsonStringify,
   extJsonParse,
   extJsonMiddleware,
+  extJsonBodyParser,
 } from "./json/ext-json.js";
 
 // Cache — best-effort Redis cache layer (BE/US; DAL is NOT involved)

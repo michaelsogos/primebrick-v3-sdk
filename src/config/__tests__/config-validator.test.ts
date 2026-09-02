@@ -14,14 +14,23 @@ describe("validateConfigValue", () => {
     expect(() => validateConfigValue("boolean", null, "false", "test_key")).not.toThrow();
   });
 
-  it("rejects non-integer for integer type", () => {
-    expect(() => validateConfigValue("integer", null, "abc", "test_key")).toThrow(/invalidInteger/);
-    expect(() => validateConfigValue("integer", null, "1.5", "test_key")).toThrow(/invalidInteger/);
+  it("rejects non-bigint for bigint type", () => {
+    expect(() => validateConfigValue("bigint", null, "abc", "test_key")).toThrow(/invalidBigint/);
+    expect(() => validateConfigValue("bigint", null, "1.5", "test_key")).toThrow(/invalidBigint/);
   });
 
-  it("accepts valid integers", () => {
-    expect(() => validateConfigValue("integer", null, "30", "test_key")).not.toThrow();
-    expect(() => validateConfigValue("integer", null, "-5", "test_key")).not.toThrow();
+  it("accepts valid bigints", () => {
+    expect(() => validateConfigValue("bigint", null, "30", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("bigint", null, "-5", "test_key")).not.toThrow();
+  });
+
+  it("rejects non-number for money type", () => {
+    expect(() => validateConfigValue("money", null, "abc", "test_key")).toThrow(/invalidNumber/);
+  });
+
+  it("accepts valid money amounts", () => {
+    expect(() => validateConfigValue("money", null, "99.99", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("money", null, "0", "test_key")).not.toThrow();
   });
 
   it("rejects non-number for number type", () => {
@@ -59,21 +68,29 @@ describe("validateConfigValue", () => {
 
   // ─── min/max rules ──────────────────────────────────────────────────────
 
-  it("validates min for integer (numeric value)", () => {
+  it("validates min for bigint (numeric value)", () => {
     const tc = JSON.stringify({
       validation: { required: true, rules: { min: { value: 1, error_label_key: "err.min" } } },
     });
-    expect(() => validateConfigValue("integer", tc, "0", "test_key")).toThrow(/err\.min/);
-    expect(() => validateConfigValue("integer", tc, "1", "test_key")).not.toThrow();
-    expect(() => validateConfigValue("integer", tc, "90", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("bigint", tc, "0", "test_key")).toThrow(/err\.min/);
+    expect(() => validateConfigValue("bigint", tc, "1", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("bigint", tc, "90", "test_key")).not.toThrow();
   });
 
-  it("validates max for integer (numeric value)", () => {
+  it("validates max for bigint (numeric value)", () => {
     const tc = JSON.stringify({
       validation: { required: true, rules: { max: { value: 90, error_label_key: "err.max" } } },
     });
-    expect(() => validateConfigValue("integer", tc, "91", "test_key")).toThrow(/err\.max/);
-    expect(() => validateConfigValue("integer", tc, "90", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("bigint", tc, "91", "test_key")).toThrow(/err\.max/);
+    expect(() => validateConfigValue("bigint", tc, "90", "test_key")).not.toThrow();
+  });
+
+  it("validates min for money (numeric value)", () => {
+    const tc = JSON.stringify({
+      validation: { required: true, rules: { min: { value: 0, error_label_key: "err.min" } } },
+    });
+    expect(() => validateConfigValue("money", tc, "-1", "test_key")).toThrow(/err\.min/);
+    expect(() => validateConfigValue("money", tc, "0", "test_key")).not.toThrow();
   });
 
   it("validates min for string (length)", () => {
@@ -158,7 +175,7 @@ describe("validateConfigValue", () => {
 
   // ─── Combined rules ─────────────────────────────────────────────────────
 
-  it("validates combined min + max for integer", () => {
+  it("validates combined min + max for bigint", () => {
     const tc = JSON.stringify({
       validation: {
         required: true,
@@ -168,9 +185,9 @@ describe("validateConfigValue", () => {
         },
       },
     });
-    expect(() => validateConfigValue("integer", tc, "29", "test_key")).toThrow(/err\.min/);
-    expect(() => validateConfigValue("integer", tc, "601", "test_key")).toThrow(/err\.max/);
-    expect(() => validateConfigValue("integer", tc, "300", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("bigint", tc, "29", "test_key")).toThrow(/err\.min/);
+    expect(() => validateConfigValue("bigint", tc, "601", "test_key")).toThrow(/err\.max/);
+    expect(() => validateConfigValue("bigint", tc, "300", "test_key")).not.toThrow();
   });
 
   it("validates combined min + max + url for url type", () => {
@@ -187,6 +204,80 @@ describe("validateConfigValue", () => {
     expect(() => validateConfigValue("url", tc, "https://example.com/path", "test_key")).not.toThrow();
     expect(() => validateConfigValue("url", tc, "ftp://x.com", "test_key")).toThrow(/err\.url/);
     expect(() => validateConfigValue("url", tc, "https://x", "test_key")).toThrow(/err\.min/);
+  });
+
+  // ─── unsigned flag ──────────────────────────────────────────────────────
+
+  it("unsigned bigint rejects negative sign", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    expect(() => validateConfigValue("bigint", tc, "-5", "test_key")).toThrow();
+    expect(() => validateConfigValue("bigint", tc, "5", "test_key")).not.toThrow();
+  });
+
+  it("unsigned bigint rejects plus sign", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    expect(() => validateConfigValue("bigint", tc, "+5", "test_key")).toThrow();
+  });
+
+  it("unsigned bigint accepts zero", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    expect(() => validateConfigValue("bigint", tc, "0", "test_key")).not.toThrow();
+  });
+
+  it("unsigned bigint defaults min to 0 when no explicit min rule", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    // Negative values are already rejected by the regex, but the default-min=0
+    // also guards against edge cases where the value passes the regex but is < 0.
+    expect(() => validateConfigValue("bigint", tc, "0", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("bigint", tc, "42", "test_key")).not.toThrow();
+  });
+
+  it("unsigned bigint respects explicit min rule over default 0", () => {
+    const tc = JSON.stringify({
+      validation: { unsigned: true, required: true, rules: { min: { value: 10, error_label_key: "err.min" } } },
+    });
+    expect(() => validateConfigValue("bigint", tc, "5", "test_key")).toThrow(/err\.min/);
+    expect(() => validateConfigValue("bigint", tc, "10", "test_key")).not.toThrow();
+  });
+
+  it("unsigned number rejects negative sign", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    expect(() => validateConfigValue("number", tc, "-3.14", "test_key")).toThrow();
+    expect(() => validateConfigValue("number", tc, "3.14", "test_key")).not.toThrow();
+  });
+
+  it("unsigned number rejects plus sign", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    expect(() => validateConfigValue("number", tc, "+3.14", "test_key")).toThrow();
+  });
+
+  it("unsigned money rejects negative sign", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    expect(() => validateConfigValue("money", tc, "-99.99", "test_key")).toThrow();
+    expect(() => validateConfigValue("money", tc, "99.99", "test_key")).not.toThrow();
+  });
+
+  it("unsigned money defaults min to 0 when no explicit min rule", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    expect(() => validateConfigValue("money", tc, "0", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("money", tc, "0.01", "test_key")).not.toThrow();
+  });
+
+  it("unsigned: false is the same as absent (signed, default)", () => {
+    const tc = JSON.stringify({ validation: { unsigned: false, required: true, rules: {} } });
+    expect(() => validateConfigValue("bigint", tc, "-5", "test_key")).not.toThrow();
+  });
+
+  it("unsigned flag absent is signed (default, backward compatible)", () => {
+    const tc = JSON.stringify({ validation: { required: true, rules: {} } });
+    expect(() => validateConfigValue("bigint", tc, "-5", "test_key")).not.toThrow();
+    expect(() => validateConfigValue("number", tc, "-3.14", "test_key")).not.toThrow();
+  });
+
+  it("unsigned flag only affects numeric types (not string)", () => {
+    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    // String values are not affected by unsigned — it's a no-op for non-numeric types
+    expect(() => validateConfigValue("string", tc, "-hello-", "test_key")).not.toThrow();
   });
 
   // ─── No validation rules ────────────────────────────────────────────────

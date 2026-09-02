@@ -77,15 +77,117 @@ widget selection). The vocabulary is fixed and shared:
 | `string` | string as-is | `Input` type=text | Single-line text. |
 | `text` | string as-is | `Textarea` | Multi-line text. |
 | `boolean` | `value === "true"` | `Switch` | DB stores only `"true"` / `"false"`. |
-| `integer` | `parseInt(value, 10)` | `Input` type=number | Empty/null stays `null`. |
-| `number` | `parseFloat(value)` | `Input` type=number | Empty/null stays `null`. |
-| `enum` | string, validated against `enum_values` | `ComboSelect` | `enum_values` is a JSON string array. |
+| `bigint` | `BigInt(value)` | `Input` type=number | Integer values backed by JS `BigInt`. Empty/null stays `null`. |
+| `number` | `Number(value)` | `Input` type=number | Decimal/float values backed by JS `Number`. Empty/null stays `null`. |
+| `money` | `Number(value)` | `Input` type=number + currency symbol | Numeric amount with currency metadata in `type_config`. |
+| `badge` | string, validated against `type_config.values` | `ComboSelect` | `type_config` is a JSON object with `values`. |
+| `list` | string, validated against API | `ComboSelect` | `type_config` is a JSON object with `api_url`, `value_field`, `label_field`. |
 | `url` | string as-is | `Input` type=url | Validated at write/upsert path. |
 | `secret` | string as-is | `Password` (masked) | **Never returned in clear text to the FE**; BE masks in list/get, accepts updates only. |
 | `json` | `JSON.parse(value)` | `Textarea` | FE stringifies on save. |
 
+### `bigint` vs `number`
+
+The `bigint` type is for **integer** values backed by JavaScript `BigInt`.
+This avoids precision loss for large integers (e.g. IDs, counters, TTLs in
+seconds). The `number` type is for **decimal/float** values backed by
+JavaScript `Number`.
+
+The conceptual type `"integer"` was renamed to `"bigint"` to make the
+backing JS type explicit. Existing rows are migrated by a fire-and-forget
+SQL patch.
+
+### `money` type
+
+The `money` type is a **primitive numeric display type**, not a composite
+wire-level type. It behaves like `number` for coercion (the amount is a
+JS `Number`), but the FE renders a currency symbol next to the input.
+
+Currency metadata is stored in `type_config` as JSON:
+
+```json
+{"currency":"EUR"}
+```
+
+There is no `Money` class, no `Money` interface, and no `__money` ext-JSON
+tag. The amount is a primitive `number`; the currency is metadata.
+
+### `type_config` column
+
+The `type_config` column stores JSON metadata for the config type:
+
+| `type` | `type_config` shape | Example |
+|--------|---------------------|---------|
+| `money` | `{"currency":"<ISO 4217 code>"}` | `{"currency":"EUR"}` |
+| `badge` | `{"values":{"<value>":{"label_key":"...","color":"..."}}}` | `{"values":{"active":{"label_key":"badge.active","color":"green"}}}` |
+| `list` | `{"api_url":"...","api_verb":"GET","value_field":"...","label_field":"..."}` | `{"api_url":"/api/v1/...","value_field":"uuid","label_field":"name"}` |
+| `string`/`text`/`boolean`/`bigint`/`number`/`url`/`secret`/`json` | `{"validation":{...}}` (optional) | `{"validation":{"required":true,"rules":{}}}` |
+
 Adding a new type requires coordinated changes in the SDK (`coerceConfigValue`)
-and the FE (`ConfigTable` widget switch). Do not add types casually.
+and the FE (`ConfigValueInput` widget switch). Do not add types casually.
+
+### Validation rules (`type_config.validation`)
+
+All config types support an optional `validation` object inside `type_config`.
+The SDK validator (`validateConfigValue`) and the FE Zod builder
+(`buildConfigValueSchema`) read the same shape, so validation is enforced
+consistently on both sides.
+
+```json
+{
+  "validation": {
+    "required": true,
+    "unsigned": true,
+    "rules": {
+      "min": { "value": 0, "error_label_key": "config.x.errors.min" },
+      "max": { "value": 999, "error_label_key": "config.x.errors.max" }
+    }
+  }
+}
+```
+
+| Field | Applies to | Description |
+|-------|-----------|-------------|
+| `required` | All types | If `true`, empty/null values are rejected. Secrets with empty value are skipped (empty = "leave unchanged"). |
+| `required_error_label_key` | All types | Optional i18n key for the required error. Falls back to `validation.required`. |
+| `unsigned` | `bigint`, `number`, `money` | If `true`, the value is treated as unsigned: sign characters (`-`, `+`) are rejected, and the effective minimum defaults to `0` when no explicit `rules.min` is set. Absent or `false` → signed (default, backward compatible). Only `unsigned: true` activates unsigned behavior. |
+| `rules.min` | `bigint`/`number`/`money` (numeric value); `string`/`text`/`secret`/`url` (length) | Minimum value or minimum length. |
+| `rules.max` | `bigint`/`number`/`money` (numeric value); `string`/`text`/`secret`/`url` (length) | Maximum value or maximum length. |
+| `rules.url` | `url`, `string` | Allowed URL protocols (e.g. `["http", "https"]`). |
+| `rules.email` | `string`, `text` | Email format validation. |
+| `rules.regex` | `string`, `text`, `secret` | Regex pattern validation. |
+
+#### Unsigned numeric values
+
+Setting `"unsigned": true` in `type_config.validation` makes the SDK and FE
+enforce unsigned behavior for `bigint`, `number`, and `money` types:
+
+- **Sign characters rejected**: `-` and `+` cannot be entered or submitted.
+- **Default minimum is 0**: when no explicit `rules.min` is set, the minimum
+  defaults to `0`. An explicit `rules.min` with a value greater than `0`
+  takes precedence.
+- **FE input widget**: the numeric input switches to `type="text"` with
+  `inputmode="numeric"` (or `decimal` for `number`/`money`) and filters
+  invalid characters in real-time as the user types. The spinner `min`
+  attribute is set to `0` (or the explicit `rules.min` value) so the
+  down-arrow stops at the minimum.
+
+Example `type_config` for an unsigned bigint with min=10:
+
+```json
+{
+  "validation": {
+    "unsigned": true,
+    "required": true,
+    "rules": {
+      "min": { "value": 10, "error_label_key": "config.x.errors.min" }
+    }
+  }
+}
+```
+
+When `unsigned` is absent or `false`, the value is signed (default):
+negative values are allowed, and no default minimum is applied.
 
 ## Data-quality rules
 
@@ -108,8 +210,8 @@ import type { IConfigEntity, ConfigRepositoryPort } from "@primebrick/sdk";
 interface IConfigEntity {
   key: string;
   value: string | null;
-  type: ConfigType;                 // "string" | "boolean" | "integer" | ...
-  enum_values?: string | null;      // JSON array string, only for type='enum'
+  type: ConfigType;                 // "string" | "boolean" | "bigint" | "number" | "money" | ...
+  type_config?: string | null;      // JSON metadata (currency, badge values, list API config)
   label_key?: string;
   description_key?: string;
 }
@@ -241,9 +343,11 @@ two-column layout:
 - **Right column**: a widget chosen by `entry.type`:
   - `string` / `url` → `Input`
   - `text` / `json` → `Textarea`
-  - `integer` / `number` → `Input type="number"`
+  - `bigint` / `number` → `Input type="number"`
+  - `money` → `Input type="number"` + currency symbol (from `type_config.currency`)
   - `boolean` → `Switch`
-  - `enum` → `ComboSelect` (options from `enum_values`)
+  - `badge` → `ComboSelect` (options from `type_config.values`)
+  - `list` → `ComboSelect` (options from `type_config.api_url`)
   - `secret` → `Password` (masked)
 
 The component coerces the user-entered value back to a string before
