@@ -14,7 +14,7 @@ export interface IConfigEntity {
   value: string | null;
   /** Config value type — drives SDK coercion and FE widget selection. See ConfigType. */
   type: ConfigType;
-  /** JSONB-text extra per-type configuration (e.g. badge inline values, list API URL). */
+  /** JSONB-text extra per-type configuration (e.g. badge inline values, select API URL). */
   type_config?: string | null;
   /** Optional i18n translation key for a short title (used by BE/FE for display). */
   label_key?: string;
@@ -35,7 +35,8 @@ export interface IConfigEntity {
  * - `bigint` / `number`: SDK coerces via `BigInt` / `Number`.
  * - `money`: SDK coerces via `Number` (amount only; currency is in `type_config`).
  * - `badge`: static set of options defined inline in `type_config.values`.
- * - `list`: dynamic options loaded from a BE API URL in `type_config.api_url`.
+ * - `single_select`: single-selection dropdown (was `list`). Options from `type_config.api_url` or `type_config.values_source`.
+ * - `multi_select`: multi-selection dropdown. Options from `type_config.api_url` or `type_config.values_source`. Value stored as comma-separated string.
  * - `date` / `datetime` / `time`: ISO date/datetime/time strings.
  */
 export type ConfigType =
@@ -46,7 +47,8 @@ export type ConfigType =
   | "number"
   | "money"
   | "badge"
-  | "list"
+  | "single_select"
+  | "multi_select"
   | "url"
   | "secret"
   | "json"

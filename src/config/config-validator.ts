@@ -250,8 +250,8 @@ function validateType(type: ConfigType, value: string, config_key: string, unsig
         throw new ConfigValidationError("validation.invalidJson", "type", config_key);
       }
       break;
-    // string, text, secret, badge, list, date, datetime, time: no base type check
-    // badge/list values are validated against type_config.values/api_url separately
+    // string, text, secret, badge, single_select, multi_select, date, datetime, time: no base type check
+    // badge/single_select/multi_select values are validated against type_config.values/api_url/values_source separately
   }
 }
 

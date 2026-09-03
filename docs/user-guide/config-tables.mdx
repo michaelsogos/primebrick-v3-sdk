@@ -81,7 +81,8 @@ widget selection). The vocabulary is fixed and shared:
 | `number` | `Number(value)` | `Input` type=number | Decimal/float values backed by JS `Number`. Empty/null stays `null`. |
 | `money` | `Number(value)` | `Input` type=number + currency symbol | Numeric amount with currency metadata in `type_config`. |
 | `badge` | string, validated against `type_config.values` | `ComboSelect` | `type_config` is a JSON object with `values`. |
-| `list` | string, validated against API | `ComboSelect` | `type_config` is a JSON object with `api_url`, `value_field`, `label_field`. |
+| `single_select` | string, validated against API or values_source | `ComboSelect` (single) | `type_config` has `api_url` or `values_source`, `value_field`, `label_field`. Was `list`. |
+| `multi_select` | comma-separated string | `ComboSelect` (multi) | Same `type_config` as `single_select`. Value stored as CSV (e.g. `"EUR,USD,GBP"`). |
 | `url` | string as-is | `Input` type=url | Validated at write/upsert path. |
 | `secret` | string as-is | `Password` (masked) | **Never returned in clear text to the FE**; BE masks in list/get, accepts updates only. |
 | `json` | `JSON.parse(value)` | `Textarea` | FE stringifies on save. |
@@ -120,7 +121,7 @@ The `type_config` column stores JSON metadata for the config type:
 |--------|---------------------|---------|
 | `money` | `{"currency":"<ISO 4217 code>"}` | `{"currency":"EUR"}` |
 | `badge` | `{"values":{"<value>":{"label_key":"...","color":"..."}}}` | `{"values":{"active":{"label_key":"badge.active","color":"green"}}}` |
-| `list` | `{"api_url":"...","api_verb":"GET","value_field":"...","label_field":"..."}` | `{"api_url":"/api/v1/...","value_field":"uuid","label_field":"name"}` |
+| `single_select` / `multi_select` | `{"api_url":"...","value_field":"...","label_field":"..."}` or `{"values_source":"currencies","value_field":"...","label_field":"..."}` | `{"api_url":"/api/v1/...","value_field":"uuid","label_field":"name"}` |
 | `string`/`text`/`boolean`/`bigint`/`number`/`url`/`secret`/`json` | `{"validation":{...}}` (optional) | `{"validation":{"required":true,"rules":{}}}` |
 
 Adding a new type requires coordinated changes in the SDK (`coerceConfigValue`)
@@ -347,7 +348,8 @@ two-column layout:
   - `money` → `Input type="number"` + currency symbol (from `type_config.currency`)
   - `boolean` → `Switch`
   - `badge` → `ComboSelect` (options from `type_config.values`)
-  - `list` → `ComboSelect` (options from `type_config.api_url`)
+  - `single_select` → `ComboSelect` single mode (options from `type_config.api_url` or `type_config.values_source`)
+  - `multi_select` → `ComboSelect` multi mode (same options source; value stored as CSV)
   - `secret` → `Password` (masked)
 
 The component coerces the user-entered value back to a string before
