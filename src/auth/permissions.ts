@@ -99,6 +99,9 @@ export const Permission = {
   ROLE_MAPPINGS_CREATE: "role_mappings.create",
   ROLE_MAPPINGS_UPDATE: "role_mappings.update",
   ROLE_MAPPINGS_DELETE: "role_mappings.delete",
+
+  // --- Translations module (admin) ---
+  TRANSLATIONS_MANAGE: "translations.manage",
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];
