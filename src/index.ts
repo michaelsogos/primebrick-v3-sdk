@@ -177,3 +177,8 @@ export {
   publishPresence,
   publishEntityChanged,
 } from "./presence/nats-subjects.js";
+
+// Translations — framework-agnostic i18n service + cache helpers (BE only)
+// DB-agnostic: the BE resolves entity metadata (schema, qualified table name)
+// and passes it to the service. PG builds the dict via jsonb_object_agg.
+export * from "./translations/index.js";
