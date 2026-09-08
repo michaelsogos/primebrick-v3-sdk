@@ -114,7 +114,7 @@ export class TranslationsService {
   ): Promise<I18nDict> {
     const cache = this.getCache(schema);
     const cached = await cache.getI18nDict(language);
-    if (cached) return cached;
+    if (cached) return cached.data;
 
     const result = await this.opts.queryable.query(
       `SELECT jsonb_object_agg(key, value) AS dict FROM ${qualifiedTable} WHERE language = $1 AND deleted_at IS NULL`,

@@ -27,6 +27,8 @@ export {
   type IConfigEntity,
   type ConfigType,
   type ConfigTypeMoneyConfig,
+  type ConfigTypeUrlConfig,
+  type ConfigTypePhoneConfig,
   type ConfigValidation,
   type ConfigValidationRules,
   type ValidationRuleMin,
@@ -139,6 +141,18 @@ export {
   getSdkRedisInfo,
   resetSdkCachePort,
 } from "./cache/cache-port-holder.js";
+export { type CacheEntry, type CacheResponseMeta } from "./cache/cache-entry.js";
+export {
+  computeETag,
+  computeVersionETag,
+  wrapCacheEntry,
+  etagMatches,
+} from "./cache/etag.js";
+export {
+  CACHE_HEADERS,
+  CACHE_CONTROL_CACHED,
+  type CacheScope,
+} from "./cache/cache-headers.js";
 
 // Shared config — NATS `config.get` protocol for BE→microservice config sharing
 export {

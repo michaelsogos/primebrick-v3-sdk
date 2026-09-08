@@ -27,11 +27,22 @@
  * Only single-row finders are cached: `findById`, `findByUUID`, `find`. `findAll` and
  * `findByPage` are NOT cached (high-cardinality keys, memory bomb risk, stale-on-write
  * window dangerous for list views).
+ *
+ * Cache entries are stored as `CacheEntry<T>` (data + etag) in Redis. The wrapper
+ * unwraps `CacheEntry.data` before returning to callers, so existing code sees the
+ * raw row (backward compatible). The ETag is available via `findByUUIDWithCache`
+ * for endpoints that need to return ETag headers.
+ *
+ * Writes invalidate the entity cache prefix after a successful DB write. `add` is
+ * NOT included in write methods — an INSERT creates a new row that was never cached
+ * and does not modify existing cached rows.
  */
 
 import type { CachePort } from "./cache-port.js";
 import { CacheKeyBuilder } from "./cache-port.js";
 import { isEntityCached, getEntityCacheTtl, getCacheKeyProperty } from "./cache-decorators.js";
+import type { CacheEntry } from "./cache-entry.js";
+import { wrapCacheEntry } from "./etag.js";
 
 /**
  * Structural interface — a DAL Repository satisfies this without any import from the DAL.
@@ -99,6 +110,7 @@ export function withCache<R extends CacheableRepository>(
 
   // findById: input is the PKEY, but the cache key is the uuid/@CacheKey field from the
   // result row. So we CANNOT try cache before DB — we go to DB first, then set from result.
+  // Stores CacheEntry (data + etag) in Redis; unwraps to raw row for callers (backward compat).
   repo.findById = async (cls, id, opts) => {
     if (!isEntityCached(cls)) return orig.findById(cls, id, opts);
     const row = await orig.findById(cls, id, opts);
@@ -106,7 +118,8 @@ export function withCache<R extends CacheableRepository>(
       try {
         const key = CacheKeyBuilder.forRowFromMeta(cls, row);
         if (key === null) return row; // non-entity-shaped row → skip cache silently
-        port.set(key, row, getEntityCacheTtl(cls)).catch((e) =>
+        const entry = wrapCacheEntry(row);
+        port.set(key, entry, getEntityCacheTtl(cls)).catch((e) =>
           logger?.warn(`[cache] set failed for ${cls.name}: ${e}`),
         );
       } catch (e) {
@@ -119,6 +132,7 @@ export function withCache<R extends CacheableRepository>(
   // findByUUID: input IS the uuid, which is the cache key (or @CacheKey field). We CAN
   // try cache before DB. If @CacheKey is set on a non-uuid field, we fall back to DB-first
   // behavior (same as findById) because we can't predict the key from the input.
+  // Stores CacheEntry (data + etag) in Redis; unwraps to raw row for callers (backward compat).
   repo.findByUUID = async (cls, uuid, opts) => {
     if (!isEntityCached(cls)) return orig.findByUUID(cls, uuid, opts);
     const cacheKeyProp = getCacheKeyProperty(cls);
@@ -126,8 +140,15 @@ export function withCache<R extends CacheableRepository>(
     if (!cacheKeyProp || cacheKeyProp === "uuid") {
       const key = `${CacheKeyBuilder.forEntity(cls)}${uuid}`;
       try {
-        const cached = await port.get<any>(key);
-        if (cached !== null && cached !== undefined) return cached;
+        const cached = await port.get<CacheEntry<any>>(key);
+        if (cached !== null && cached !== undefined) {
+          // Unwrap CacheEntry — callers see the raw row (backward compat)
+          if (cached && typeof cached === "object" && "data" in cached && "etag" in cached) {
+            return cached.data;
+          }
+          // Legacy: old cache entries stored the raw row without wrapper
+          return cached;
+        }
       } catch (e) {
         logger?.warn(`[cache] get failed for ${cls.name} uuid=${uuid}: ${e}`);
       }
@@ -137,7 +158,8 @@ export function withCache<R extends CacheableRepository>(
       try {
         const key = CacheKeyBuilder.forRowFromMeta(cls, row);
         if (key === null) return row; // non-entity-shaped row → skip cache silently
-        port.set(key, row, getEntityCacheTtl(cls)).catch((e) =>
+        const entry = wrapCacheEntry(row);
+        port.set(key, entry, getEntityCacheTtl(cls)).catch((e) =>
           logger?.warn(`[cache] set failed for ${cls.name}: ${e}`),
         );
       } catch (e) {
@@ -148,7 +170,7 @@ export function withCache<R extends CacheableRepository>(
   };
 
   // find: returns 1 row by construction (limit: 1). Input is filters, not a key —
-  // DB-first, then set from result.
+  // DB-first, then set from result. Stores CacheEntry (data + etag) in Redis.
   repo.find = async (cls, fields, opts) => {
     if (!isEntityCached(cls)) return orig.find(cls, fields, opts);
     const row = await orig.find(cls, fields, opts);
@@ -156,7 +178,8 @@ export function withCache<R extends CacheableRepository>(
       try {
         const key = CacheKeyBuilder.forRowFromMeta(cls, row);
         if (key === null) return row; // non-entity-shaped row (e.g. aggregate) → skip cache silently
-        port.set(key, row, getEntityCacheTtl(cls)).catch((e) =>
+        const entry = wrapCacheEntry(row);
+        port.set(key, entry, getEntityCacheTtl(cls)).catch((e) =>
           logger?.warn(`[cache] set failed for ${cls.name}: ${e}`),
         );
       } catch (e) {
@@ -177,8 +200,11 @@ export function withCache<R extends CacheableRepository>(
     }
   };
 
+  // Write methods that invalidate the entity cache prefix after a successful DB write.
+  // `add` is NOT included: an INSERT creates a new row that was never cached, and does
+  // not modify any existing cached row. Existing cache entries remain valid.
+  // `addMany` and `clone` are also excluded (same reasoning — bulk INSERT / copy-INSERT).
   const writeMethods = [
-    "add",
     "update",
     "delete",
     "restore",

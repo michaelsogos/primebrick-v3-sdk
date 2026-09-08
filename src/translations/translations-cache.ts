@@ -12,6 +12,8 @@
  */
 
 import type { CachePort } from "../cache/cache-port.js";
+import type { CacheEntry } from "../cache/cache-entry.js";
+import { wrapCacheEntry } from "../cache/etag.js";
 
 /** Flat i18n dict — keys are full dot-paths (e.g. "app.auth.login.title"). */
 export type I18nDict = Record<string, string>;
@@ -35,10 +37,17 @@ export class TranslationsCache {
     private readonly schema: string,
   ) {}
 
-  async getI18nDict(language: string): Promise<I18nDict | null> {
+  async getI18nDict(language: string): Promise<CacheEntry<I18nDict> | null> {
     if (!this.port) return null;
     try {
-      return await this.port.get<I18nDict>(i18nCacheKey(this.schema, language));
+      const cached = await this.port.get<CacheEntry<I18nDict> | I18nDict>(i18nCacheKey(this.schema, language));
+      if (!cached) return null;
+      // Backward compat: old entries stored the raw dict without wrapper
+      if (cached && typeof cached === "object" && "data" in cached && "etag" in cached) {
+        return cached as CacheEntry<I18nDict>;
+      }
+      // Legacy: wrap the raw dict into a CacheEntry
+      return wrapCacheEntry(cached as I18nDict);
     } catch {
       return null;
     }
@@ -47,7 +56,8 @@ export class TranslationsCache {
   async setI18nDict(language: string, dict: I18nDict): Promise<void> {
     if (!this.port) return;
     try {
-      await this.port.set(i18nCacheKey(this.schema, language), dict, I18N_CACHE_TTL);
+      const entry = wrapCacheEntry(dict);
+      await this.port.set(i18nCacheKey(this.schema, language), entry, I18N_CACHE_TTL);
     } catch {
       // best-effort — cache is a feature, not a requirement
     }

@@ -47,6 +47,7 @@
     "countries-list": "3.4.1",
     "jose": "6.2.3",
     "json-bigint": "1.0.0",
+    "libphonenumber-js": "1.13.12",
     "nats": "2.29.3",
     "redis": "6.1.0",
     "reflect-metadata": "0.2.2"
