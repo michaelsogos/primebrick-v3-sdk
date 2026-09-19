@@ -3,7 +3,7 @@
  *
  * Design:
  *   - Each HTTP action declares the EXACT permission(s) it requires
- *     (e.g. `customers.read.all`, `emailsender.providers.create`). The endpoint,
+ *     (e.g. `customer.read.all`, `emailsender.provider.create.single`). The endpoint,
  *     not the role, determines what is needed.
  *   - Role → Permission mappings are stored in the `role_mappings` table (database).
  *     The auth middleware loads these mappings at startup and expands a user's
@@ -35,73 +35,148 @@ export const Permission = {
   /** Only callers with `isAdmin === true` pass. Use for high-risk non-CRUD admin-only operations. */
   AUTHENTICATED_ADMIN: "_authenticated_admin",
 
-  // --- System / cross-module ---
+  // --- Core / non-entity namespaces ---
+  // Modules service-registry (not entity CRUD — populated by NATS registration).
   MODULES_READ_ALL: "modules.read.all",
   MODULES_READ_SINGLE: "modules.read.single",
-  MODULES_UPDATE: "modules.update.single",
-  MODULES_DELETE: "modules.delete.single",
-  MODULES_CONFIG_READ: "modules.config.read",
-  MODULES_CONFIG_UPDATE: "modules.config.update",
+  MODULES_UPDATE_SINGLE: "modules.update.single",
+  MODULES_DELETE_SINGLE: "modules.delete.single",
+  // Module config_entry sub-entity (core concept shared by every module).
+  // Scope `modules.config` — per-module config object → single cardinality.
+  MODULES_CONFIG_READ_SINGLE: "modules.config.read.single",
+  MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single",
 
-  // --- Settings / Profile module ---
-  PROFILE_READ: "profile.read",
-  PROFILE_UPDATE: "profile.update",
-  USER_PROFILE_READ_AUDIT: "userprofile.read.audit",
+  // --- Entity permission sets ---
+  // Grammar: {scope}.{action}.{cardinality}
+  //   scope       = entity path segment, snake_case SINGULAR (the object granted
+  //                 on, never the collection). Microservice entities are
+  //                 module-prefixed: {module}.{entity}.
+  //   ROPs (read) = read.single | read.all | read.audit | export (no qualifier)
+  //   WOPs (write)= create|update|delete|restore|duplicate . single|bulk
+  // Every CRUD entity owns the canonical 14-permission set — permissions exist
+  // in the registry even when no endpoint uses them yet (admin-gating is a
+  // temporary enforcement posture, not a reason to skip the permission).
+  // Const names are mechanical: CONST = string.toUpperCase().replaceAll(".", "_").
 
-  // --- Users module (admin) ---
-  USERS_READ_ALL: "users.read.all",
-  USERS_READ_SINGLE: "users.read.single",
-  USERS_CREATE_SINGLE: "users.create.single",
-  USERS_UPDATE_SINGLE: "users.update.single",
-  USERS_DELETE_SINGLE: "users.delete.single",
-  USERS_RESTORE_SINGLE: "users.restore.single",
+  // --- auth_event (audit log entity) ---
+  AUTH_EVENT_READ_ALL: "auth_event.read.all",
+  AUTH_EVENT_READ_SINGLE: "auth_event.read.single",
+  AUTH_EVENT_READ_AUDIT: "auth_event.read.audit",
+  AUTH_EVENT_EXPORT: "auth_event.export",
+  AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single",
+  AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk",
+  AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single",
+  AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk",
+  AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single",
+  AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk",
+  AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single",
+  AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk",
+  AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single",
+  AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk",
 
-  // --- Auth events (audit log entity — read-only, no CRUD via MCP) ---
-  AUTH_EVENTS_READ_ALL: "auth_events.read.all",
+  // --- customer ---
+  CUSTOMER_READ_ALL: "customer.read.all",
+  CUSTOMER_READ_SINGLE: "customer.read.single",
+  CUSTOMER_READ_AUDIT: "customer.read.audit",
+  CUSTOMER_EXPORT: "customer.export",
+  CUSTOMER_CREATE_SINGLE: "customer.create.single",
+  CUSTOMER_CREATE_BULK: "customer.create.bulk",
+  CUSTOMER_UPDATE_SINGLE: "customer.update.single",
+  CUSTOMER_UPDATE_BULK: "customer.update.bulk",
+  CUSTOMER_DELETE_SINGLE: "customer.delete.single",
+  CUSTOMER_DELETE_BULK: "customer.delete.bulk",
+  CUSTOMER_RESTORE_SINGLE: "customer.restore.single",
+  CUSTOMER_RESTORE_BULK: "customer.restore.bulk",
+  CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single",
+  CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk",
 
-  // --- Organizations module (admin) ---
-  ORGANIZATIONS_READ_ALL: "organizations.read.all",
-  ORGANIZATIONS_READ_SINGLE: "organizations.read.single",
-  ORGANIZATIONS_READ_AUDIT: "organizations.read.audit",
-  ORGANIZATIONS_CREATE_SINGLE: "organizations.create.single",
-  ORGANIZATIONS_UPDATE_SINGLE: "organizations.update.single",
-  ORGANIZATIONS_DELETE_SINGLE: "organizations.delete.single",
-  ORGANIZATIONS_RESTORE_SINGLE: "organizations.restore.single",
+  // --- organization ---
+  ORGANIZATION_READ_ALL: "organization.read.all",
+  ORGANIZATION_READ_SINGLE: "organization.read.single",
+  ORGANIZATION_READ_AUDIT: "organization.read.audit",
+  ORGANIZATION_EXPORT: "organization.export",
+  ORGANIZATION_CREATE_SINGLE: "organization.create.single",
+  ORGANIZATION_CREATE_BULK: "organization.create.bulk",
+  ORGANIZATION_UPDATE_SINGLE: "organization.update.single",
+  ORGANIZATION_UPDATE_BULK: "organization.update.bulk",
+  ORGANIZATION_DELETE_SINGLE: "organization.delete.single",
+  ORGANIZATION_DELETE_BULK: "organization.delete.bulk",
+  ORGANIZATION_RESTORE_SINGLE: "organization.restore.single",
+  ORGANIZATION_RESTORE_BULK: "organization.restore.bulk",
+  ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single",
+  ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk",
 
-  // --- Customers module ---
-  CUSTOMERS_READ_ALL: "customers.read.all",
-  CUSTOMERS_READ_SINGLE: "customers.read.single",
-  CUSTOMERS_READ_AUDIT: "customers.read.audit",
-  CUSTOMERS_CREATE_SINGLE: "customers.create.single",
-  CUSTOMERS_CREATE_BULK: "customers.create.bulk",
-  CUSTOMERS_UPDATE_SINGLE: "customers.update.single",
-  CUSTOMERS_UPDATE_BULK: "customers.update.bulk",
-  CUSTOMERS_DELETE_SINGLE: "customers.delete.single",
-  CUSTOMERS_DELETE_BULK: "customers.delete.bulk",
-  CUSTOMERS_RESTORE_SINGLE: "customers.restore.single",
-  CUSTOMERS_RESTORE_BULK: "customers.restore.bulk",
-  CUSTOMERS_DUPLICATE_BULK: "customers.duplicate.bulk",
-  CUSTOMERS_EXPORT: "customers.export",
+  // --- role_mapping (admin) ---
+  ROLE_MAPPING_READ_ALL: "role_mapping.read.all",
+  ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single",
+  ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit",
+  ROLE_MAPPING_EXPORT: "role_mapping.export",
+  ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single",
+  ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk",
+  ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single",
+  ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk",
+  ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single",
+  ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk",
+  ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single",
+  ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk",
+  ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single",
+  ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk",
 
-  // --- Emailsender / Providers module ---
-  EMAILSENDER_PROVIDERS_READ_ALL: "emailsender.providers.read.all",
-  EMAILSENDER_PROVIDERS_READ_SINGLE: "emailsender.providers.read.single",
-  EMAILSENDER_PROVIDERS_CREATE: "emailsender.providers.create",
-  EMAILSENDER_PROVIDERS_UPDATE: "emailsender.providers.update",
-  EMAILSENDER_PROVIDERS_DELETE: "emailsender.providers.delete",
+  // --- translation (admin, per-module schemas via ?module= query param) ---
+  TRANSLATION_READ_ALL: "translation.read.all",
+  TRANSLATION_READ_SINGLE: "translation.read.single",
+  TRANSLATION_READ_AUDIT: "translation.read.audit",
+  TRANSLATION_EXPORT: "translation.export",
+  TRANSLATION_CREATE_SINGLE: "translation.create.single",
+  TRANSLATION_CREATE_BULK: "translation.create.bulk",
+  TRANSLATION_UPDATE_SINGLE: "translation.update.single",
+  TRANSLATION_UPDATE_BULK: "translation.update.bulk",
+  TRANSLATION_DELETE_SINGLE: "translation.delete.single",
+  TRANSLATION_DELETE_BULK: "translation.delete.bulk",
+  TRANSLATION_RESTORE_SINGLE: "translation.restore.single",
+  TRANSLATION_RESTORE_BULK: "translation.restore.bulk",
+  TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single",
+  TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk",
+
+  // --- user_profile ---
+  USER_PROFILE_READ_ALL: "user_profile.read.all",
+  USER_PROFILE_READ_SINGLE: "user_profile.read.single",
+  USER_PROFILE_READ_AUDIT: "user_profile.read.audit",
+  USER_PROFILE_EXPORT: "user_profile.export",
+  USER_PROFILE_CREATE_SINGLE: "user_profile.create.single",
+  USER_PROFILE_CREATE_BULK: "user_profile.create.bulk",
+  USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single",
+  USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk",
+  USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single",
+  USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk",
+  USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single",
+  USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk",
+  USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single",
+  USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk",
+
+  // --- emailsender.provider (microservice entity — module-prefixed scope) ---
+  EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all",
+  EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single",
+  EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit",
+  EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export",
+  EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single",
+  EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk",
+  EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single",
+  EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk",
+  EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single",
+  EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk",
+  EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single",
+  EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk",
+  EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single",
+  EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk",
+
+  // --- Action permissions (non-entity, module-scoped verbs) ---
+  // Service action (Category-2 endpoint) — verb-form scope, qualifier-free
+  // by grammar extension: a bare `{scope}.{action}` is legal only when
+  // `action` is NOT a reserved entity op (read/create/update/delete/restore/
+  // duplicate/export) — those always require a qualifier.
   EMAILSENDER_SEND: "emailsender.send",
-  EMAILSENDER_LOG_CREATE: "emailsender.log.create",
-
-  // --- Role mappings module (admin) ---
-  ROLE_MAPPINGS_READ_ALL: "role_mappings.read.all",
-  ROLE_MAPPINGS_READ_SINGLE: "role_mappings.read.single",
-  ROLE_MAPPINGS_READ_AUDIT: "role_mappings.read.audit",
-  ROLE_MAPPINGS_CREATE: "role_mappings.create",
-  ROLE_MAPPINGS_UPDATE: "role_mappings.update",
-  ROLE_MAPPINGS_DELETE: "role_mappings.delete",
-
-  // --- Translations module (admin) ---
-  TRANSLATIONS_MANAGE: "translations.manage",
+  EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single",
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];
@@ -131,7 +206,7 @@ export function listNonSentinelPermissions(): string[] {
 /**
  * Convert a wildcard pattern to a regex for matching.
  * Supports * wildcard only (no ? or character classes for simplicity).
- * Example: "customers.read.*" → /^customers\.read\..*$/
+ * Example: "customer.read.*" → /^customer\.read\..*$/
  */
 function wildcardToRegex(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
@@ -141,8 +216,8 @@ function wildcardToRegex(pattern: string): RegExp {
 
 /**
  * Check if a permission string matches a pattern (supports * wildcard).
- * @param pattern - Pattern with optional * wildcard (e.g., "customers.read.*")
- * @param permission - Permission string to match (e.g., "customers.read.single")
+ * @param pattern - Pattern with optional * wildcard (e.g., "customer.read.*")
+ * @param permission - Permission string to match (e.g., "customer.read.single")
  * @returns true if permission matches pattern
  */
 export function matchesWildcard(pattern: string, permission: string): boolean {

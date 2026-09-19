@@ -162,15 +162,15 @@ sentinels are handled specially:
 import { enforceHttpRbac, Permission } from "@primebrick/sdk";
 
 // In your route handler:
-enforceHttpRbac(user, [Permission.CUSTOMERS_READ_ALL, Permission.CUSTOMERS_READ_SINGLE]);
+enforceHttpRbac(user, [Permission.CUSTOMER_READ_ALL, Permission.CUSTOMER_READ_SINGLE]);
 // OR semantics by default — user needs ANY of the listed permissions
 
-enforceHttpRbac(user, [Permission.CUSTOMERS_CREATE_SINGLE], "all");
+enforceHttpRbac(user, [Permission.CUSTOMER_CREATE_SINGLE], "all");
 // AND semantics — user needs ALL listed permissions
 ```
 
 Admin users (`isAdmin=true`) and system API keys (`isSystem=true`) bypass all
-permission checks. Wildcard patterns in role mappings (e.g. `customers.read.*`)
+permission checks. Wildcard patterns in role mappings (e.g. `customer.read.*`)
 are supported via `matchesWildcard()`.
 
 For NATS™ subscribers, use `enforceNatsRbac()` — same logic, semantic separation.

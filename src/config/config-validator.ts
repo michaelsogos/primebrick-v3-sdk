@@ -12,6 +12,7 @@
  * seed translations and the FE fallback. Both FE and BE use the same keys.
  */
 import type { ConfigType, ConfigValidation } from "./iconfig-entity.js";
+import { NUMERIC_TYPES, STRING_DERIVED_TYPES } from "./type-capabilities.js";
 import { parsePhoneNumber } from "libphonenumber-js";
 
 /**
@@ -111,7 +112,7 @@ export function validateConfigValue(
   //    (validateType already enforced the regex, but we re-check here in case
   //    the value passed validateType via a loose path; this is the authoritative
   //    business-rule enforcement point.)
-  if (validation.unsigned && (type === "bigint" || type === "number" || type === "money")) {
+  if (validation.unsigned && (NUMERIC_TYPES as readonly ConfigType[]).includes(type)) {
     if (value.startsWith("-") || value.startsWith("+")) {
       throw new ConfigValidationError("app.common.validation.unsigned", "unsigned", config_key);
     }
@@ -121,11 +122,10 @@ export function validateConfigValue(
   //    For unsigned numeric types without an explicit min, default min to 0.
   //    String-derived types: string, text, secret, url, email, phone
   const isUnsignedNumeric =
-    validation.unsigned === true && (type === "bigint" || type === "number" || type === "money");
+    validation.unsigned === true &&
+    (NUMERIC_TYPES as readonly ConfigType[]).includes(type);
 
-  const isStringDerived =
-    type === "string" || type === "text" || type === "secret" || type === "url" ||
-    type === "email" || type === "phone";
+  const isStringDerived = (STRING_DERIVED_TYPES as readonly ConfigType[]).includes(type);
 
   if (rules.min) {
     if (type === "bigint") {

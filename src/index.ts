@@ -44,6 +44,16 @@ export {
   coerceConfigValue,
   serializeConfigValue,
 } from "./config/config-validator.js";
+export {
+  STRING_DERIVED_TYPES,
+  NUMERIC_TYPES,
+  TYPE_CAPABILITIES,
+  typeCapabilities,
+  type BoundsKind,
+  type WidgetCapability,
+  type ValidationCapabilities,
+  type TypeCapabilities,
+} from "./config/type-capabilities.js";
 
 // Currency helpers (BE/US only — FE has its own independent copy)
 export * from "./currency/index.js";
