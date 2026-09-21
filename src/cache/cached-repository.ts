@@ -63,7 +63,6 @@ export interface CacheableRepository {
   delete(cls: any, ...args: any[]): Promise<any>;
   restore(cls: any, ...args: any[]): Promise<any>;
   hardDelete(cls: any, ...args: any[]): Promise<any>;
-  upsert(cls: any, ...args: any[]): Promise<any>;
   upsertMany(cls: any, ...args: any[]): Promise<any>;
   updateMany(cls: any, ...args: any[]): Promise<any>;
 }
@@ -101,7 +100,6 @@ export function withCache<R extends CacheableRepository>(
     delete: repo.delete.bind(repo),
     restore: repo.restore.bind(repo),
     hardDelete: repo.hardDelete.bind(repo),
-    upsert: repo.upsert.bind(repo),
     upsertMany: repo.upsertMany.bind(repo),
     updateMany: repo.updateMany.bind(repo),
   };
@@ -204,21 +202,43 @@ export function withCache<R extends CacheableRepository>(
   // `add` is NOT included: an INSERT creates a new row that was never cached, and does
   // not modify any existing cached row. Existing cache entries remain valid.
   // `addMany` and `clone` are also excluded (same reasoning — bulk INSERT / copy-INSERT).
+  // `upsert` (single-record) was removed from the DAL — not wrapped anymore.
   const writeMethods = [
     "update",
     "delete",
     "restore",
     "hardDelete",
-    "upsert",
     "upsertMany",
     "updateMany",
   ] as const;
   for (const name of writeMethods) {
     const fn = orig[name];
     (repo as any)[name] = async (cls: any, ...args: any[]) => {
-      const result = await fn(cls, ...args);
-      await invalidate(cls);
-      return result;
+      try {
+        const result = await fn(cls, ...args);
+        await invalidate(cls);
+        return result;
+      } catch (e) {
+        // A failed guarded write proves the cached row is stale: ERR01 means someone
+        // else wrote after our read, ERR03 means the row vanished. Evicting is always
+        // safe — and it self-heals staleness caused by out-of-band writes (manual SQL,
+        // migrations) that bypass invalidation. Surgical key delete when the match
+        // carries the uuid; prefix fallback otherwise. Best-effort, then rethrow.
+        const code = (e as { code?: string })?.code;
+        if ((code === "ERR01" || code === "ERR03") && isEntityCached(cls)) {
+          const match = args[0] as Record<string, unknown> | undefined;
+          try {
+            if (typeof match?.uuid === "string") {
+              await port.del(`${CacheKeyBuilder.forEntity(cls)}${match.uuid}`);
+            } else {
+              await port.delByPrefix(CacheKeyBuilder.forEntity(cls));
+            }
+          } catch (cacheErr) {
+            logger?.warn(`[cache] conflict-evict failed for ${cls.name}: ${cacheErr}`);
+          }
+        }
+        throw e;
+      }
     };
   }
 
