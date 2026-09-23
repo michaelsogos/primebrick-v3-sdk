@@ -56,3 +56,11 @@ These are synced to `docs.primebrick.dev` by the docs repo's CI pipeline.
 - **Do NOT hand-edit** files in `docs/ai/` or `docs/skills/` — those are internal
 - **Internal docs** (`docs/ai/`, `docs/skills/`, `docs/gitflow.md`) are NOT synced
   to the docs site — they stay in this repo for AI agents only
+
+## Logging & Telemetry
+
+- Use `logger` (`logger.info/warn/error/debug(msg, meta?)`) — never `console.*` in new code. `installConsoleBridge()` covers legacy call sites.
+- Structured meta uses snake_case keys; never log secrets/PII.
+- Telemetry config is BE-owned (`config_entries`), shared via `SharedConfig.telemetry` + `config.changed` broadcast; `restartTelemetry` hot-swaps the OTel pipeline (proxy tracer provider — globals registered once).
+- NATS trace propagation is automatic in `NatsClient`; HTTP outbound uses `fetchTraced()`; inbound HTTP spans are created in `createHttpServer`.
+- See [.devin/rules/logging-telemetry.md](./.devin/rules/logging-telemetry.md) and `docs/user-guide/telemetry-logging.mdx`.

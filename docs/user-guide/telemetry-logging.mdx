@@ -1,0 +1,105 @@
+---
+title: Telemetry & Logging
+description: Async structured logging with trace correlation and OpenTelemetry-compatible telemetry (OTLP) shared across BE and microservices.
+---
+
+# Telemetry & Logging
+
+Primebrick ships an in-house **async logger** and **OpenTelemetry (OTel)
+compatibility layer** in `@primebrick/sdk`. Every log line carries a UTC
+ISO 8601 timestamp and — when a trace is active — `trace_id`/`span_id`, so
+logs correlate end-to-end across BE → NATS → microservices.
+
+## Async logger
+
+`console.log` is synchronous and lock-prone under load. The SDK logger
+buffers lines and flushes them in a single batched write per tick
+(`process.stdout.write` on Node, `Bun.write(Bun.stdout)` on Bun) — callers
+never wait for I/O.
+
+```ts
+import { logger } from "@primebrick/sdk";
+
+logger.info("Email sent", { request_id: "req-1", provider: "brevo" });
+logger.error("Send failed", { error: err.message });
+```
+
+Output (pretty format, default):
+
+```
+2026-09-23T12:32:07.412Z info  trace=4bf92f3577b34da6a3ce929d0e0e4736 span=00f067aa0ba902b7 Email sent {"request_id":"req-1"}
+```
+
+`LOG_FORMAT`-equivalent config key `log_format=json` switches to NDJSON for
+SIEM pipelines:
+
+```json
+{"time":"2026-09-23T12:32:07.412Z","level":"info","msg":"Email sent","trace_id":"4bf92f35...","service":"emailsender","request_id":"req-1"}
+```
+
+### Console bridge
+
+`installConsoleBridge()` rebinds `console.log/info/warn/error/debug` to the
+async logger, so existing `console.*` call sites get timestamps, trace
+context and async writes for free. It is installed automatically inside
+`createMicroservice()` and skipped under vitest (`VITEST` env).
+
+New code should use `logger.*` directly with structured `meta` fields
+(snake_case keys) — it produces better SIEM queries than plain strings.
+
+## OpenTelemetry
+
+`initTelemetry(config, serviceName, version)` builds the OTel pipeline:
+`BatchSpanProcessor` + OTLP/HTTP exporters for traces and logs. Globals
+(context manager, W3C propagator, tracer provider) are registered once
+behind a `ProxyTracerProvider`, so `restartTelemetry(config, …)` can rebuild
+the pipeline on config changes **without restarting the process**.
+
+- **HTTP**: `createHttpServer` wraps every request in a SERVER span,
+  extracting the inbound W3C `traceparent`. Works identically on Node and
+  Bun (no reliance on `node:http` monkey-patching).
+- **NATS**: `NatsClient.publish`/`request` inject `traceparent`/`tracestate`
+  into message headers; `subscribe`/`subscribeRequest` extract them and run
+  handlers inside the parent context in a `nats.consume`/`nats.serve` span.
+- **fetch**: use `fetchTraced(url, init)` for outbound calls — it injects
+  the current trace context (needed on Bun where undici instrumentation is
+  unavailable; harmless on Node).
+- **Auto-instrumentations** (Node only): `getNodeAutoInstrumentations`
+  covers `pg`, `redis`, `undici`, `express`, etc. `instrumentation-http` is
+  disabled to avoid double spans (our manual server span covers inbound).
+
+## Configuration (single point)
+
+Telemetry is configured in the **BE `config_entries` table** — no env files.
+The BE serves it to microservices via `SharedConfig.telemetry`
+(NATS `config.get`) and broadcasts `config.changed` on writes; services
+re-apply config in-process via `restartTelemetry`.
+
+| `config_entries.key` | Type | Effect |
+|---|---|---|
+| `telemetry_enabled` | boolean | Master switch — `false` = zero OTel overhead |
+| `otel_exporter_otlp_endpoint` | url | Collector base URL, e.g. `http://collector:4318` |
+| `otel_exporter_otlp_headers` | json | Auth headers map (API key etc.) |
+| `otel_traces_sampler` | badge | `always_on` / `always_off` / `traceidratio` |
+| `otel_traces_sampler_arg` | number | Ratio when sampler = `traceidratio` (0..1) |
+| `log_format` | badge | `pretty` (default) / `json` |
+| `log_level` | badge | `debug` / `info` / `warn` / `error` |
+
+Primebrick does not ship a collector or dashboards — set
+`otel_exporter_otlp_endpoint` to the OTLP endpoint provided by your
+APM/SIEM (Datadog, Grafana, Elastic, Splunk… all ingest OTLP).
+
+## Trace flow
+
+<Mermaid chart={`
+sequenceDiagram
+  participant FE
+  participant BE
+  participant NATS
+  participant US as Microservice
+  FE->>BE: HTTP request (traceparent)
+  BE->>NATS: publish + traceparent header
+  NATS->>US: message (traceparent)
+  US->>US: handler logs stamped with trace_id
+  Note over BE,US: same trace_id in spans + stdout + OTel logs
+`} />

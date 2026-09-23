@@ -24,11 +24,47 @@ import { NatsClient } from "../nats/nats-client.js";
 export interface SharedConfig {
   /** Redis cache URL, e.g. `redis://localhost:6379`. Empty/undefined = cache disabled. */
   redis_url?: string;
+  /**
+   * Telemetry/logging config — BE-owned (config_entries rows), shared with
+   * all microservices. Single point of configuration; changes are pushed
+   * via the `config.changed` broadcast subject.
+   */
+  telemetry?: TelemetrySharedConfig;
   // Future: s3_url?, feature_flags?, etc.
+}
+
+/** Telemetry/logging block distributed via SharedConfig. */
+export interface TelemetrySharedConfig {
+  enabled?: boolean;
+  otlp_endpoint?: string;
+  otlp_headers?: Record<string, string>;
+  sampler?: "always_on" | "always_off" | "traceidratio";
+  sampler_arg?: number;
+  log_format?: "pretty" | "json";
+  log_level?: "debug" | "info" | "warn" | "error";
 }
 
 /** NATS subject for the shared config request/reply. */
 export const SHARED_CONFIG_SUBJECT = "config.get";
+
+/**
+ * NATS broadcast subject for config-change notifications.
+ * The BE publishes `{ keys: [...] }` (fire-and-forget) whenever relevant
+ * config rows are written; microservices re-fetch `config.get` and apply.
+ */
+export const CONFIG_CHANGED_SUBJECT = "config.changed";
+
+/**
+ * Microservice side: subscribe to `config.changed` broadcasts.
+ * The handler fires on every notification — it should re-fetch the shared
+ * config and apply changes (telemetry restart, logger options, etc.).
+ */
+export async function subscribeConfigChanged(
+  nats: typeof NatsClient,
+  handler: (payload: { keys?: string[] }) => Promise<void>,
+): Promise<void> {
+  await nats.subscribe<{ keys?: string[] }>(CONFIG_CHANGED_SUBJECT, handler);
+}
 
 /** Timeout for the NATS request (ms). If the BE doesn't respond, the caller continues without shared config. */
 const SHARED_CONFIG_TIMEOUT_MS = 5_000;

@@ -98,6 +98,34 @@ export { type HealthResponse } from "./http/health-response.js";
 // Lifecycle — startup logging
 export { logModuleStartup, logServiceStartup } from "./lifecycle/startup-logger.js";
 
+// Lifecycle — async structured logger + console bridge
+export {
+  logger,
+  installConsoleBridge,
+  setLogOptions,
+  getLogOptions,
+  setOtelLogSink,
+  flushLogsSync,
+  type LogLevel,
+  type LogFormat,
+  type LogMeta,
+} from "./lifecycle/logger.js";
+
+// Telemetry — OpenTelemetry init/restart + propagation helpers
+export {
+  initTelemetry,
+  restartTelemetry,
+  shutdownTelemetry,
+  getTelemetryConfig,
+  injectTraceHeaders,
+  extractTraceContext,
+  extractNatsContext,
+  fetchTraced,
+  natsCarrier,
+  recordCarrier,
+  type TelemetryConfig,
+} from "./telemetry/otel.js";
+
 // Microservice bootstrap builder — eliminates ~140 lines of boilerplate
 export {
   createMicroservice,
@@ -167,9 +195,12 @@ export {
 // Shared config — NATS `config.get` protocol for BE→microservice config sharing
 export {
   type SharedConfig,
+  type TelemetrySharedConfig,
   SHARED_CONFIG_SUBJECT,
+  CONFIG_CHANGED_SUBJECT,
   subscribeSharedConfig,
   fetchSharedConfig,
+  subscribeConfigChanged,
 } from "./config/shared-config.js";
 
 // Auth — framework-agnostic auth for HTTP + NATS (BE + microservices)

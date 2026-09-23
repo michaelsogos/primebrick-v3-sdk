@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
+import { context, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { HealthCheck } from "./health-check.js";
 import { extJsonStringify } from "../json/ext-json.js";
+import { extractTraceContext } from "../telemetry/otel.js";
 
 export interface HttpServerOptions {
   port: number;
@@ -45,10 +47,36 @@ function sendRfcError(
  * as RFC 7807 Problem Details JSON — same format as the BE error handler.
  */
 export async function createHttpServer(options: HttpServerOptions): Promise<Server> {
+  const tracer = trace.getTracer("@primebrick/sdk", options.serviceVersion ?? "unknown");
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
 
-    try {
+    // OpenTelemetry server span — uniform across Node and Bun (auto-
+    // instrumentation of node:http is unreliable on Bun, so we do it
+    // manually here; instrumentation-http is disabled on Node to avoid
+    // double spans). Noop when telemetry is disabled.
+    const parentCtx = extractTraceContext(req.headers);
+    const span = tracer.startSpan(
+      `${req.method} ${url.pathname}`,
+      {
+        kind: SpanKind.SERVER,
+        attributes: {
+          "http.request.method": req.method ?? "UNKNOWN",
+          "url.path": url.pathname,
+          "url.query": url.search || undefined,
+          "service.name": options.serviceName ?? "microservice",
+        },
+      },
+      parentCtx,
+    );
+    res.on("finish", () => {
+      span.setAttribute("http.response.status_code", res.statusCode);
+      if (res.statusCode >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
+      span.end();
+    });
+
+    await context.with(trace.setSpan(parentCtx, span), async () => {
+      try {
       // Health check endpoint (public, no auth)
       if (url.pathname === "/health" && req.method === "GET") {
         if (options.healthCheck) {
@@ -122,7 +150,8 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
           severity: status >= 500 ? "HIGH" : "MEDIUM",
         },
       );
-    }
+      }
+    });
   });
 
   server.listen(options.port, () => {

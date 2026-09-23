@@ -11,6 +11,7 @@
     "http-server",
     "sse-standard",
     "presence",
+    "telemetry-logging",
     "api-reference"
   ]
 }

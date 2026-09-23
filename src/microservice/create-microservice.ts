@@ -74,7 +74,17 @@ import {
   type HealthCheckResult,
   type AuthConfig,
   type HealthCheckFn,
+  installConsoleBridge,
+  initTelemetry,
+  restartTelemetry,
+  shutdownTelemetry,
+  flushLogsSync,
+  setLogOptions,
+  fetchSharedConfig,
+  subscribeConfigChanged,
 } from "../index.js";
+import type { TelemetryConfig } from "../telemetry/otel.js";
+import type { TelemetrySharedConfig } from "../config/shared-config.js";
 
 // ─── Options ───────────────────────────────────────────────────────────────
 
@@ -229,6 +239,9 @@ export function readServiceVersion(): string {
 export async function createMicroservice(
   options: MicroserviceOptions,
 ): Promise<MicroserviceContext> {
+  // 0. Async console bridge — timestamps + trace_id on every log line
+  //    from the very first message. Safe under vitest (auto-skipped).
+  installConsoleBridge();
   console.log(`Starting ${options.serviceName} microservice...`);
 
   // 1. Environment validation
@@ -282,6 +295,55 @@ export async function createMicroservice(
   } catch (error) {
     console.error("Failed to connect to NATS:", error);
     process.exit(1);
+  }
+
+  // 6b. Shared config + telemetry (BE-owned config, distributed via NATS).
+  //     Telemetry init is non-fatal: a bad config must never crash a service.
+  const serviceVersionEarly = options.serviceVersion ?? readServiceVersion();
+  const applyTelemetry = (t: TelemetrySharedConfig | undefined): void => {
+    const cfg: TelemetryConfig = {
+      enabled: t?.enabled ?? false,
+      otlp_endpoint: t?.otlp_endpoint,
+      otlp_headers: t?.otlp_headers,
+      sampler: t?.sampler,
+      sampler_arg: t?.sampler_arg,
+    };
+    void restartTelemetry(cfg, options.serviceName, serviceVersionEarly);
+    setLogOptions({
+      level: t?.log_level,
+      format: t?.log_format,
+      service: options.serviceName,
+    });
+  };
+  try {
+    const shared = await fetchSharedConfig(NatsClient);
+    await initTelemetry(
+      {
+        enabled: shared.telemetry?.enabled ?? false,
+        otlp_endpoint: shared.telemetry?.otlp_endpoint,
+        otlp_headers: shared.telemetry?.otlp_headers,
+        sampler: shared.telemetry?.sampler,
+        sampler_arg: shared.telemetry?.sampler_arg,
+      },
+      options.serviceName,
+      serviceVersionEarly,
+    );
+    setLogOptions({
+      level: shared.telemetry?.log_level,
+      format: shared.telemetry?.log_format,
+      service: options.serviceName,
+    });
+    // Hot-reload: BE broadcasts config.changed on config writes.
+    await subscribeConfigChanged(NatsClient, async () => {
+      try {
+        const fresh = await fetchSharedConfig(NatsClient);
+        applyTelemetry(fresh.telemetry);
+      } catch (err) {
+        console.error("[config] failed to apply config.changed:", err);
+      }
+    });
+  } catch (error) {
+    console.error("[telemetry] init failed (non-fatal):", error);
   }
 
   // 7. ServiceRegistrar
@@ -367,6 +429,8 @@ export async function createMicroservice(
   shutdown.addCleanup(async () => { await registrar.unregister(); });
   shutdown.addCleanup(async () => { await NatsClient.close(); });
   shutdown.addCleanup(async () => { await options.dalClose(); });
+  shutdown.addCleanup(async () => { await shutdownTelemetry(); });
+  shutdown.addCleanup(async () => { flushLogsSync(); });
   shutdown.addCleanup(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });

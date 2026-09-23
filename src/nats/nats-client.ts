@@ -1,5 +1,14 @@
 import { connect, headers, type NatsConnection, type JetStreamClient, type Subscription, type Msg, type MsgHdrs } from "nats";
+import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
+import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
+
+const natsTracer = trace.getTracer("@primebrick/sdk");
+
+/** Inject W3C traceparent/tracestate into a MsgHdrs instance. */
+function injectInto(hdrs: MsgHdrs): void {
+  propagation.inject(context.active(), hdrs, natsCarrier);
+}
 
 /**
  * Singleton NATS connection manager. Extracted from emailsender's
@@ -97,7 +106,9 @@ export class NatsClient {
     const payload = data === null || data === undefined
       ? new Uint8Array(0)
       : new TextEncoder().encode(extJsonStringify(data));
-    const msg = await nc.request(subject, payload, { timeout: timeoutMs });
+    const hdrs = headers();
+    injectInto(hdrs);
+    const msg = await nc.request(subject, payload, { timeout: timeoutMs, headers: hdrs });
     const text = new TextDecoder().decode(msg.data);
     if (text === "") return null;
     return extJsonParse<TResponse>(text);
@@ -119,15 +130,14 @@ export class NatsClient {
   static async publish(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
     const nc = await NatsClient.getConnection();
     const payload = new TextEncoder().encode(extJsonStringify(data));
-    if (hdrs && Object.keys(hdrs).length > 0) {
-      const natsHeaders = headers();
+    const natsHeaders = headers();
+    if (hdrs) {
       for (const [key, value] of Object.entries(hdrs)) {
         natsHeaders.set(key, value);
       }
-      nc.publish(subject, payload, { headers: natsHeaders });
-    } else {
-      nc.publish(subject, payload);
     }
+    injectInto(natsHeaders);
+    nc.publish(subject, payload, { headers: natsHeaders });
   }
 
   /**
@@ -157,18 +167,30 @@ export class NatsClient {
 
     (async () => {
       for await (const msg of sub) {
-        try {
-          const text = new TextDecoder().decode(msg.data);
-          if (text === "") {
-            // Empty payload — skip parsing, call handler with null
-            await handler(null as T, msg);
-            continue;
+        const parentCtx = extractNatsContext(msg.headers);
+        const span = natsTracer.startSpan(
+          `nats.consume ${subject}`,
+          { kind: SpanKind.CONSUMER, attributes: { "messaging.system": "nats", "messaging.destination.name": subject } },
+          parentCtx,
+        );
+        await context.with(trace.setSpan(parentCtx, span), async () => {
+          try {
+            const text = new TextDecoder().decode(msg.data);
+            if (text === "") {
+              // Empty payload — skip parsing, call handler with null
+              await handler(null as T, msg);
+              return;
+            }
+            const data = extJsonParse<T>(text);
+            await handler(data, msg);
+          } catch (error) {
+            span.recordException(error as Error);
+            span.setStatus({ code: SpanStatusCode.ERROR });
+            console.error(`[NATS] Error processing message on "${subject}":`, error);
+          } finally {
+            span.end();
           }
-          const data = extJsonParse<T>(text);
-          await handler(data, msg);
-        } catch (error) {
-          console.error(`[NATS] Error processing message on "${subject}":`, error);
-        }
+        });
       }
     })();
 
@@ -202,28 +224,42 @@ export class NatsClient {
 
     (async () => {
       for await (const msg of sub) {
-        let requestId: string | undefined;
-        try {
-          const text = new TextDecoder().decode(msg.data);
-          const request = extJsonParse<TRequest>(text);
-          requestId = (request as { requestId?: string })?.requestId;
-          const response = await handler(request, msg);
-          if (msg.reply) {
-            const payload = new TextEncoder().encode(extJsonStringify(response));
-            nc.publish(msg.reply, payload);
+        const parentCtx = extractNatsContext(msg.headers);
+        const span = natsTracer.startSpan(
+          `nats.serve ${subject}`,
+          { kind: SpanKind.SERVER, attributes: { "messaging.system": "nats", "messaging.destination.name": subject } },
+          parentCtx,
+        );
+        await context.with(trace.setSpan(parentCtx, span), async () => {
+          let requestId: string | undefined;
+          try {
+            const text = new TextDecoder().decode(msg.data);
+            const request = extJsonParse<TRequest>(text);
+            requestId = (request as { requestId?: string })?.requestId;
+            const response = await handler(request, msg);
+            if (msg.reply) {
+              const replyHdrs = headers();
+              injectInto(replyHdrs);
+              const payload = new TextEncoder().encode(extJsonStringify(response));
+              nc.publish(msg.reply, payload, { headers: replyHdrs });
+            }
+          } catch (error) {
+            span.recordException(error as Error);
+            span.setStatus({ code: SpanStatusCode.ERROR });
+            console.error(`[NATS] Error processing request on "${subject}":`, error);
+            if (msg.reply) {
+              const errorResponse = {
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+                requestId,
+              };
+              const payload = new TextEncoder().encode(extJsonStringify(errorResponse));
+              nc.publish(msg.reply, payload);
+            }
+          } finally {
+            span.end();
           }
-        } catch (error) {
-          console.error(`[NATS] Error processing request on "${subject}":`, error);
-          if (msg.reply) {
-            const errorResponse = {
-              success: false,
-              error: error instanceof Error ? error.message : "Unknown error",
-              requestId,
-            };
-            const payload = new TextEncoder().encode(extJsonStringify(errorResponse));
-            nc.publish(msg.reply, payload);
-          }
-        }
+        });
       }
     })();
 

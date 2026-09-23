@@ -7,20 +7,33 @@ const mocks = vi.hoisted(() => {
   const mockSubscribe = vi.fn();
   const mockClose = vi.fn(async () => {});
   const mockJetstream = vi.fn(() => ({ js: true }));
+  const mockRequest = vi.fn(async () => ({ data: new Uint8Array(0) }));
   const nc = {
     close: mockClose,
     jetstream: mockJetstream,
     publish: mockPublish,
     subscribe: mockSubscribe,
+    request: mockRequest,
   };
   const mockConnect = vi.fn(async () => nc);
-  return { mockPublish, mockSubscribe, mockClose, mockJetstream, mockConnect, nc };
+  return { mockPublish, mockSubscribe, mockClose, mockJetstream, mockRequest, mockConnect, nc };
 });
 
 vi.mock("nats", () => ({
   connect: mocks.mockConnect,
   NatsConnection: {},
   JetStreamClient: {},
+  // Minimal MsgHdrs stand-in: case-insensitive get/set over a Map.
+  headers: () => {
+    const map = new Map<string, string[]>();
+    return {
+      get: (k: string) => map.get(k.toLowerCase())?.[0],
+      set: (k: string, v: string) => map.set(k.toLowerCase(), [v]),
+      [Symbol.iterator]: function* () {
+        yield* map.entries();
+      },
+    };
+  },
 }));
 
 import { NatsClient } from "../nats-client.js";
