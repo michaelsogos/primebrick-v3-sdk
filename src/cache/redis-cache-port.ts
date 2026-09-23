@@ -42,10 +42,13 @@ export class RedisCachePort implements CachePort {
   }
 
   async delByPrefix(prefix: string): Promise<void> {
-    // node-redis v6: scanIterator yields keys in batches without manual cursor handling.
+    // node-redis v6: scanIterator yields key BATCHES (string[]) — and a batch
+    // can be empty. `del([])` sends DEL with zero arguments → "ERR wrong
+    // number of arguments for 'del' command". Guard + delete per batch.
     // Uses SCAN (not KEYS) to avoid blocking Redis on large keyspaces.
-    for await (const key of this.redis.scanIterator({ MATCH: `${prefix}*`, COUNT: 100 })) {
-      await this.redis.del(key);
+    for await (const batch of this.redis.scanIterator({ MATCH: `${prefix}*`, COUNT: 100 })) {
+      const keys = Array.isArray(batch) ? batch : [batch];
+      if (keys.length) await this.redis.del(keys);
     }
   }
 
