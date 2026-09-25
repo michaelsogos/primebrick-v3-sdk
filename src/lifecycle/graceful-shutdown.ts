@@ -37,11 +37,11 @@ export class GracefulShutdown {
       });
     }
     process.on("uncaughtException", (err) => {
-      console.error(`[${this.serviceName}] uncaughtException`, err);
+      console.error(`uncaughtException`, err);
       void this.shutdown("uncaughtException", 1);
     });
     process.on("unhandledRejection", (reason) => {
-      console.error(`[${this.serviceName}] unhandledRejection`, reason);
+      console.error(`unhandledRejection`, reason);
       void this.shutdown("unhandledRejection", 1);
     });
   }
@@ -49,7 +49,7 @@ export class GracefulShutdown {
   async shutdown(reason: string, code: number): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
-    console.log(`[${this.serviceName}] shutting down (${reason})`);
+    console.log(`shutting down (${reason})`);
     try {
       await Promise.allSettled(this.cleanups.map((fn) => fn()));
     } finally {

@@ -21,6 +21,9 @@
  */
 
 import { context, trace } from "@opentelemetry/api";
+import { inspect } from "node:util";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFormat = "pretty" | "json";
@@ -32,7 +35,23 @@ export interface LogMeta {
 interface LoggerState {
   level: LogLevel;
   format: LogFormat;
-  service?: string;
+  service: string;
+  version?: string;
+}
+
+// Service identity is derived once from the consuming project's package.json
+// (cwd at startup) — deterministic, no manual tagging. setLogOptions can
+// still override `service` for non-package contexts.
+function detectService(): { service: string; version?: string } {
+  try {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
+      name?: string;
+      version?: string;
+    };
+    return { service: pkg.name ?? "app", version: pkg.version };
+  } catch {
+    return { service: "app" };
+  }
 }
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
@@ -45,6 +64,7 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 const state: LoggerState = {
   level: "info",
   format: "pretty",
+  ...detectService(),
 };
 
 declare const Bun: { write: (dest: unknown, data: string) => Promise<unknown>; stdout: unknown; stderr: unknown } | undefined;
@@ -140,6 +160,10 @@ const C = {
   reset: `${ESC}[0m`,
   dim: `${ESC}[2m`,
   gray: `${ESC}[90m`,
+  green: `${ESC}[32m`,
+  blue: `${ESC}[94m`,
+  magenta: `${ESC}[95m`,
+  magentaDark: `${ESC}[35m`,
   cyan: `${ESC}[36m`,
   yellow: `${ESC}[33m`,
   red: `${ESC}[31m`,
@@ -169,11 +193,26 @@ function activeSpanIds(): { trace_id?: string; span_id?: string; trace_flags?: s
 
 function safeSerialize(value: unknown): unknown {
   if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
+    // name/message/stack are non-enumerable on Error; spread first so custom
+    // enumerable props (RFC7807 fields like status/title/type) survive.
+    return { ...value, name: value.name, message: value.message, stack: value.stack };
   }
   if (typeof value === "bigint") return value.toString();
   return value;
 }
+
+// Meta objects render via util.inspect (console.dir's formatter): native
+// ANSI colors, always-multiline (compact: false), and built-in truncation
+// caps (maxArrayLength / maxStringLength) so a stray huge object can't
+// flood the buffered writer.
+const INSPECT_OPTS = {
+  colors: COLOR_ENABLED,
+  depth: null,
+  compact: false as const,
+  breakLength: 100,
+  maxArrayLength: 50,
+  maxStringLength: 2000,
+};
 
 function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string {
   const ts = new Date().toISOString();
@@ -185,7 +224,8 @@ function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string {
       level,
       msg,
       ...span,
-      ...(state.service ? { service: state.service } : {}),
+      service: state.service,
+      ...(state.version ? { version: state.version } : {}),
       ...(meta ?? {}),
     };
     // BigInt-safe JSON via a replacer (extJson isn't needed — plain JSON + bigint replacer)
@@ -193,15 +233,34 @@ function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string {
   }
 
   const tracePart = span.trace_id ? ` trace=${span.trace_id} span=${span.span_id}` : "";
-  const metaPart =
-    meta && Object.keys(meta).length > 0
-      ? " " +
-        JSON.stringify(
-          Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, safeSerialize(v)])),
-          (_k, v) => (typeof v === "bigint" ? v.toString() : v),
-        )
-      : "";
-  return `${paint(C.dim, ts)} ${paint(LEVEL_COLOR[level], level.padEnd(5))}${tracePart} ${msg}${metaPart}\n`;
+  let metaPart = "";
+  if (meta && Object.keys(meta).length > 0) {
+    // safeSerialize the meta itself too — it may BE an Error instance, whose
+    // message/stack are non-enumerable and would be dropped by Object.entries.
+    const clean = Object.fromEntries(
+      Object.entries(safeSerialize(meta) as LogMeta).map(([k, v]) => [k, safeSerialize(v)]),
+    );
+    // A serialized Error's `stack` would inspect as an escaped \n string —
+    // print it as raw indented lines instead.
+    const stack = typeof clean.stack === "string" ? clean.stack : null;
+    const body = stack === null ? clean : Object.fromEntries(Object.entries(clean).filter(([k]) => k !== "stack"));
+    if (Object.keys(body).length > 0) {
+      metaPart += `\n${inspect(body, INSPECT_OPTS)
+        .split("\n")
+        .map((l) => `  ${l}`)
+        .join("\n")}`;
+    }
+    if (stack !== null) {
+      metaPart += `\n${paint(C.gray, stack.split("\n").map((l) => `  ${l}`).join("\n"))}`;
+    }
+  }
+  // Tag is mandatory and deterministic: [service#version] from package.json —
+  // name in bright magenta, #version in dark magenta.
+  const tag =
+    `${paint(C.magenta, `[${state.service}`)}` +
+    (state.version ? paint(C.magentaDark, `#${state.version}`) : "") +
+    paint(C.magenta, "]");
+  return `${paint(C.blue, ts)} ${paint(LEVEL_COLOR[level], level.padEnd(5))}${tracePart} ${tag} ${msg}${metaPart}\n`;
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -232,10 +291,11 @@ export const logger = {
 };
 
 /** Hot-swap logging options (from config reload / `config.changed`). */
-export function setLogOptions(opts: { level?: LogLevel; format?: LogFormat; service?: string }): void {
+export function setLogOptions(opts: { level?: LogLevel; format?: LogFormat; service?: string; version?: string }): void {
   if (opts.level) state.level = opts.level;
   if (opts.format) state.format = opts.format;
   if (opts.service !== undefined) state.service = opts.service;
+  if (opts.version !== undefined) state.version = opts.version;
 }
 
 export function getLogOptions(): Readonly<LoggerState> {
@@ -263,7 +323,9 @@ function argsToMsgAndMeta(args: unknown[]): { msg: string; meta?: LogMeta } {
   if (first !== null && typeof first === "object") objectRest.unshift(first as Record<string, unknown>);
   const meta: LogMeta = {};
   for (const a of objectRest) {
-    for (const [k, v] of Object.entries(a)) {
+    // safeSerialize first: Error.message/stack are non-enumerable and would
+    // be dropped by Object.entries on the raw instance.
+    for (const [k, v] of Object.entries(safeSerialize(a) as Record<string, unknown>)) {
       meta[k] = safeSerialize(v);
     }
   }

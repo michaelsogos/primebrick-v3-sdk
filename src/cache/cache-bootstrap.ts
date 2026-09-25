@@ -54,7 +54,7 @@ export async function initCacheFromSharedConfig(
   const sharedConfig = await fetchSharedConfig(nats);
 
   if (!sharedConfig.redis_url) {
-    logger.warn("[cache] redis_url not received from BE — cache disabled (best-effort)");
+    logger.warn("redis_url not received from BE — cache disabled (best-effort)");
     return { cachePort: null, redisInfo: null, sharedConfig };
   }
 
@@ -64,14 +64,14 @@ export async function initCacheFromSharedConfig(
     const redisInfo = await getRedisInfo(redis);
 
     if (redisInfo) {
-      logger.info(`[cache] Redis connected (v${redisInfo.version})`);
+      logger.info(`Redis connected (v${redisInfo.version})`);
     } else {
-      logger.info("[cache] Redis connected (version unknown)");
+      logger.info("Redis connected (version unknown)");
     }
 
     return { cachePort, redisInfo, sharedConfig };
   } catch (err) {
-    logger.warn(`[cache] Redis connection failed — cache disabled: ${err}`);
+    logger.warn(`Redis connection failed — cache disabled: ${err}`);
     return { cachePort: null, redisInfo: null, sharedConfig };
   }
 }

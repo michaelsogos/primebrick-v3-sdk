@@ -38,7 +38,7 @@ export class NatsClient {
     // nc.info is populated by the INFO handshake at connect time.
     // ServerInfo.version is a string like "2.14.3".
     NatsClient.serverVersion = NatsClient.nc.info?.version ?? null;
-    console.log(`[startup] NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`);
+    console.log(`NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`);
     return NatsClient.nc;
   }
 
@@ -186,7 +186,7 @@ export class NatsClient {
           } catch (error) {
             span.recordException(error as Error);
             span.setStatus({ code: SpanStatusCode.ERROR });
-            console.error(`[NATS] Error processing message on "${subject}":`, error);
+            console.error(`Error processing message on "${subject}":`, error);
           } finally {
             span.end();
           }
@@ -246,7 +246,7 @@ export class NatsClient {
           } catch (error) {
             span.recordException(error as Error);
             span.setStatus({ code: SpanStatusCode.ERROR });
-            console.error(`[NATS] Error processing request on "${subject}":`, error);
+            console.error(`Error processing request on "${subject}":`, error);
             if (msg.reply) {
               const errorResponse = {
                 success: false,

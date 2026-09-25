@@ -147,7 +147,7 @@ async function registerInstrumentationsOnce(): Promise<void> {
       ],
     });
   } catch (err) {
-    logger.warn("[telemetry] auto-instrumentations unavailable — continuing without them", {
+    logger.warn("auto-instrumentations unavailable — continuing without them", {
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -173,9 +173,9 @@ export async function initTelemetry(
     currentLoggerProvider = pipeline.logs;
     proxyTracerProvider.setDelegate(pipeline.tracer);
     setOtelLogSink(otelLogSink);
-    logger.info("[telemetry] OTel pipeline started", { endpoint: cfg.otlp_endpoint ?? "none" });
+    logger.info("OTel pipeline started", { endpoint: cfg.otlp_endpoint ?? "none" });
   } catch (err) {
-    logger.error("[telemetry] failed to start OTel pipeline — telemetry disabled", {
+    logger.error("failed to start OTel pipeline — telemetry disabled", {
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -210,12 +210,12 @@ export function restartTelemetry(
         setOtelLogSink(null);
       }
       await Promise.allSettled([oldTracer?.shutdown(), oldLogs?.shutdown()]);
-      logger.info("[telemetry] OTel pipeline restarted", {
+      logger.info("OTel pipeline restarted", {
         enabled: cfg.enabled,
         endpoint: cfg.otlp_endpoint ?? "none",
       });
     } catch (err) {
-      logger.error("[telemetry] restart failed — keeping previous pipeline", {
+      logger.error("restart failed — keeping previous pipeline", {
         error: err instanceof Error ? err.message : String(err),
       });
     }

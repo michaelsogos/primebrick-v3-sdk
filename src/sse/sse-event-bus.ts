@@ -35,7 +35,7 @@ export function createSseEventBus(): SseEventBus {
           h(event);
         } catch (err) {
           // A single handler error must not crash the bus or other subscribers.
-          console.error("[SseEventBus] handler error:", err);
+          console.error("handler error:", err);
         }
       }
     },

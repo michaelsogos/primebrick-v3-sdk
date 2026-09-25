@@ -339,11 +339,11 @@ export async function createMicroservice(
         const fresh = await fetchSharedConfig(NatsClient);
         applyTelemetry(fresh.telemetry);
       } catch (err) {
-        console.error("[config] failed to apply config.changed:", err);
+        console.error("failed to apply config.changed:", err);
       }
     });
   } catch (error) {
-    console.error("[telemetry] init failed (non-fatal):", error);
+    console.error("init failed (non-fatal):", error);
   }
 
   // 7. ServiceRegistrar

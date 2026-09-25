@@ -116,7 +116,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
       // If headers already sent (route handler started writing then threw),
       // we can't send a proper RFC response — just destroy the socket.
       if (res.headersSent) {
-        console.error(`[${options.serviceName ?? "microservice"}] Error after headers sent:`, err);
+        console.error(`Error after headers sent:`, err);
         res.destroy();
         return;
       }
@@ -130,7 +130,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
         ? (err as { status?: number }).status ?? 401
         : 500;
 
-      console.error(`[${options.serviceName ?? "microservice"}] Unhandled error:`, {
+      console.error(`Unhandled error:`, {
         message: err instanceof Error ? err.message : String(err),
         stack: err instanceof Error ? err.stack : undefined,
         name: err instanceof Error ? err.name : undefined,

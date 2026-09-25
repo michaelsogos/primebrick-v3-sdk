@@ -85,7 +85,7 @@ export class ServiceRegistrar {
       checks,
     };
     await this.nats.publish(SERVICE_SUBJECTS.REGISTER, payload);
-    console.log(`[service] Registered ${this.config.serviceCode} via NATS`);
+    console.log(`Registered ${this.config.serviceCode} via NATS`);
   }
 
   async sendHeartbeat(): Promise<void> {
@@ -108,7 +108,7 @@ export class ServiceRegistrar {
       };
       await this.nats.publish(SERVICE_SUBJECTS.HEARTBEAT, payload);
     } catch (error) {
-      console.error(`[service] Heartbeat error for ${this.config.serviceCode}:`, error);
+      console.error(`Heartbeat error for ${this.config.serviceCode}:`, error);
     }
   }
 
@@ -119,7 +119,7 @@ export class ServiceRegistrar {
       is_behind_scaler: this.config.is_behind_scaler,
     };
     await this.nats.publish(SERVICE_SUBJECTS.UNREGISTER, payload);
-    console.log(`[service] Unregistered ${this.config.serviceCode} via NATS`);
+    console.log(`Unregistered ${this.config.serviceCode} via NATS`);
   }
 
   startHeartbeat(): ReturnType<typeof setInterval> {
