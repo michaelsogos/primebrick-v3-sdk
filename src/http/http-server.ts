@@ -3,6 +3,7 @@ import { context, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { HealthCheck } from "./health-check.js";
 import { extJsonStringify } from "../json/ext-json.js";
 import { extractTraceContext } from "../telemetry/otel.js";
+import { mapDalError } from "../errors/dal-error-mapper.js";
 
 export interface HttpServerOptions {
   port: number;
@@ -118,6 +119,15 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
       if (res.headersSent) {
         console.error(`Error after headers sent:`, err);
         res.destroy();
+        return;
+      }
+
+      // DAL errors (ERR01–ERR07, 57014, NOT_FOUND…) → typed RFC 7807 via the
+      // shared mapper — same mapping as the BE errorHandler.
+      const mapped = mapDalError(err, url.pathname);
+      if (mapped) {
+        res.writeHead(mapped.status, { "Content-Type": "application/json" });
+        res.end(extJsonStringify(mapped.body));
         return;
       }
 

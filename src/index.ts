@@ -92,6 +92,11 @@ export { NatsClient } from "./nats/nats-client.js";
 
 // HTTP
 export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";
+export {
+  mapDalError,
+  type MappedDalError,
+  type Rfc7807Body,
+} from "./errors/dal-error-mapper.js";
 export { HealthCheck, type HealthCheckResult } from "./http/health-check.js";
 export { type HealthResponse } from "./http/health-response.js";
 

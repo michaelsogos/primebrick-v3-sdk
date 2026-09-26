@@ -63,7 +63,7 @@ export interface CacheableRepository {
   delete(cls: any, ...args: any[]): Promise<any>;
   restore(cls: any, ...args: any[]): Promise<any>;
   hardDelete(cls: any, ...args: any[]): Promise<any>;
-  upsertMany(cls: any, ...args: any[]): Promise<any>;
+  // upsertMany(cls: any, ...args: any[]): Promise<any>; // parked — see DAL
   updateMany(cls: any, ...args: any[]): Promise<any>;
 }
 
@@ -100,7 +100,7 @@ export function withCache<R extends CacheableRepository>(
     delete: repo.delete.bind(repo),
     restore: repo.restore.bind(repo),
     hardDelete: repo.hardDelete.bind(repo),
-    upsertMany: repo.upsertMany.bind(repo),
+    // upsertMany: repo.upsertMany.bind(repo), // parked — upsertMany commented in DAL
     updateMany: repo.updateMany.bind(repo),
   };
 
@@ -208,7 +208,7 @@ export function withCache<R extends CacheableRepository>(
     "delete",
     "restore",
     "hardDelete",
-    "upsertMany",
+    // "upsertMany", // parked — upsertMany commented in DAL
     "updateMany",
   ] as const;
   for (const name of writeMethods) {
