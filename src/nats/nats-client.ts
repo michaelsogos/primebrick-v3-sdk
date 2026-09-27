@@ -1,4 +1,15 @@
-import { connect, headers, type NatsConnection, type JetStreamClient, type Subscription, type Msg, type MsgHdrs } from "nats";
+import {
+  connect,
+  headers,
+  AckPolicy,
+  type NatsConnection,
+  type JetStreamClient,
+  type JetStreamManager,
+  type JsMsg,
+  type Subscription,
+  type Msg,
+  type MsgHdrs,
+} from "nats";
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
@@ -26,6 +37,7 @@ function injectInto(hdrs: MsgHdrs): void {
 export class NatsClient {
   private static nc: NatsConnection | null = null;
   private static js: JetStreamClient | null = null;
+  private static jsm: JetStreamManager | null = null;
   private static serverVersion: string | null = null;
   private static serverUrl: string | null = null;
 
@@ -34,6 +46,7 @@ export class NatsClient {
     const natsUrl = url ?? process.env.NATS_URL ?? "nats://127.0.0.1:4222";
     NatsClient.nc = await connect({ servers: natsUrl });
     NatsClient.js = NatsClient.nc.jetstream();
+    NatsClient.jsm = await NatsClient.nc.jetstreamManager();
     NatsClient.serverUrl = natsUrl;
     // nc.info is populated by the INFO handshake at connect time.
     // ServerInfo.version is a string like "2.14.3".
@@ -78,6 +91,7 @@ export class NatsClient {
       await NatsClient.nc.close();
       NatsClient.nc = null;
       NatsClient.js = null;
+      NatsClient.jsm = null;
       NatsClient.serverVersion = null;
       NatsClient.serverUrl = null;
       console.log("NATS connection closed");
@@ -264,5 +278,137 @@ export class NatsClient {
     })();
 
     return sub;
+  }
+
+  /**
+   * Ensure a JetStream stream exists (idempotent). Creates it if missing;
+   * returns silently if it already exists. Requires the server to run
+   * with JetStream enabled (`nats -js`).
+   *
+   * @param name - Stream name (e.g. "WEBHOOK")
+   * @param subjects - Subjects bound to the stream (e.g. ["webhook.>"])
+   */
+  static async ensureStream(name: string, subjects: string[]): Promise<void> {
+    const nc = await NatsClient.getConnection();
+    const jsm = NatsClient.jsm ?? (await nc.jetstreamManager());
+    try {
+      await jsm.streams.add({ name, subjects });
+    } catch (error) {
+      // 10058 = stream name already in use — treat as already-ensured.
+      const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
+      if (apiErr?.err_code === 10058) return;
+      throw error;
+    }
+  }
+
+  /**
+   * Publish a message to JetStream and await the PubAck (durable write
+   * confirmed server-side). Same Ext-JSON serialization and header
+   * propagation as `publish()`.
+   *
+   * @returns The stream sequence number assigned by JetStream.
+   */
+  static async jetstreamPublish(
+    subject: string,
+    data: unknown,
+    hdrs?: Record<string, string>,
+  ): Promise<bigint> {
+    const js = NatsClient.getJetStream();
+    const payload = new TextEncoder().encode(extJsonStringify(data));
+    const natsHeaders = headers();
+    if (hdrs) {
+      for (const [key, value] of Object.entries(hdrs)) {
+        natsHeaders.set(key, value);
+      }
+    }
+    injectInto(natsHeaders);
+    const ack = await js.publish(subject, payload, { headers: natsHeaders });
+    return BigInt(ack.seq);
+  }
+
+  /**
+   * Subscribe to a JetStream stream via a durable pull consumer
+   * (at-least-once). Creates the durable consumer if missing
+   * (idempotent), then loops `fetch()`: auto-`ack()` after the handler
+   * resolves, `nak(5000)` (redelivery) when it throws.
+   *
+   * @returns A handle whose `close()` stops the fetch loop.
+   */
+  static async jetstreamSubscribe<T = unknown>(opts: {
+    stream: string;
+    durable: string;
+    filterSubject: string;
+    handler: (
+      data: T,
+      msg: { headers?: MsgHdrs; info: { redeliveryCount: number } },
+    ) => Promise<void>;
+  }): Promise<{ close(): Promise<void> }> {
+    const js = NatsClient.getJetStream();
+    const jsm = NatsClient.jsm ?? (await (await NatsClient.getConnection()).jetstreamManager());
+    try {
+      await jsm.consumers.add(opts.stream, {
+        durable_name: opts.durable,
+        ack_policy: AckPolicy.Explicit,
+        filter_subject: opts.filterSubject,
+      });
+    } catch (error) {
+      // 10014/10148 = consumer name already in use — already ensured.
+      const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
+      if (apiErr?.err_code !== 10014 && apiErr?.err_code !== 10148) throw error;
+    }
+
+    let stopped = false;
+    const process = async (m: JsMsg): Promise<void> => {
+      const subject = m.subject;
+      const parentCtx = extractNatsContext(m.headers);
+      const span = natsTracer.startSpan(
+        `nats.consume ${subject}`,
+        { kind: SpanKind.CONSUMER, attributes: { "messaging.system": "nats", "messaging.destination.name": subject } },
+        parentCtx,
+      );
+      await context.with(trace.setSpan(parentCtx, span), async () => {
+        try {
+          const text = new TextDecoder().decode(m.data);
+          const data = text === "" ? (null as T) : extJsonParse<T>(text);
+          await opts.handler(data, {
+            headers: m.headers,
+            info: { redeliveryCount: m.info.redeliveryCount },
+          });
+          m.ack();
+        } catch (error) {
+          span.recordException(error as Error);
+          span.setStatus({ code: SpanStatusCode.ERROR });
+          console.error(`Error processing JetStream message on "${subject}":`, error);
+          m.nak(5000);
+        } finally {
+          span.end();
+        }
+      });
+    };
+
+    (async () => {
+      while (!stopped && NatsClient.isConnected()) {
+        try {
+          const batch = js.fetch(opts.stream, opts.durable, { batch: 10, expires: 5000 });
+          for await (const m of batch) {
+            if (stopped) {
+              m.nak();
+              continue;
+            }
+            await process(m);
+          }
+        } catch (error) {
+          if (stopped) break;
+          console.error(`JetStream fetch failed on ${opts.stream}/${opts.durable}:`, error);
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+    })();
+
+    return {
+      async close(): Promise<void> {
+        stopped = true;
+      },
+    };
   }
 }

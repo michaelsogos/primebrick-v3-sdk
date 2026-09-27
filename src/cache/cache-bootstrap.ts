@@ -50,8 +50,9 @@ export type CacheBootstrapResult = {
 export async function initCacheFromSharedConfig(
   nats: typeof NatsClient,
   logger: CacheLogger,
+  prefetched?: SharedConfig,
 ): Promise<CacheBootstrapResult> {
-  const sharedConfig = await fetchSharedConfig(nats);
+  const sharedConfig = prefetched ?? (await fetchSharedConfig(nats));
 
   if (!sharedConfig.redis_url) {
     logger.warn("redis_url not received from BE — cache disabled (best-effort)");

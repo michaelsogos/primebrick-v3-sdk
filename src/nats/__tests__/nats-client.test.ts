@@ -7,16 +7,18 @@ const mocks = vi.hoisted(() => {
   const mockSubscribe = vi.fn();
   const mockClose = vi.fn(async () => {});
   const mockJetstream = vi.fn(() => ({ js: true }));
+  const mockJetstreamManager = vi.fn(async () => ({ jsm: true }));
   const mockRequest = vi.fn(async () => ({ data: new Uint8Array(0) }));
   const nc = {
     close: mockClose,
     jetstream: mockJetstream,
+    jetstreamManager: mockJetstreamManager,
     publish: mockPublish,
     subscribe: mockSubscribe,
     request: mockRequest,
   };
   const mockConnect = vi.fn(async () => nc);
-  return { mockPublish, mockSubscribe, mockClose, mockJetstream, mockRequest, mockConnect, nc };
+  return { mockPublish, mockSubscribe, mockClose, mockJetstream, mockJetstreamManager, mockRequest, mockConnect, nc };
 });
 
 vi.mock("nats", () => ({

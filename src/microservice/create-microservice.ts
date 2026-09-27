@@ -82,6 +82,8 @@ import {
   setLogOptions,
   fetchSharedConfig,
   subscribeConfigChanged,
+  initCacheFromSharedConfig,
+  setSdkCachePort,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
@@ -333,6 +335,15 @@ export async function createMicroservice(
       format: shared.telemetry?.log_format,
       service: options.serviceName,
     });
+    // Redis cache (best-effort) — reuses the shared config just fetched.
+    // Sets the SDK cache-port holder so adapters can call getSdkCachePort().
+    const { cachePort, redisInfo } = await initCacheFromSharedConfig(
+      NatsClient,
+      console,
+      shared,
+    );
+    setSdkCachePort(cachePort, redisInfo);
+
     // Hot-reload: BE broadcasts config.changed on config writes.
     await subscribeConfigChanged(NatsClient, async () => {
       try {
