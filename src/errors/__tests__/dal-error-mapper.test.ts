@@ -44,6 +44,16 @@ describe("mapDalError", () => {
     expect(mapped!.body.extra?.constraint).toBe("email");
   });
 
+  it("maps ERR04 → 409 preserving attempted `keys`", () => {
+    const err = Object.assign(new Error("dup"), {
+      code: "ERR04",
+      detail: { uuid: "u1", constraint: "email", keys: { email: "alice@x.com" } },
+    });
+    const mapped = mapDalError(err);
+    expect(mapped!.status).toBe(409);
+    expect(mapped!.body.extra?.keys).toEqual({ email: "alice@x.com" });
+  });
+
   it("maps ERR05 → 409 with deleted flag", () => {
     const mapped = mapDalError(Object.assign(new Error("dup"), { code: "ERR05", detail: { uuid: "u" } }));
     expect(mapped!.status).toBe(409);
@@ -61,6 +71,13 @@ describe("mapDalError", () => {
     expect(mapped!.status).toBe(500);
     expect(mapped!.body.internal_code).toBe("ERR07");
     expect(mapped!.body.type).toBe("urn:primebrick:err07");
+  });
+
+  it("maps PG 23505 → ERR08 409", () => {
+    const mapped = mapDalError(Object.assign(new Error("unique_violation"), { code: "23505" }));
+    expect(mapped!.status).toBe(409);
+    expect(mapped!.body.internal_code).toBe("ERR08");
+    expect(mapped!.body.type).toBe("urn:primebrick:err08");
   });
 
   it("maps NOT_FOUND → 404 /errors/not-found", () => {

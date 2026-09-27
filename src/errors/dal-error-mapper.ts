@@ -150,6 +150,7 @@ export function mapDalError(err: unknown, instance?: string): MappedDalError | n
         {
           ...(typeof info.uuid === "string" ? { uuid: info.uuid } : {}),
           ...(typeof info.constraint === "string" ? { constraint: info.constraint } : {}),
+          ...(info.keys && typeof info.keys === "object" ? { keys: info.keys } : {}),
           ...bulkExtra(info, "conflicts"),
           ...(code === "ERR05" ? { deleted: true } : {}),
         },
@@ -173,6 +174,19 @@ export function mapDalError(err: unknown, instance?: string): MappedDalError | n
         "Statement timeout",
         messageOf(err, "A database statement exceeded the configured timeout."),
         "HIGH",
+        instance,
+      );
+    // Raw PG unique violation that bypassed the DAL conflict CTEs
+    // (constraint not declared as @Unique in entity metadata — manual,
+    // deferred or partial index). Poor detail by definition; its appearance
+    // signals a missing @Unique declaration. → logical ERR08, 409.
+    case "23505":
+      return body(
+        "ERR08",
+        409,
+        "Unique constraint violation",
+        messageOf(err, "A record with these unique fields already exists."),
+        "MEDIUM",
         instance,
       );
     // Generic DAL codes — `/errors/*` type format (BE parity).
