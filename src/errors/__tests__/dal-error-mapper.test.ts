@@ -80,6 +80,30 @@ describe("mapDalError", () => {
     expect(mapped!.body.type).toBe("urn:primebrick:err08");
   });
 
+  it("maps ERR09 → 422 invalid match selector", () => {
+    const err = Object.assign(new Error("bad selector"), {
+      code: "ERR09",
+      detail: { selector: "name", entity: "SimpleTestEntity" },
+    });
+    const mapped = mapDalError(err);
+    expect(mapped!.status).toBe(422);
+    expect(mapped!.body.internal_code).toBe("ERR09");
+    expect(mapped!.body.type).toBe("urn:primebrick:err09");
+    expect(mapped!.body.extra?.selector).toBe("name");
+  });
+
+  it("maps ERR10 → 412 identity conflict with match extras", () => {
+    const err = Object.assign(new Error("mismatch"), {
+      code: "ERR10",
+      detail: JSON.stringify({ table: "public.dal_test_simple", match: { id: 5, uuid: "u2" } }),
+    });
+    const mapped = mapDalError(err);
+    expect(mapped!.status).toBe(412);
+    expect(mapped!.body.internal_code).toBe("ERR10");
+    expect(mapped!.body.extra?.match).toEqual({ id: 5, uuid: "u2" });
+    expect(mapped!.body.extra?.table).toBe("public.dal_test_simple");
+  });
+
   it("maps NOT_FOUND → 404 /errors/not-found", () => {
     const mapped = mapDalError(Object.assign(new Error("nf"), { code: "NOT_FOUND" }));
     expect(mapped!.status).toBe(404);

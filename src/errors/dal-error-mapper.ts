@@ -189,6 +189,38 @@ export function mapDalError(err: unknown, instance?: string): MappedDalError | n
         "MEDIUM",
         instance,
       );
+    // Illegal match selector — 422. TS-originated (MatchSelectorError):
+    // matchBy prop not @Unique/@Key, composite group incomplete, or no
+    // identity field in payload. Never reaches SQL.
+    case "ERR09": {
+      const info = parseDetail(err);
+      return body(
+        "ERR09",
+        422,
+        "Invalid match selector",
+        messageOf(err, "The match selector does not uniquely identify a single row."),
+        "MEDIUM",
+        instance,
+        info && Object.keys(info).length > 0 ? { ...info } : undefined,
+      );
+    }
+    // Identity incoherence / multi-row match — 412. id+uuid pointing at
+    // different rows, or the identity resolved to >1 row (guard CTE abort).
+    case "ERR10": {
+      const info = parseDetail(err);
+      return body(
+        "ERR10",
+        412,
+        "Identity conflict",
+        messageOf(err, "The supplied identity fields are inconsistent or ambiguous."),
+        "HIGH",
+        instance,
+        {
+          ...(info.match && typeof info.match === "object" ? { match: info.match } : {}),
+          ...(typeof info.table === "string" ? { table: info.table } : {}),
+        },
+      );
+    }
     // Generic DAL codes — `/errors/*` type format (BE parity).
     case "NOT_FOUND":
       return body("NOT_FOUND", 404, "Not found", messageOf(err, "Not found"), "MEDIUM", instance, undefined, "/errors/not-found");
