@@ -23,7 +23,10 @@ import JSONBig from "json-bigint";
 import type { Request, Response, NextFunction } from "express";
 
 const jsonBigInstance = JSONBig({
-  useNativeBigInt: true,
+  // useNativeBigInt is intentionally OFF: in that mode json-bigint converts
+  // EVERY number token to native bigint, so any float in the payload throws
+  // "Cannot convert <float> to a BigInt". In default mode floats arrive as
+  // BigNumber objects (or plain numbers) and the reviver below sorts them.
   strict: true,
 });
 
@@ -39,8 +42,8 @@ export function extJsonStringify(data: unknown): string {
 /**
  * Parse an Ext-JSON string.
  *
- * ALL integers are returned as native `bigint` (via reviver — alwaysParseAsBig
- * option in json-bigint v1.0.0 is broken for floats, so we use a reviver instead).
+ * ALL integers are returned as native `bigint` (via reviver — the
+ * useNativeBigInt option throws on float tokens, so we use a reviver instead).
  * Floats (values with decimal point or scientific notation) are returned as `number`.
  * Strings, booleans, null are unaffected.
  *
@@ -49,11 +52,28 @@ export function extJsonStringify(data: unknown): string {
  */
 export function extJsonParse<T = unknown>(text: string): T {
   return jsonBigInstance.parse(text, (_key, value) => {
-    // Force all integer numbers to bigint (small integers come as `number`
-    // from json-bigint; large integers already come as `bigint`).
-    // Floats (Number.isInteger === false) stay as `number`.
-    if (typeof value === "number" && Number.isInteger(value)) {
-      return BigInt(value);
+    // Small integers arrive as `number` — force to bigint, but ONLY safe
+    // integers: huge float tokens (e.g. 1.7e308) arrive as `number` too and
+    // are integer-valued, so isInteger alone would wrongly bigint-ify them.
+    if (typeof value === "number") {
+      return Number.isSafeInteger(value) ? BigInt(value) : value;
+    }
+    // Integers beyond MAX_SAFE_INTEGER arrive as BigNumber objects — convert
+    // to native bigint without precision loss. A huge-magnitude float token
+    // could in theory arrive as BigNumber too; BigInt() rejects non-integer
+    // strings, so fall back to toNumber() there (bignumber.js's isInteger()
+    // is unreliable on values built by json-bigint).
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      (value as object).constructor?.name === "BigNumber"
+    ) {
+      const bn = value as { toString(): string; toNumber(): number };
+      try {
+        return BigInt(bn.toString());
+      } catch {
+        return bn.toNumber();
+      }
     }
     return value;
   }) as T;
