@@ -1,4 +1,6 @@
 import { NatsClient } from "../nats/nats-client.js";
+import { detectPackageIdentity, clientKeyHash } from "./service-identity.js";
+import { logger } from "../lifecycle/logger.js";
 import {
   SERVICE_SUBJECTS,
   type ServiceRegisterPayload,
@@ -20,6 +22,12 @@ export interface ServiceRegistrarConfig {
   is_behind_scaler?: boolean;
   icon?: string;
   icon_type?: 'url' | 'svg' | 'base64' | 'icon';
+  /**
+   * This service's own client key (module config `client_key`) — paired with
+   * the UA prefix in `system.client_registry`. Only its sha256 hash is sent
+   * in `service.register`; the raw key never leaves the service.
+   */
+  clientKey?: string;
 }
 
 /**
@@ -46,20 +54,37 @@ export type HealthCheckFn = () => Promise<{
 export class ServiceRegistrar {
   private readonly config: Required<ServiceRegistrarConfig>;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** sha256 of PRIMEBRICK_CLIENT_KEY — sent to the BE at register; raw key never leaves the service. */
+  private readonly clientKeyHash?: string;
+  private readonly pkgName: string;
 
   constructor(
     private readonly nats: typeof NatsClient,
     config: ServiceRegistrarConfig,
     private readonly healthCheckFn?: HealthCheckFn,
   ) {
+    // Auto-derive name/version from package.json — the registry row must
+    // always carry real identity (it feeds system.client_registry).
+    const pkg = detectPackageIdentity();
+    this.pkgName = pkg.name;
+    // The client key is a module config (`client_key`), never an env var —
+    // each service has its own key; only the sha256 hash leaves the service.
+    const clientKey = config.clientKey;
+    this.clientKeyHash = clientKey ? clientKeyHash(clientKey) : undefined;
+    if (!clientKey) {
+      logger.error(
+        "config 'client_key' is not set — this service cannot enroll in system.client_registry; inbound identity verification will reject its callers",
+        { tags: ["core"] },
+      );
+    }
     this.config = {
       heartbeatIntervalMs: 30000,
       is_behind_scaler: false,
-      name: undefined,
+      name: pkg.name,
       description: undefined,
       author: undefined,
       github_repo_url: undefined,
-      service_version: undefined,
+      service_version: pkg.version,
       icon: undefined,
       icon_type: undefined,
       ...config,
@@ -83,9 +108,11 @@ export class ServiceRegistrar {
       http_healthy,
       nats_connected: this.nats.isConnected(),
       checks,
+      pkg_name: this.pkgName,
+      client_key_hash: this.clientKeyHash,
     };
     await this.nats.publish(SERVICE_SUBJECTS.REGISTER, payload);
-    console.log(`Registered ${this.config.serviceCode} via NATS`);
+    logger.done(`Registered ${this.config.serviceCode} via NATS`, { tags: ["core"] });
   }
 
   async sendHeartbeat(): Promise<void> {
@@ -108,7 +135,7 @@ export class ServiceRegistrar {
       };
       await this.nats.publish(SERVICE_SUBJECTS.HEARTBEAT, payload);
     } catch (error) {
-      console.error(`Heartbeat error for ${this.config.serviceCode}:`, error);
+      logger.error(`Heartbeat error for ${this.config.serviceCode}`, { tags: ["core"], error: error });
     }
   }
 
@@ -119,7 +146,7 @@ export class ServiceRegistrar {
       is_behind_scaler: this.config.is_behind_scaler,
     };
     await this.nats.publish(SERVICE_SUBJECTS.UNREGISTER, payload);
-    console.log(`Unregistered ${this.config.serviceCode} via NATS`);
+    logger.info(`Unregistered ${this.config.serviceCode} via NATS`, { tags: ["core"] });
   }
 
   startHeartbeat(): ReturnType<typeof setInterval> {

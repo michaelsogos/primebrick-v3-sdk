@@ -76,6 +76,17 @@ export { applyPatches, type ApplyPatchesResult } from "./migrations/apply-patche
 export { type IServiceRegistry } from "./service/service-registry.js";
 export { ServiceRegistrar, type ServiceRegistrarConfig, type HealthCheckFn } from "./service/service-registrar.js";
 export {
+  CLIENT_KEY_HEADER,
+  clientKeyHash,
+  detectPackageIdentity,
+  buildUserAgent,
+  identityHeaders,
+  verifyClientIdentity,
+  type PackageIdentity,
+  type ClientIdentityResult,
+} from "./service/service-identity.js";
+export { ClientRegistry, CLIENT_REGISTRY_SUBJECTS, type ClientRegistryRow } from "./service/client-registry.js";
+export {
   SERVICE_SUBJECTS,
   type ServiceHeartbeatPayload,
   type ServiceRegisterPayload,
@@ -89,9 +100,27 @@ export { GracefulShutdown, type CleanupFn } from "./lifecycle/graceful-shutdown.
 
 // NATS
 export { NatsClient } from "./nats/nats-client.js";
+export {
+  makeNatsRoutes,
+  makeNatsRequestRoute,
+  callNats,
+  type NatsRoute,
+  type NatsRequestRoute,
+  type NatsRouteContext,
+  type NatsRouterDeps,
+} from "./nats/nats-routes.js";
 
 // HTTP
 export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";
+export {
+  makeRpcRouter,
+  composeRouteHandlers,
+  ValidationError,
+  type RpcRoute,
+  type RpcRouteContext,
+  type RpcRouterDeps,
+  type RouteHandler,
+} from "./http/rpc-router.js";
 export {
   mapDalError,
   type MappedDalError,

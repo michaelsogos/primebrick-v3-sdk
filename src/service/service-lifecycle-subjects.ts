@@ -45,6 +45,17 @@ export interface ServiceHeartbeatPayload {
 
 export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
   endpoints: Record<string, unknown>;
+  /**
+   * Package name from the service's package.json — used by the BE to build
+   * the `ua_prefix` (`{pkg_name}/{service_version}`) in system.client_registry.
+   */
+  pkg_name?: string;
+  /**
+   * sha256 of the service's client key (env PRIMEBRICK_CLIENT_KEY). The raw
+   * key NEVER travels — the BE stores only this hash in client_registry and
+   * verifies inbound `x-primebrick-client-key` by hashing+comparing.
+   */
+  client_key_hash?: string;
 }
 
 export interface ServiceUnregisterPayload {

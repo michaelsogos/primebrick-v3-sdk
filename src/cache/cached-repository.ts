@@ -71,6 +71,8 @@ export interface CacheableRepository {
 export interface CacheLogger {
   warn(message: string, ...args: unknown[]): void;
   info(message: string, ...args: unknown[]): void;
+  /** Optional done level — SDK logger provides it; simple adapters may not. */
+  done?(message: string, ...args: unknown[]): void;
 }
 
 /**

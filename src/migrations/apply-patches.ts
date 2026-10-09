@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { logger } from "../lifecycle/logger.js";
 import type { DatabasePort } from "../ports/database-port.js";
 import { PATCH_REGISTRY_DDL, PATCH_REGISTRY_FQNAME } from "./patch-registry.js";
 import { patchIdFromFilename, sha256Hex } from "./patch-naming.js";
@@ -58,7 +59,7 @@ export async function applyPatches(patchesDir: string, db: DatabasePort): Promis
     if (byId.rows.length > 0) {
       const recorded = (byId.rows[0] as { content_sha256: string }).content_sha256;
       if (recorded === sha) {
-        console.log(`Skipping already applied patch: ${filename}`);
+        logger.info(`Skipping already applied patch: ${filename}`, { tags: ["migrations"] });
         skipped++;
         continue;
       }
@@ -77,12 +78,12 @@ export async function applyPatches(patchesDir: string, db: DatabasePort): Promis
         `INSERT INTO ${PATCH_REGISTRY_FQNAME} (patch_id, content_sha256) VALUES ($1, $2)`,
         [patchId, sha]
       );
-      console.log(`Registered ${filename} (same body as ${other}) — no SQL re-execution.`);
+      logger.info(`Registered ${filename} (same body as ${other}) — no SQL re-execution.`, { tags: ["migrations"] });
       appliedOrRegistered++;
       continue;
     }
 
-    console.log(`Applying patch: ${filename}`);
+    logger.info(`Applying patch: ${filename}`, { tags: ["migrations"] });
     try {
       await db.query("BEGIN");
       await db.query(raw);

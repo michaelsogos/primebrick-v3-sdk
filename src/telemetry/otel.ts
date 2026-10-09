@@ -147,7 +147,7 @@ async function registerInstrumentationsOnce(): Promise<void> {
       ],
     });
   } catch (err) {
-    logger.warn("auto-instrumentations unavailable — continuing without them", {
+    logger.warn("auto-instrumentations unavailable — continuing without them", { tags: ["telemetry"],
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -173,9 +173,9 @@ export async function initTelemetry(
     currentLoggerProvider = pipeline.logs;
     proxyTracerProvider.setDelegate(pipeline.tracer);
     setOtelLogSink(otelLogSink);
-    logger.info("OTel pipeline started", { endpoint: cfg.otlp_endpoint ?? "none" });
+    logger.info("OTel pipeline started", { tags: ["telemetry"], endpoint: cfg.otlp_endpoint ?? "none" });
   } catch (err) {
-    logger.error("failed to start OTel pipeline — telemetry disabled", {
+    logger.error("failed to start OTel pipeline — telemetry disabled", { tags: ["telemetry"],
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -210,12 +210,12 @@ export function restartTelemetry(
         setOtelLogSink(null);
       }
       await Promise.allSettled([oldTracer?.shutdown(), oldLogs?.shutdown()]);
-      logger.info("OTel pipeline restarted", {
+      logger.info("OTel pipeline restarted", { tags: ["telemetry"],
         enabled: cfg.enabled,
         endpoint: cfg.otlp_endpoint ?? "none",
       });
     } catch (err) {
-      logger.error("restart failed — keeping previous pipeline", {
+      logger.error("restart failed — keeping previous pipeline", { tags: ["telemetry"],
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -242,6 +242,7 @@ export async function shutdownTelemetry(): Promise<void> {
 const SEVERITY: Record<LogLevel, "DEBUG" | "INFO" | "WARN" | "ERROR"> = {
   debug: "DEBUG",
   info: "INFO",
+  done: "INFO",
   warn: "WARN",
   error: "ERROR",
 };

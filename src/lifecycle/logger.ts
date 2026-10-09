@@ -25,10 +25,18 @@ import { inspect } from "node:util";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogLevel = "debug" | "info" | "done" | "warn" | "error";
 export type LogFormat = "pretty" | "json";
 
 export interface LogMeta {
+  /**
+   * Reserved key: textual tags rendered as `[tag1] [tag2]` right before the
+   * message, in amber — visually distinct from level colors, timestamp and
+   * the `[service#version]` tag. The message itself must carry ONLY the
+   * message; subsystem labels belong here. In `json` format they appear as
+   * a structured `tags` array.
+   */
+  tags?: string[];
   [key: string]: unknown;
 }
 
@@ -57,6 +65,7 @@ function detectService(): { service: string; version?: string } {
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 10,
   info: 20,
+  done: 25,
   warn: 30,
   error: 40,
 };
@@ -166,18 +175,23 @@ const C = {
   magentaDark: `${ESC}[35m`,
   cyan: `${ESC}[36m`,
   yellow: `${ESC}[33m`,
+  amber: `${ESC}[38;5;214m`,
   red: `${ESC}[31m`,
 } as const;
 
 const LEVEL_COLOR: Record<LogLevel, string> = {
   debug: C.gray,
   info: C.cyan,
+  done: C.green,
   warn: C.yellow,
   error: C.red,
 };
 
 const paint = (code: string, s: string): string =>
   COLOR_ENABLED ? `${code}${s}${C.reset}` : s;
+
+/** Fixed width of the `[service#version]` column (shorter tags are right-padded). */
+const TAG_COLUMN_WIDTH = 26;
 
 // ─── Formatting ─────────────────────────────────────────────────────────────
 
@@ -214,19 +228,23 @@ const INSPECT_OPTS = {
   maxStringLength: 2000,
 };
 
-function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string {
+/** Internal line formatter — exported for tests; use `logger.*` in app code. */
+export function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string {
   const ts = new Date().toISOString();
   const span = activeSpanIds();
+  const tags = Array.isArray(meta?.tags) ? meta.tags.filter((t): t is string => typeof t === "string") : [];
 
   if (state.format === "json") {
+    const { tags: _tags, ...restMeta } = meta ?? {};
     const record: Record<string, unknown> = {
       time: ts,
       level,
       msg,
+      ...(tags.length > 0 ? { tags } : {}),
       ...span,
       service: state.service,
       ...(state.version ? { version: state.version } : {}),
-      ...(meta ?? {}),
+      ...restMeta,
     };
     // BigInt-safe JSON via a replacer (extJson isn't needed — plain JSON + bigint replacer)
     return JSON.stringify(record, (_k, v) => (typeof v === "bigint" ? v.toString() : v)) + "\n";
@@ -234,11 +252,12 @@ function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string {
 
   const tracePart = span.trace_id ? ` trace=${span.trace_id} span=${span.span_id}` : "";
   let metaPart = "";
-  if (meta && Object.keys(meta).length > 0) {
+  const { tags: _tags, ...metaBody } = meta ?? {};
+  if (Object.keys(metaBody).length > 0) {
     // safeSerialize the meta itself too — it may BE an Error instance, whose
     // message/stack are non-enumerable and would be dropped by Object.entries.
     const clean = Object.fromEntries(
-      Object.entries(safeSerialize(meta) as LogMeta).map(([k, v]) => [k, safeSerialize(v)]),
+      Object.entries(safeSerialize(metaBody) as LogMeta).map(([k, v]) => [k, safeSerialize(v)]),
     );
     // A serialized Error's `stack` would inspect as an escaped \n string —
     // print it as raw indented lines instead.
@@ -255,12 +274,19 @@ function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string {
     }
   }
   // Tag is mandatory and deterministic: [service#version] from package.json —
-  // name in bright magenta, #version in dark magenta.
+  // name in bright magenta, #version in dark magenta. The first three columns
+  // (timestamp, level, service tag) are fixed-width so the message column
+  // stays aligned; tags/message flow after it.
+  const rawTag = `[${state.service}${state.version ? `#${state.version}` : ""}]`;
   const tag =
     `${paint(C.magenta, `[${state.service}`)}` +
     (state.version ? paint(C.magentaDark, `#${state.version}`) : "") +
-    paint(C.magenta, "]");
-  return `${paint(C.blue, ts)} ${paint(LEVEL_COLOR[level], level.padEnd(5))}${tracePart} ${tag} ${msg}${metaPart}\n`;
+    paint(C.magenta, "]") +
+    " ".repeat(Math.max(0, TAG_COLUMN_WIDTH - rawTag.length));
+  // Optional textual tags: [tag1] [tag2] in amber — distinct from level
+  // colors, timestamp and service tag. The message carries only the message.
+  const tagsPart = tags.length > 0 ? " " + tags.map((t) => paint(C.amber, `[${t}]`)).join(" ") : "";
+  return `${paint(C.blue, ts)} ${paint(LEVEL_COLOR[level], level.padEnd(5))}${tracePart} ${tag}${tagsPart} ${msg}${metaPart}\n`;
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -286,6 +312,7 @@ function emit(level: LogLevel, msg: string, meta?: LogMeta): void {
 export const logger = {
   debug: (msg: string, meta?: LogMeta) => emit("debug", msg, meta),
   info: (msg: string, meta?: LogMeta) => emit("info", msg, meta),
+  done: (msg: string, meta?: LogMeta) => emit("done", msg, meta),
   warn: (msg: string, meta?: LogMeta) => emit("warn", msg, meta),
   error: (msg: string, meta?: LogMeta) => emit("error", msg, meta),
 };
@@ -306,7 +333,8 @@ export function getLogOptions(): Readonly<LoggerState> {
 
 let bridgeInstalled = false;
 
-function argsToMsgAndMeta(args: unknown[]): { msg: string; meta?: LogMeta } {
+/** Internal arg parser used by the console bridge — exported for tests. */
+export function argsToMsgAndMeta(args: unknown[]): { msg: string; meta?: LogMeta } {
   if (args.length === 0) return { msg: "" };
   const [first, ...rest] = args;
   // Objects go to structured meta (SIEM-queryable); scalars stay in the message.

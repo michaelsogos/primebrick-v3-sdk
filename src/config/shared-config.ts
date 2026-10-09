@@ -1,6 +1,10 @@
 /**
  * Shared config protocol — NATS `config.get` request/reply.
  *
+ * DEPRECATO — NON PASSIAMO DA NATS REQ/RES. Pending migration to pub/sub
+ * correlation reply (`config.get` → `config.response.<requestId>`).
+ * New code must NOT add req/res subjects.
+ *
  * Allows microservices to discover configuration that is centralized in the BE's
  * `auth_configurations` table (e.g. `redis_url`) without duplicating it in their
  * own config tables.
@@ -120,7 +124,9 @@ export async function fetchSharedConfig(
   try {
     const response = await nats.request<SharedConfig>(
       SHARED_CONFIG_SUBJECT,
-      null,
+      // send a JSON body: subscribeRequest used to throw on empty payloads
+      // before the handler could run — keep this as `{}` for robustness.
+      {},
       SHARED_CONFIG_TIMEOUT_MS,
     );
     return response ?? {};

@@ -53,6 +53,8 @@
  */
 
 import { readFileSync } from "node:fs";
+import { logger } from "../lifecycle/logger.js";
+import { ClientRegistry } from "../service/client-registry.js";
 import { resolve } from "node:path";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import {
@@ -244,7 +246,7 @@ export async function createMicroservice(
   // 0. Async console bridge — timestamps + trace_id on every log line
   //    from the very first message. Safe under vitest (auto-skipped).
   installConsoleBridge();
-  console.log(`Starting ${options.serviceName} microservice...`);
+  logger.info(`Starting ${options.serviceName} microservice...`, { tags: ["core"] });
 
   // 1. Environment validation
   const env = requireEnv(options.envSchema);
@@ -256,9 +258,9 @@ export async function createMicroservice(
   const configLoader = new ConfigLoader(options.configRepositoryAdapter());
   try {
     await configLoader.load();
-    console.log("Config loaded from DB");
+    logger.info("Config loaded from DB", { tags: ["core"] });
   } catch (error) {
-    console.error("Failed to load config (non-fatal — table may be empty):", error);
+    logger.error("Failed to load config (non-fatal — table may be empty)", { tags: ["core"], error: error });
   }
 
   // 4. Auth config initialization
@@ -266,9 +268,9 @@ export async function createMicroservice(
   initAuthConfig(authConfigPort);
   try {
     await loadAuthConfig();
-    console.log("Auth config loaded");
+    logger.info("Auth config loaded", { tags: ["core"] });
   } catch (error) {
-    console.error("Failed to load auth config (non-fatal — config table may be empty):", error);
+    logger.error("Failed to load auth config (non-fatal — config table may be empty)", { tags: ["core"], error: error });
   }
 
   // 5. Auth dependency wiring
@@ -285,7 +287,7 @@ export async function createMicroservice(
       }
     }
   } catch (error) {
-    console.error("Failed to wire auth dependencies (non-fatal):", error);
+    logger.error("Failed to wire auth dependencies (non-fatal)", { tags: ["core"], error: error });
     authConfig = getAuthConfig();
   }
 
@@ -293,9 +295,9 @@ export async function createMicroservice(
   const natsUrl = configLoader.require("nats_url");
   try {
     await NatsClient.getConnection(natsUrl);
-    console.log("NATS connection established");
+    logger.done("NATS connection established", { tags: ["core"] });
   } catch (error) {
-    console.error("Failed to connect to NATS:", error);
+    logger.error("Failed to connect to NATS", { tags: ["core"], error: error });
     process.exit(1);
   }
 
@@ -311,14 +313,22 @@ export async function createMicroservice(
       sampler_arg: t?.sampler_arg,
     };
     void restartTelemetry(cfg, options.serviceName, serviceVersionEarly);
+    // Logger identity stays package.json-derived (logger.ts) — never
+    // override `service` here or the tag would flip mid-boot.
     setLogOptions({
       level: t?.log_level,
       format: t?.log_format,
-      service: options.serviceName,
     });
   };
   try {
-    const shared = await fetchSharedConfig(NatsClient);
+    // The BE registers its `config.get` responder after NATS connect — a
+    // microservice that starts concurrently can hit the race where no
+    // responder exists yet. Retry briefly before degrading to no-config.
+    let shared = await fetchSharedConfig(NatsClient);
+    for (let attempt = 0; attempt < 4 && !shared.redis_url && !shared.telemetry; attempt++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      shared = await fetchSharedConfig(NatsClient);
+    }
     await initTelemetry(
       {
         enabled: shared.telemetry?.enabled ?? false,
@@ -333,11 +343,10 @@ export async function createMicroservice(
     setLogOptions({
       level: shared.telemetry?.log_level,
       format: shared.telemetry?.log_format,
-      service: options.serviceName,
     });
     // Redis cache (best-effort) — reuses the shared config just fetched.
     // Sets the SDK cache-port holder so adapters can call getSdkCachePort().
-    const { cachePort, redisInfo } = await initCacheFromSharedConfig(
+    let { cachePort, redisInfo } = await initCacheFromSharedConfig(
       NatsClient,
       console,
       shared,
@@ -349,12 +358,20 @@ export async function createMicroservice(
       try {
         const fresh = await fetchSharedConfig(NatsClient);
         applyTelemetry(fresh.telemetry);
+        // If redis_url was missed at startup (BE race) or has been added
+        // since, bring the cache online without a restart.
+        if (!cachePort && fresh.redis_url) {
+          const boot = await initCacheFromSharedConfig(NatsClient, console, fresh);
+          cachePort = boot.cachePort;
+          redisInfo = boot.redisInfo;
+          setSdkCachePort(cachePort, redisInfo);
+        }
       } catch (err) {
-        console.error("failed to apply config.changed:", err);
+        logger.error("failed to apply config.changed", { tags: ["core"], error: err });
       }
     });
   } catch (error) {
-    console.error("init failed (non-fatal):", error);
+    logger.error("init failed (non-fatal)", { tags: ["core"], error: error });
   }
 
   // 7. ServiceRegistrar
@@ -398,18 +415,20 @@ export async function createMicroservice(
       is_behind_scaler: options.isBehindScaler ?? false,
       icon: options.icon,
       icon_type: options.iconType,
+      // Per-service client key from module config (never env).
+      clientKey: configLoader.get("client_key") ?? undefined,
     },
     registrarHealthCheckFn,
   );
 
   try {
     await registrar.register();
-    console.log("Service registered via NATS");
+    logger.done("Service registered via NATS", { tags: ["core"] });
   } catch (error) {
-    console.error("Failed to register service:", error);
+    logger.error("Failed to register service", { tags: ["core"], error: error });
   }
   registrar.startHeartbeat();
-  console.log("Heartbeat started");
+  logger.info("Heartbeat started", { tags: ["core"] });
 
   // 8. HTTP server + HealthCheck
   // Build custom health checks — include NATS check automatically
@@ -423,6 +442,28 @@ export async function createMicroservice(
 
   const healthCheck = new HealthCheck(healthCheckPort, customChecks);
   const httpPort = parseInt(configLoader.require("http_port"), 10);
+
+  // 7b. Client-identity gate (B11). Enforcement is ON by default; set
+  //     PRIMEBRICK_IDENTITY_ENFORCEMENT=off to disable (e.g. legacy dev envs
+  //     where not all callers send identity headers yet). Fail-closed: if
+  //     the registry snapshot can't load, the allowlist is empty.
+  let clientRegistry: ClientRegistry | undefined;
+  if (process.env.PRIMEBRICK_IDENTITY_ENFORCEMENT !== "off") {
+    clientRegistry = new ClientRegistry();
+    try {
+      await clientRegistry.start();
+    } catch (error) {
+      logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
+        tags: ["core"],
+        error,
+      });
+    }
+  } else {
+    logger.warn("Client-identity enforcement disabled (PRIMEBRICK_IDENTITY_ENFORCEMENT=off)", {
+      tags: ["core"],
+    });
+  }
+
   const server = await createHttpServer({
     port: httpPort,
     healthCheck,
@@ -430,9 +471,10 @@ export async function createMicroservice(
     serviceVersion,
     serviceUrl: baseUrl,
     routeHandler: options.routeHandler,
+    clientRegistry,
   });
 
-  console.log(`${options.serviceName} microservice started successfully`);
+  logger.done(`${options.serviceName} microservice started successfully`, { tags: ["core"] });
 
   // 9. GracefulShutdown
   const shutdown = new GracefulShutdown(options.serviceName);

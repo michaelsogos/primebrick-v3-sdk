@@ -11,6 +11,7 @@
  *
  * Used by both the BE and US microservices for consistent observability.
  */
+import { logger } from "./logger.js";
 
 /**
  * Log a successful infrastructure module connection.
@@ -21,7 +22,7 @@
  */
 export function logModuleStartup(name: string, version: string | null | undefined, url: string): void {
   const v = version || "unknown";
-  console.log(`${name} ${v} connected (${url})`);
+  logger.done(`${name} ${v} connected (${url})`, { tags: ["core"] });
 }
 
 /**
@@ -31,5 +32,5 @@ export function logModuleStartup(name: string, version: string | null | undefine
  * @param url Base URL the service is listening on
  */
 export function logServiceStartup(url: string): void {
-  console.log(`Listening on ${url}`);
+  logger.done(`Listening on ${url}`, { tags: ["core"] });
 }

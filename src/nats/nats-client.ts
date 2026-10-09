@@ -11,6 +11,7 @@ import {
   type MsgHdrs,
 } from "nats";
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
 
@@ -51,7 +52,7 @@ export class NatsClient {
     // nc.info is populated by the INFO handshake at connect time.
     // ServerInfo.version is a string like "2.14.3".
     NatsClient.serverVersion = NatsClient.nc.info?.version ?? null;
-    console.log(`NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`);
+    logger.done(`NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`, { tags: ["core"] });
     return NatsClient.nc;
   }
 
@@ -94,11 +95,19 @@ export class NatsClient {
       NatsClient.jsm = null;
       NatsClient.serverVersion = null;
       NatsClient.serverUrl = null;
-      console.log("NATS connection closed");
+      logger.info("NATS connection closed", { tags: ["core"] });
     }
   }
 
   /**
+   * @deprecated DEPRECATO — NON PASSIAMO DA NATS REQ/RES.
+   * The legal communication model (decided 2026-10-09) is:
+   * BE→US = HTTP proxy req/res, US→* = NATS pub/sub fire-and-forget or
+   * choreographed event bus. Synchronous-looking needs use pub/sub
+   * correlation replies (`x.call` → `x.response.<requestId>`).
+   * Kept only until auth.apikey.byHash / service.registry.get / config.get
+   * are migrated. Do NOT use in new code.
+   *
    * Send a request-reply message and wait for the response.
    * The request data is serialized with extJsonStringify (BigInt-safe) and
    * the response is parsed with extJsonParse.
@@ -167,7 +176,7 @@ export class NatsClient {
    *   await NatsClient.subscribe<SendEmailRequest>(
    *     "emailsender.send",
    *     async (request) => {
-   *       console.log(`Received: ${request.requestId}`);
+   *       logger.info(`Received: ${request.requestId}`);
    *       // request.entity_id is bigint if present
    *     }
    *   );
@@ -200,7 +209,7 @@ export class NatsClient {
           } catch (error) {
             span.recordException(error as Error);
             span.setStatus({ code: SpanStatusCode.ERROR });
-            console.error(`Error processing message on "${subject}":`, error);
+            logger.error(`Error processing message on "${subject}"`, { tags: ["nats"], error: error });
           } finally {
             span.end();
           }
@@ -213,6 +222,8 @@ export class NatsClient {
 
   /**
    * Subscribe to a NATS subject with request-reply pattern.
+   *
+   * @deprecated DEPRECATO — NON PASSIAMO DA NATS REQ/RES. See request().
    * The handler receives the parsed request and returns a response that is
    * automatically serialized with extJsonStringify and published back to
    * `msg.reply` (if set).
@@ -248,7 +259,10 @@ export class NatsClient {
           let requestId: string | undefined;
           try {
             const text = new TextDecoder().decode(msg.data);
-            const request = extJsonParse<TRequest>(text);
+            // Empty payloads are legal for parameterless request/reply
+            // subjects (e.g. config.get) — treat them as `null`, not as a
+            // parse error that never reaches the handler.
+            const request = text === "" ? (null as TRequest) : extJsonParse<TRequest>(text);
             requestId = (request as { requestId?: string })?.requestId;
             const response = await handler(request, msg);
             if (msg.reply) {
@@ -260,7 +274,7 @@ export class NatsClient {
           } catch (error) {
             span.recordException(error as Error);
             span.setStatus({ code: SpanStatusCode.ERROR });
-            console.error(`Error processing request on "${subject}":`, error);
+            logger.error(`Error processing request on "${subject}"`, { tags: ["nats"], error: error });
             if (msg.reply) {
               const errorResponse = {
                 success: false,
@@ -378,7 +392,7 @@ export class NatsClient {
         } catch (error) {
           span.recordException(error as Error);
           span.setStatus({ code: SpanStatusCode.ERROR });
-          console.error(`Error processing JetStream message on "${subject}":`, error);
+          logger.error(`Error processing JetStream message on "${subject}"`, { tags: ["nats"], error: error });
           m.nak(5000);
         } finally {
           span.end();
@@ -399,7 +413,7 @@ export class NatsClient {
           }
         } catch (error) {
           if (stopped) break;
-          console.error(`JetStream fetch failed on ${opts.stream}/${opts.durable}:`, error);
+          logger.error(`JetStream fetch failed on ${opts.stream}/${opts.durable}`, { tags: ["nats"], error: error });
           await new Promise((r) => setTimeout(r, 2000));
         }
       }

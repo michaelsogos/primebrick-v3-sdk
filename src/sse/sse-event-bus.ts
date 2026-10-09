@@ -12,6 +12,7 @@
  */
 
 import type { SseEventBus, SseEvent, SseEventBusSubscription } from "./types.js";
+import { logger } from "../lifecycle/logger.js";
 
 /**
  * Create a new in-process `SseEventBus`.
@@ -35,7 +36,7 @@ export function createSseEventBus(): SseEventBus {
           h(event);
         } catch (err) {
           // A single handler error must not crash the bus or other subscribers.
-          console.error("handler error:", err);
+          logger.error("handler error", { tags: ["sse"], error: err });
         }
       }
     },

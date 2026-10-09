@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
+import { logger } from "../lifecycle/logger.js";
+import { verifyClientIdentity } from "../service/service-identity.js";
 import { context, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { HealthCheck } from "./health-check.js";
 import { extJsonStringify } from "../json/ext-json.js";
@@ -15,6 +17,12 @@ export interface HttpServerOptions {
   serviceUrl?: string;
   /** Custom route handler — receives req/res, returns true if handled. */
   routeHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>;
+  /**
+   * Client-identity gate (B11): when set, every non-/health request must
+   * carry a registry-listed `User-Agent` prefix + valid
+   * `x-primebrick-client-key` before the route handler runs.
+   */
+  clientRegistry?: import("../service/client-registry.js").ClientRegistry;
 }
 
 /**
@@ -101,6 +109,40 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
         return;
       }
 
+      // Client-identity gate — internal callers must identify themselves
+      // (User-Agent prefix + client key) before any route runs.
+      if (options.clientRegistry) {
+        const registry = options.clientRegistry;
+        const headerAdapter = {
+          headers: {
+            get: (name: string) => {
+              const v = req.headers[name.toLowerCase()];
+              return typeof v === "string" ? v : null;
+            },
+          },
+        };
+        const idResult = await verifyClientIdentity(headerAdapter, {
+          allowedPrefixes: registry.allowedPrefixes,
+          verifyKey: (prefix, key) => registry.verifyKey(prefix, key),
+        });
+        if (!idResult.ok) {
+          sendRfcError(
+            res,
+            idResult.status,
+            idResult.error === "UNKNOWN_CLIENT" ? "Unknown client" : "Unidentified client",
+            idResult.error === "UNKNOWN_CLIENT"
+              ? "User-Agent is not in the client registry allowlist"
+              : "Missing or invalid client identity headers",
+            {
+              internal_code: idResult.error,
+              instance: url.pathname,
+              severity: "MEDIUM",
+            },
+          );
+          return;
+        }
+      }
+
       // Custom routes
       if (options.routeHandler) {
         const handled = await options.routeHandler(req, res, url);
@@ -117,7 +159,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
       // If headers already sent (route handler started writing then threw),
       // we can't send a proper RFC response — just destroy the socket.
       if (res.headersSent) {
-        console.error(`Error after headers sent:`, err);
+        logger.error(`Error after headers sent`, { tags: ["core"], error: err });
         res.destroy();
         return;
       }
@@ -140,7 +182,8 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
         ? (err as { status?: number }).status ?? 401
         : 500;
 
-      console.error(`Unhandled error:`, {
+      logger.error("Unhandled error", {
+        tags: ["core"],
         message: err instanceof Error ? err.message : String(err),
         stack: err instanceof Error ? err.stack : undefined,
         name: err instanceof Error ? err.name : undefined,
@@ -165,7 +208,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
   });
 
   server.listen(options.port, () => {
-    console.log(`HTTP server listening on port ${options.port}`);
+    logger.done(`HTTP server listening on port ${options.port}`, { tags: ["core"] });
   });
 
   return server;

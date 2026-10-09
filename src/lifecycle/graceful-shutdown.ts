@@ -1,4 +1,5 @@
 import os from "node:os";
+import { logger } from "./logger.js";
 
 export type CleanupFn = () => Promise<void>;
 
@@ -37,11 +38,11 @@ export class GracefulShutdown {
       });
     }
     process.on("uncaughtException", (err) => {
-      console.error(`uncaughtException`, err);
+      logger.error("uncaughtException", { tags: ["core"], error: err });
       void this.shutdown("uncaughtException", 1);
     });
     process.on("unhandledRejection", (reason) => {
-      console.error(`unhandledRejection`, reason);
+      logger.error("unhandledRejection", { tags: ["core"], error: reason });
       void this.shutdown("unhandledRejection", 1);
     });
   }
@@ -49,7 +50,7 @@ export class GracefulShutdown {
   async shutdown(reason: string, code: number): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
-    console.log(`shutting down (${reason})`);
+    logger.info(`shutting down (${reason})`, { tags: ["core"] });
     try {
       await Promise.allSettled(this.cleanups.map((fn) => fn()));
     } finally {

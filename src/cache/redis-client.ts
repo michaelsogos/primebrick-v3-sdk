@@ -12,6 +12,7 @@
  */
 
 import { createClient, type RedisClientType } from "redis";
+import { logger } from "../lifecycle/logger.js";
 
 let client: RedisClientType | null = null;
 
@@ -25,7 +26,7 @@ let client: RedisClientType | null = null;
 export async function createRedisClient(url: string): Promise<RedisClientType> {
   if (client) return client;
   client = createClient({ url }) as RedisClientType;
-  client.on("error", (err) => console.error("client error:", err));
+  client.on("error", (err) => logger.error("client error", { tags: ["cache"], error: err }));
   await client.connect();
   return client;
 }
