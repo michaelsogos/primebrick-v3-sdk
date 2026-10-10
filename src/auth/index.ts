@@ -34,6 +34,19 @@ export { apiKeyCacheKey, API_KEY_CACHE_TTL_MS } from "./api-key-cache.js";
 // Auth config cache
 export { initAuthConfig, loadAuthConfig, getAuthConfig, invalidateAuthConfig, resetAuthConfigForTest } from "./auth-config-cache.js";
 
+// MFA step-up (US endpoints)
+export {
+  MFA_ACTION_AUTH_HEADER,
+  AUTH_MFA_CONSUME_SUBJECT,
+  assertMfaStepUp,
+  consumeMfaActionAuthorization,
+  MfaStepUpRequiredError,
+  MfaConsumeUnavailableError,
+  type MfaStepUpSpec,
+  type MfaConsumeResult,
+  type MfaConsumeFn,
+} from "./mfa-step-up.js";
+
 // Core verification
 export { verifyAuth, verifyAuthGatewayResolved, AuthError, type AuthPorts } from "./verify.js";
 

@@ -31,6 +31,14 @@ import type { AuthUser } from "../auth/types.js";
 import type { ApiKeyPort } from "../auth/ports/api-key-port.js";
 import { createSseWriter } from "../sse/sse-writer.js";
 import type { SseWriter } from "../sse/types.js";
+import {
+  assertMfaStepUp,
+  consumeMfaActionAuthorization,
+  MfaConsumeUnavailableError,
+  MfaStepUpRequiredError,
+  type MfaConsumeFn,
+  type MfaStepUpSpec,
+} from "../auth/mfa-step-up.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -84,6 +92,14 @@ export interface RpcRoute<
   /** "sse" = governed streaming route: handler gets `ctx.sse`, owns res. */
   streaming?: "sse";
   /**
+   * MFA step-up — only legal on `auth: "user"` routes. The client must send
+   * a single-use action authorization token in `x-mfa-action-authorization`
+   * (minted by BE step-up endpoints); the router delegates the consume to
+   * the BE via `auth.mfa.consume`. Missing/invalid → 403 with
+   * `extra.mfa_step_up_required` so the FE shows the step-up dialog.
+   */
+  mfa?: MfaStepUpSpec;
+  /**
    * OpenAPI metadata — consumed by `rpcSpec()`/`buildOpenApiSpec()` to emit
    * this route in the service's auto-generated `/api/v1/openapi.json`.
    * Routes without it are still documented (path+method+security derived),
@@ -101,6 +117,12 @@ export interface RpcRouterDeps {
    * after router construction, e.g. `authDependencySetters`).
    */
   apiKeyPort?: ApiKeyPort | (() => ApiKeyPort | null | undefined);
+  /**
+   * Override for the MFA action-authorization consume — defaults to the
+   * governed `auth.mfa.consume` correlation call to the BE. Injectable for
+   * tests only.
+   */
+  mfaConsume?: MfaConsumeFn;
 }
 
 export type RouteHandler = (
@@ -201,7 +223,7 @@ function sendRfcError(
   status: number,
   title: string,
   detail: string,
-  options?: { internal_code?: string; instance?: string; severity?: string },
+  options?: { internal_code?: string; instance?: string; severity?: string; extra?: Record<string, unknown> },
 ): void {
   const body = {
     type: `https://primebrick.io/errors/${options?.internal_code ?? "error"}`,
@@ -211,6 +233,7 @@ function sendRfcError(
     instance: options?.instance,
     internal_code: options?.internal_code,
     severity: options?.severity ?? (status >= 500 ? "HIGH" : "MEDIUM"),
+    extra: options?.extra,
   };
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(extJsonStringify(body));
@@ -235,6 +258,13 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
         `makeRpcRouter: route ${route.method} ${route.path} has no permissions. ` +
           `Every non-public endpoint MUST declare RBAC permissions — ` +
           `use auth: "public" only for genuinely unauthenticated routes.`,
+      );
+    }
+    if (route.mfa && auth !== "user") {
+      throw new Error(
+        `makeRpcRouter: route ${route.method} ${route.path} declares mfa ` +
+          `but auth is "${auth}". MFA step-up is bound to an authenticated ` +
+          `user and is only legal on auth: "user" routes.`,
       );
     }
     if (auth === "api_key" && !deps.apiKeyPort) {
@@ -304,6 +334,34 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
       async function dispatch(): Promise<boolean> {
       if (route.permissions?.length) {
         enforceHttpRbac(user!, route.permissions, route.rbacMode);
+      }
+
+      if (route.mfa) {
+        const consume = deps.mfaConsume ?? consumeMfaActionAuthorization;
+        try {
+          await assertMfaStepUp(req, route.mfa, user, consume);
+        } catch (e) {
+          if (e instanceof MfaStepUpRequiredError) {
+            sendRfcError(res, 403, "Forbidden", "MFA step-up verification required", {
+              internal_code: e.internal_code,
+              instance: path,
+              extra: {
+                mfa_step_up_required: true,
+                action: e.action,
+                target_resource: e.target_resource,
+              },
+            });
+            return true;
+          }
+          if (e instanceof MfaConsumeUnavailableError) {
+            sendRfcError(res, 503, "Service Unavailable", e.message, {
+              internal_code: "MFA_CONSUME_UNAVAILABLE",
+              instance: path,
+            });
+            return true;
+          }
+          throw e;
+        }
       }
 
       let body: unknown;

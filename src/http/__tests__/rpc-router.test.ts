@@ -177,6 +177,95 @@ describe("makeRpcRouter — api_key auth kind", () => {
   });
 });
 
+describe("makeRpcRouter — mfa step-up", () => {
+  const spec = { action: "delete", target_resource: "things" };
+
+  it("rejects mfa on non-user routes at construction", () => {
+    expect(() =>
+      makeRpcRouter([
+        { method: "GET", path: "/x", auth: "public", mfa: spec, handler: async () => ({}) },
+      ]),
+    ).toThrow(/mfa.*auth/i);
+    expect(() =>
+      makeRpcRouter(
+        [{ method: "GET", path: "/x", auth: "api_key", permissions: ["p"], mfa: spec, handler: async () => ({}) }],
+        { apiKeyPort: { async findByHash() { return null; } } },
+      ),
+    ).toThrow(/mfa.*auth/i);
+  });
+
+  const router = (consume: import("../../auth/mfa-step-up.js").MfaConsumeFn) =>
+    makeRpcRouter(
+      [{ method: "DELETE", path: "/things", permissions: ["test.write"], mfa: spec, handler: async () => ({ done: true }) }],
+      { mfaConsume: consume },
+    );
+
+  it("403 + mfa_step_up_required when the header is missing", async () => {
+    handler = router(async () => ({ ok: true, user_uuid: "u-1" }));
+    const res = await call("/things", { method: "DELETE", headers: userHeaders(["test.write"]) });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.extra.mfa_step_up_required).toBe(true);
+    expect(body.extra.action).toBe("delete");
+    expect(body.extra.target_resource).toBe("things");
+  });
+
+  it("200 when the consume succeeds for the same user", async () => {
+    handler = router(async () => ({ ok: true, user_uuid: "u-1" }));
+    const res = await call("/things", {
+      method: "DELETE",
+      headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ done: true });
+  });
+
+  it("403 when the token was issued for a different user", async () => {
+    handler = router(async () => ({ ok: true, user_uuid: "someone-else" }));
+    const res = await call("/things", {
+      method: "DELETE",
+      headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.extra.mfa_step_up_required).toBe(true);
+  });
+
+  it("403 with the BE denial code when consume returns ok:false", async () => {
+    handler = router(async () => ({ ok: false, code: "MFA_ACTION_TOKEN_ALREADY_USED" }));
+    const res = await call("/things", {
+      method: "DELETE",
+      headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.internal_code).toBe("MFA_ACTION_TOKEN_ALREADY_USED");
+    expect(body.extra.mfa_step_up_required).toBe(true);
+  });
+
+  it("503 (not 403) when the consume transport fails — no dialog loop", async () => {
+    handler = router(async () => { throw new Error("callNats timeout"); });
+    const res = await call("/things", {
+      method: "DELETE",
+      headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
+    });
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.internal_code).toBe("MFA_CONSUME_UNAVAILABLE");
+    expect(body.extra?.mfa_step_up_required).toBeUndefined();
+  });
+
+  it("forwards token + action + target_resource to the consume fn", async () => {
+    const seen: unknown[] = [];
+    handler = router(async (t, a, r) => { seen.push([t, a, r]); return { ok: true, user_uuid: "u-1" }; });
+    await call("/things", {
+      method: "DELETE",
+      headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok123" },
+    });
+    expect(seen).toEqual([["tok123", "delete", "things"]]);
+  });
+});
+
 describe("makeRpcRouter — governed sse kind", () => {
   const router = makeRpcRouter([
     {
