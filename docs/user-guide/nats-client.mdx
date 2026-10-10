@@ -86,6 +86,38 @@ await NatsClient.subscribe<SendEmailRequest>(
 Empty payloads are passed as `null` to the handler. Processing errors are
 caught and logged — they do not crash the subscription loop.
 
+### Queue groups — work items vs broadcasts
+
+Pass `{ queue }` when a message is a **work item** that exactly one replica
+must process. Leave it unset for **broadcasts** every instance must receive.
+
+```ts
+// Work item — one emailsender replica sends each request
+await NatsClient.subscribe("emailsender.send", handler, { queue: "emailsender" });
+
+// Broadcast — EVERY live service must observe this (no queue!)
+await NatsClient.subscribe("service.gateway_online", handler);
+```
+
+Rules of thumb:
+
+- **Queued (work):** commands/jobs (`emailsender.send`), lifecycle subjects
+  processed by the singleton gateway (`service.register` req/reply —
+  the queue also prevents duplicate replies), req/res responders.
+- **Unqueued (broadcast):** events every replica's local state depends on —
+  `service.gateway_online`, `config.changed`, `client_registry.changed`,
+  per-instance registry caches.
+- JetStream consumers already have durable identity semantics — queue
+  groups do not apply.
+
+### Hot-reload deduplication
+
+Under watch-mode reloads (`bun --hot`, `tsx watch`) the NATS connection
+singleton survives while new service instances re-subscribe. `subscribe()`
+and `subscribeRequest()` dedupe by `subject::queue` at process level: the
+new subscription **replaces** the previous one instead of stacking, so a
+reloaded service never receives the same message twice.
+
 ## Request-reply (responder side)
 
 `subscribeRequest()` implements the NATS™ request-reply pattern on the

@@ -141,6 +141,7 @@ export class ServiceRegistrar {
             `The service ${ref} has been successfully registered after ${attempt} attempt${attempt === 1 ? "" : "s"}`,
             { tags: gwTag ? ["core", gwTag] : ["core"] },
           );
+          void this.watchGatewayRestarts();
           return;
         }
         logger.warn(
@@ -156,6 +157,44 @@ export class ServiceRegistrar {
       }
       await new Promise((r) => setTimeout(r, 5000));
     }
+  }
+
+  /**
+   * After a successful registration, listen for `service.gateway_online`:
+   * when the BE restarts it announces itself and every live service
+   * re-registers — the gateway re-ingests identity/endpoints/capabilities
+   * and re-discovers OpenAPI without polling anyone.
+   */
+  private gatewayWatchStarted = false;
+  private reregisterInFlight = false;
+  private async watchGatewayRestarts(): Promise<void> {
+    if (this.gatewayWatchStarted) return;
+    this.gatewayWatchStarted = true;
+    const gwTag = this.config.gatewayUrl;
+    // Hot-reload safety: a module reload creates a NEW registrar that
+    // subscribes on the SAME persistent NATS connection — replace the
+    // previous instance's subscription instead of accumulating one per
+    // reload (observed: N reloads → N parallel re-registers per event).
+    // NOTE: NatsClient.subscribe already dedupes by subject — the
+    // registry gatewayOnlineSub entry is belt-and-suspenders for
+    // subscribers that bypass NatsClient (none today).
+    await this.nats.subscribe(SERVICE_SUBJECTS.GATEWAY_ONLINE, async () => {
+      if (this.reregisterInFlight) return;
+      this.reregisterInFlight = true;
+      try {
+        logger.info("API gateway announced restart — re-registering", {
+          tags: gwTag ? ["core", gwTag] : ["core"],
+        });
+        await this.register();
+      } catch (error) {
+        logger.error("Re-registration after gateway restart failed", {
+          tags: gwTag ? ["core", gwTag] : ["core"],
+          error,
+        });
+      } finally {
+        this.reregisterInFlight = false;
+      }
+    });
   }
 
   async sendHeartbeat(): Promise<void> {

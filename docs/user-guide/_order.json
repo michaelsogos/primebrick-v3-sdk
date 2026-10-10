@@ -9,6 +9,7 @@
     "nats-client",
     "service-registration",
     "http-server",
+    "rpc-router",
     "sse-standard",
     "presence",
     "telemetry-logging",

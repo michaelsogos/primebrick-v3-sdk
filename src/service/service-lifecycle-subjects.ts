@@ -20,6 +20,13 @@ export const SERVICE_SUBJECTS = {
   HEARTBEAT: "service.heartbeat",
   UNREGISTER: "service.unregister",
   STALE: "service.stale",
+  /**
+   * Published BY the BE once its lifecycle subscriber is up (startup).
+   * Registered services re-send `service.register` — a gateway restart is
+   * the moment that sanitizes service continuity (endpoints, capabilities,
+   * OpenAPI rediscovery). Fire-and-forget: not a poll, the BE never asks.
+   */
+  GATEWAY_ONLINE: "service.gateway_online",
 } as const;
 
 export interface ServiceHealthCheck {
@@ -90,4 +97,15 @@ export interface ServiceStalePayload {
   is_behind_scaler: boolean;
   /** ISO 8601 timestamp of the last heartbeat received. */
   last_health_check_at: string;
+}
+
+/**
+ * Payload for `service.gateway_online` — published by the BE when its
+ * lifecycle subscriber is ready. Registered services respond by re-sending
+ * `service.register` so the restarted gateway re-ingests identity,
+ * endpoints and capabilities (and re-discovers OpenAPI).
+ */
+export interface ServiceGatewayOnlinePayload {
+  /** ISO 8601 timestamp of the gateway boot. */
+  at: string;
 }

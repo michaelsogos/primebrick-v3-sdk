@@ -16,6 +16,7 @@ import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { msgHeader } from "./msg-headers.js";
+import { lifecycleRegistry } from "../lifecycle/process-registry.js";
 
 export { msgHeader };
 
@@ -208,9 +209,21 @@ export class NatsClient {
   static async subscribe<T = unknown>(
     subject: string,
     handler: (data: T, raw: Msg) => Promise<void>,
+    opts?: { queue?: string },
   ): Promise<Subscription> {
     const nc = await NatsClient.getConnection();
-    const sub = nc.subscribe(subject);
+    // Queue groups are for WORK items only (one replica processes each
+    // message). Broadcasts every instance must receive — lifecycle events,
+    // cache invalidation — stay unqueued.
+    // Hot-reload dedupe: on `bun --hot`/`tsx watch` the connection survives
+    // module reloads while new instances re-subscribe — replace the
+    // previous subscription for the same subject+queue instead of
+    // accumulating one delivery per reload.
+    const subKey = `${subject}::${opts?.queue ?? ""}`;
+    const prev = lifecycleRegistry().natsSubscriptions?.get(subKey);
+    if (prev && typeof prev.unsubscribe === "function") prev.unsubscribe();
+    const sub = nc.subscribe(subject, opts?.queue ? { queue: opts.queue } : undefined);
+    (lifecycleRegistry().natsSubscriptions ??= new Map()).set(subKey, sub);
 
     (async () => {
       for await (const msg of sub) {
@@ -267,9 +280,16 @@ export class NatsClient {
   static async subscribeRequest<TRequest = unknown, TResponse = unknown>(
     subject: string,
     handler: (request: TRequest, raw: Msg) => Promise<TResponse>,
+    opts?: { queue?: string },
   ): Promise<Subscription> {
     const nc = await NatsClient.getConnection();
-    const sub = nc.subscribe(subject);
+    // Queue group REQUIRED for req/res subjects when replicas exist —
+    // without it every replica would publish its own reply.
+    const subKey = `${subject}::${opts?.queue ?? ""}::req`;
+    const prev = lifecycleRegistry().natsSubscriptions?.get(subKey);
+    if (prev && typeof prev.unsubscribe === "function") prev.unsubscribe();
+    const sub = nc.subscribe(subject, opts?.queue ? { queue: opts.queue } : undefined);
+    (lifecycleRegistry().natsSubscriptions ??= new Map()).set(subKey, sub);
 
     (async () => {
       for await (const msg of sub) {
@@ -384,16 +404,28 @@ export class NatsClient {
   }): Promise<{ close(): Promise<void> }> {
     const js = NatsClient.getJetStream();
     const jsm = NatsClient.jsm ?? (await (await NatsClient.getConnection()).jetstreamManager());
-    try {
-      await jsm.consumers.add(opts.stream, {
-        durable_name: opts.durable,
-        ack_policy: AckPolicy.Explicit,
-        filter_subject: opts.filterSubject,
-      });
-    } catch (error) {
-      // 10014/10148 = consumer name already in use — already ensured.
-      const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
-      if (apiErr?.err_code !== 10014 && apiErr?.err_code !== 10148) throw error;
+    // Consumers may start before the ingress service has created the stream —
+    // retry on "stream not found" (10059) the same way the registrar retries
+    // service.register until the BE is up. Other errors are fatal.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await jsm.consumers.add(opts.stream, {
+          durable_name: opts.durable,
+          ack_policy: AckPolicy.Explicit,
+          filter_subject: opts.filterSubject,
+        });
+        break;
+      } catch (error) {
+        const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
+        // 10014/10148 = consumer name already in use — already ensured.
+        if (apiErr?.err_code === 10014 || apiErr?.err_code === 10148) break;
+        if (apiErr?.err_code === 10059) {
+          logger.warn(`JetStream stream "${opts.stream}" not found — retrying in 5s`, { tags: ["nats"], attempt });
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
+        throw error;
+      }
     }
 
     let stopped = false;

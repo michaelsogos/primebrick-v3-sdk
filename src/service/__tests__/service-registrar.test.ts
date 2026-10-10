@@ -6,6 +6,7 @@ function makeNatsMock() {
   return {
     publish: vi.fn(async () => {}),
     request: vi.fn(async () => ({ registered: true })),
+    subscribe: vi.fn(async () => {}),
     isConnected: vi.fn(() => true),
   };
 }

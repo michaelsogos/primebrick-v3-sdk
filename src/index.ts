@@ -121,6 +121,8 @@ export { createHttpServer, type HttpServerOptions } from "./http/http-server.js"
 export {
   makeRpcRouter,
   composeRouteHandlers,
+  brandRouteHandler,
+  isFactoryRouteHandler,
   ValidationError,
   type RpcRoute,
   type RpcRouteContext,
@@ -253,6 +255,8 @@ export {
   subscribeSharedConfig,
   fetchSharedConfig,
   subscribeConfigChanged,
+  setSharedConfig,
+  getSharedConfig,
 } from "./config/shared-config.js";
 
 // Auth — framework-agnostic auth for HTTP + NATS (BE + microservices)

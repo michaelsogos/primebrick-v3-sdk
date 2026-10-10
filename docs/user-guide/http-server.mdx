@@ -52,7 +52,7 @@ logServiceStartup("emailsender", "1.4.0", "http://localhost:3002");
 | `serviceName` | `string` | no | Service identifier in the `/health` response (default `"microservice"`) |
 | `serviceVersion` | `string` | no | Service version in the `/health` response (default `"unknown"`) |
 | `serviceUrl` | `string` | no | Base URL in the `/health` response |
-| `routeHandler` | `(req, res, url) => Promise<boolean>` | no | Custom routes. Return `true` if handled, `false` to fall through to 404. |
+| `routeHandler` | `(req, res, url) => Promise<boolean>` | no | Custom routes. Return `true` if handled, `false` to fall through to 404. **Inside `createMicroservice` the handler MUST come from an approved factory** (`makeRpcRouter` / `makeOpenApiHandler` / `composeRouteHandlers`) — arbitrary functions are rejected at startup. See [RPC Router](rpc-router). |
 
 ## The `HealthCheck` class
 

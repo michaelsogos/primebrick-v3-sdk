@@ -211,3 +211,34 @@ describe("composeRouteHandlers", () => {
     expect((await call("/c")).status).toBe(404);
   });
 });
+
+describe("factory brand — runtime enforcement", () => {
+  it("brands factory-produced handlers", async () => {
+    const { isFactoryRouteHandler } = await import("../rpc-router.js");
+    const r = makeRpcRouter([{ method: "GET", path: "/x", auth: "public", handler: async () => 1 }]);
+    expect(isFactoryRouteHandler(r)).toBe(true);
+    expect(isFactoryRouteHandler(composeRouteHandlers(r))).toBe(true);
+    expect(isFactoryRouteHandler(async () => true)).toBe(false);
+    expect(isFactoryRouteHandler(undefined)).toBe(false);
+  });
+
+  it("composeRouteHandlers rejects non-factory handlers", () => {
+    const legacy: RouteHandler = async () => true;
+    expect(() => composeRouteHandlers(legacy)).toThrow(/not.*factory|approved.*factory/i);
+  });
+});
+
+describe("wildcard :param* routes", () => {
+  it("matches zero or more trailing segments", async () => {
+    const router = makeRpcRouter([{
+      method: "POST", path: "/hook/:code/:intent*", auth: "public",
+      rawBody: true,
+      handler: async ({ params, body }) => ({ code: params.code, intent: params.intent ?? "", body }),
+    }]);
+    handler = router;
+    const r1 = await call("/hook/email", { method: "POST", body: "{}" });
+    expect(await r1.json()).toEqual({ code: "email", intent: "", body: "{}" });
+    const r2 = await call("/hook/email/brevo/delivery", { method: "POST", body: "x" });
+    expect(await r2.json()).toEqual({ code: "email", intent: "brevo/delivery", body: "x" });
+  });
+});

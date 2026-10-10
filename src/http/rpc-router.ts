@@ -69,11 +69,17 @@ export interface RpcRoute<
   /** Auth kind. Default "user" (gateway-resolved). */
   auth?: RpcAuthKind;
   /**
-   * Body validator — receives the raw parsed JSON and returns the parsed
-   * body. Throw anything to produce a 400 VALIDATION_ERROR (use zod's
-   * `.parse`, or a manual shape check).
+   * Body validator — receives the raw parsed JSON (or the raw text when
+   * `rawBody` is set) and returns the parsed body. Throw anything to
+   * produce a 400 VALIDATION_ERROR (use zod's `.parse`, or a manual
+   * shape check).
    */
   body?: (raw: unknown) => TBody;
+  /**
+   * Read the body as raw text instead of parsing JSON — for pass-through
+   * routes (e.g. webhook ingress) that must forward the payload verbatim.
+   */
+  rawBody?: boolean;
   /** "sse" = governed streaming route: handler gets `ctx.sse`, owns res. */
   streaming?: "sse";
   /**
@@ -88,8 +94,12 @@ export interface RpcRoute<
 }
 
 export interface RpcRouterDeps {
-  /** Required only if any route uses `auth: "api_key"`. */
-  apiKeyPort?: ApiKeyPort;
+  /**
+   * Required only if any route uses `auth: "api_key"`. Either the port
+   * itself or a lazy getter resolved at request time (for ports wired
+   * after router construction, e.g. `authDependencySetters`).
+   */
+  apiKeyPort?: ApiKeyPort | (() => ApiKeyPort | null | undefined);
 }
 
 export type RouteHandler = (
@@ -97,6 +107,31 @@ export type RouteHandler = (
   res: ServerResponse,
   url: URL,
 ) => Promise<boolean>;
+
+// ─── Factory brand (runtime enforcement) ────────────────────────────────────
+// `Symbol.for` (global registry) so the brand survives multiple SDK copies
+// in the same process (e.g. tsx + bundled dist).
+
+const ROUTE_HANDLER_BRAND: unique symbol = Symbol.for(
+  "primebrick.sdk.factory-route-handler",
+);
+
+export function brandRouteHandler(h: RouteHandler): RouteHandler {
+  (h as unknown as Record<symbol, unknown>)[ROUTE_HANDLER_BRAND] = true;
+  return h;
+}
+
+/**
+ * True when `h` was produced by an approved factory — `makeRpcRouter`,
+ * `composeRouteHandlers`, or `makeOpenApiHandler`. `createMicroservice`
+ * refuses to mount anything else at startup.
+ */
+export function isFactoryRouteHandler(h: unknown): h is RouteHandler {
+  return (
+    typeof h === "function" &&
+    (h as unknown as Record<symbol, unknown>)[ROUTE_HANDLER_BRAND] === true
+  );
+}
 
 // ─── Internals ──────────────────────────────────────────────────────────────
 
@@ -108,8 +143,21 @@ interface CompiledRoute {
 
 function compilePath(path: string): { regex: RegExp; paramNames: string[] } {
   const paramNames: string[] = [];
-  const pattern = path
-    .split("/")
+  const segs = path.split("/");
+  // Trailing wildcard `:name*` — captures zero or more remaining
+  // segments (optional). Only legal as the last segment.
+  let suffix = "";
+  let wildcardName: string | null = null;
+  const last = segs[segs.length - 1];
+  if (last.startsWith(":") && last.endsWith("*")) {
+    if (segs.some((s, i) => i < segs.length - 1 && s.endsWith("*"))) {
+      throw new Error(`compilePath: wildcard ":param*" is only allowed as the last segment (${path})`);
+    }
+    wildcardName = last.slice(1, -1);
+    segs.pop();
+    suffix = "(?:/(.*))?";
+  }
+  const pattern = segs
     .map((seg) => {
       if (seg.startsWith(":")) {
         paramNames.push(seg.slice(1));
@@ -118,13 +166,20 @@ function compilePath(path: string): { regex: RegExp; paramNames: string[] } {
       return seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     })
     .join("/");
-  return { regex: new RegExp(`^${pattern}$`), paramNames };
+  // The wildcard capture is the LAST group — push its name after the
+  // positional params so indices line up with the regex groups.
+  if (wildcardName) paramNames.push(wildcardName);
+  return { regex: new RegExp(`^${pattern}${suffix}$`), paramNames };
+}
+
+async function readTextBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf-8");
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const text = Buffer.concat(chunks).toString("utf-8");
+  const text = await readTextBody(req);
   if (!text) return undefined;
   try {
     return extJsonParse(text);
@@ -190,7 +245,10 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
     return { route, ...compilePath(route.path) };
   });
 
-  return async (req, res, url) => {
+  const resolveApiKeyPort = (): ApiKeyPort | null | undefined =>
+    typeof deps.apiKeyPort === "function" ? deps.apiKeyPort() : deps.apiKeyPort;
+
+  return brandRouteHandler(async (req, res, url) => {
     const path = url.pathname;
     const match = compiled.find((c) => c.regex.test(path));
     if (!match) return false;
@@ -214,17 +272,27 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
       if (auth === "user") {
         user = await verifyHttpRequest(req, getAuthConfig());
       } else if (auth === "api_key") {
-        user = await verifyApiKey(new HttpHeaderProvider(req), deps.apiKeyPort!);
+        const port = resolveApiKeyPort();
+        if (!port) {
+          sendRfcError(res, 500, "Auth Not Initialized", "Auth dependencies not initialized", {
+            internal_code: "AUTH_NOT_INITIALIZED",
+            instance: path,
+          });
+          return true;
+        }
+        user = await verifyApiKey(new HttpHeaderProvider(req), port);
       }
       if (route.permissions?.length) {
         enforceHttpRbac(user!, route.permissions, route.rbacMode);
       }
 
       let body: unknown;
-      if (route.body) {
+      if (route.body || route.rawBody) {
         try {
-          body = route.body(await readJsonBody(req));
+          const raw = route.rawBody ? await readTextBody(req) : await readJsonBody(req);
+          body = route.body ? route.body(raw) : raw;
         } catch (e) {
+          if (e instanceof ValidationError) throw e;
           throw new ValidationError(e instanceof Error ? e.message : String(e));
         }
       }
@@ -241,7 +309,20 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
         res,
       };
       if (route.streaming === "sse") {
-        ctx.sse = createSseWriter(res);
+        // Lazy writer: writeHead(200, SSE_HEADERS) fires on the FIRST send/
+        // close, not at construction — so the handler can still setHeader
+        // (e.g. X-Conversation-UUID) after middleware ran but before the
+        // first event goes out.
+        let inner: SseWriter | null = null;
+        const writer = () => (inner ??= createSseWriter(res));
+        ctx.sse = {
+          send: (event) => writer().send(event),
+          comment: (text) => writer().comment(text),
+          close: () => writer().close(),
+          get closed() {
+            return inner?.closed ?? false;
+          },
+        };
       }
 
       const result = await route.handler(ctx as never);
@@ -253,6 +334,7 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
       return true;
     } catch (err) {
       if (res.headersSent) throw err; // let the server destroy the socket
+
       if (err instanceof AuthError) {
         sendRfcError(res, 401, "Unauthorized", err.message, {
           internal_code: err.internal_code,
@@ -274,15 +356,29 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
       }
       return true;
     }
-  };
+  });
 }
 
-/** Compose multiple factory-produced routers — same chaining contract. */
+/**
+ * Compose multiple factory-produced routers — same chaining contract.
+ * Throws at construction time if any handler is not factory-produced:
+ * composition is an extension of the closed set, not a smuggling hatch.
+ */
 export function composeRouteHandlers(...handlers: RouteHandler[]): RouteHandler {
-  return async (req, res, url) => {
+  for (const h of handlers) {
+    if (!isFactoryRouteHandler(h)) {
+      throw new Error(
+        "composeRouteHandlers: every handler must be produced by an approved " +
+          "factory (makeRpcRouter / makeOpenApiHandler / composeRouteHandlers). " +
+          "Arbitrary route functions are rejected — migrate the route to an " +
+          "RpcRoute declaration.",
+      );
+    }
+  }
+  return brandRouteHandler(async (req, res, url) => {
     for (const h of handlers) {
       if (await h(req, res, url)) return true;
     }
     return false;
-  };
+  });
 }

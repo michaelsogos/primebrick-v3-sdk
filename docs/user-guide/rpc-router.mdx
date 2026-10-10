@@ -1,0 +1,119 @@
+---
+title: RPC Router
+description: The only legal way to expose non-entity HTTP routes on a microservice — makeRpcRouter bakes auth, RBAC, validation, and RFC 7807 into every route.
+---
+
+# RPC Router
+
+`makeRpcRouter()` is the **only legal way** to expose non-entity HTTP routes
+on a microservice. It is the closed-by-design counterpart of the BE's
+`makeEntityRouter`: the mandatory middleware chain (auth → RBAC → body
+validation → handler → RFC 7807 errors) is baked in and cannot be bypassed
+by the consumer.
+
+`createMicroservice` enforces this at startup: a `routeHandler` that was not
+produced by an approved factory (`makeRpcRouter`, `makeOpenApiHandler`,
+`composeRouteHandlers`) **rejects the boot** with an explicit error. The check
+is a runtime brand (`Symbol.for`), not just TypeScript types.
+
+## Usage
+
+```ts
+import { makeRpcRouter, composeRouteHandlers, makeOpenApiHandler, Permission } from "@primebrick/sdk";
+
+const routes: RpcRoute[] = [
+  {
+    method: "GET",
+    path: "/api/v1/entities/provider/:uuid",
+    auth: "user",                                    // default — gateway-resolved JWT
+    permissions: [Permission.EMAILSENDER_PROVIDER_READ_SINGLE],
+    handler: async ({ params, user }) => {
+      return providerService.get(params.uuid);       // one service call
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/v1/ai/chat",
+    permissions: [Permission.AUTHENTICATED_USER],
+    streaming: "sse",                                // governed streaming kind
+    body: (raw) => ChatBody.parse(raw),              // throws → 400 VALIDATION_ERROR
+    handler: async ({ body, sse }) => {
+      sse!.send({ event: "delta", data: chunk });
+      sse!.close();
+    },
+  },
+];
+
+await createMicroservice({
+  // ...
+  routeHandler: composeRouteHandlers(
+    makeOpenApiHandler(OPENAPI_SPEC),                // GET /api/v1/openapi.json
+    makeRpcRouter(routes),
+  ),
+});
+```
+
+## `RpcRoute` fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `method` | `"GET" \| "POST" \| "PUT" \| "PATCH" \| "DELETE"` | HTTP method. A matched path with the wrong method → 405. |
+| `path` | `string` | `:param` segments supported. A trailing `:name*` wildcard captures zero or more remaining segments (`/webhook/:code/:intent*`). |
+| `auth` | `"user" \| "api_key" \| "public"` | Default `"user"` (gateway-resolved). `"api_key"` requires `apiKeyPort` in router deps. `"public"` is the only kind allowed to omit `permissions`. |
+| `permissions` | `readonly string[]` | **Mandatory** for non-public routes — construction throws otherwise. Sentinels `Permission.AUTHENTICATED_USER` / `AUTHENTICATED_ADMIN` / `PUBLIC` are available. |
+| `rbacMode` | `"any" \| "all"` | `any` = at least one permission (default). `all` = every permission. |
+| `body` | `(raw: unknown) => TBody` | Body validator — receives parsed JSON, throws → 400 `VALIDATION_ERROR`. |
+| `rawBody` | `boolean` | Read the body as raw text instead of parsing JSON — for pass-through routes (webhook ingress) that forward the payload verbatim. |
+| `streaming` | `"sse"` | Governed SSE kind: the handler gets `ctx.sse` and owns the response. The writer is lazy — headers flush on first `send`, so `res.setHeader` still works beforehand. |
+| `openapi` | `RpcRouteOpenApi` | OpenAPI metadata consumed by `rpcSpec()`/`buildOpenApiSpec()` — declare it on the route and the spec never drifts. |
+| `handler` | `(ctx) => Promise<unknown>` | The ONE service call. Return value → `200` JSON; write `res` yourself for other statuses. |
+
+## `RpcRouteContext`
+
+| Field | Content |
+|-------|---------|
+| `user` | `AuthUser` — undefined only on `auth: "public"` routes. `user.id`, `user.isAdmin`, `user.permissions`. |
+| `params` | Path params (wildcards may be `undefined` when no segments matched). |
+| `query` | `URLSearchParams` |
+| `body` | Output of the `body` validator (or raw text with `rawBody`). |
+| `req` / `res` | Raw Node objects — for custom statuses/headers. If `res` ends the response the router skips JSON serialization. |
+| `sse` | `SseWriter` — only on `streaming: "sse"` routes. |
+
+## Router deps
+
+```ts
+makeRpcRouter(routes, {
+  // static port OR lazy getter — resolved per request, so ports wired
+  // after router construction (authDependencySetters) work.
+  apiKeyPort: () => apiKeyPort,
+});
+```
+
+## Errors
+
+The chain maps errors to RFC 7807 automatically: `AuthError` → 401,
+`RbacDeniedError` → 403 `RBAC_PERMISSION_DENIED`, validation → 400
+`VALIDATION_ERROR`. Everything else propagates to `createHttpServer`'s
+`mapDalError`/generic 500 mapping. Once headers are sent (SSE), a thrown
+error destroys the socket.
+
+## Composing handlers
+
+`composeRouteHandlers(a, b, ...)` chains factory-produced handlers in order —
+each returns `true` when it handled the request. It throws at construction
+time if any argument is not factory-produced: composition is an extension of
+the closed set, not an escape hatch.
+
+## Enforcement rules
+
+- Every non-`public` route **must** declare `permissions` — construction fails otherwise.
+- `createMicroservice` crashes at startup if `routeHandler` lacks the factory brand.
+- `composeRouteHandlers` throws if any input is not branded.
+- There is no way to mount an arbitrary `(req, res, url) => boolean` — migrate the
+  endpoint to an `RpcRoute` declaration.
+
+## Next steps
+
+- [HTTP Server](http-server) — the underlying server, health endpoint, RFC 7807
+- [Authentication](authentication) — auth kinds and internal codes
+- [Service Registration](service-registration) — the full `createMicroservice` lifecycle

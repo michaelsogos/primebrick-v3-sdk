@@ -27,6 +27,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extJsonStringify } from "../json/ext-json.js";
 import type { RpcRoute } from "./rpc-router.js";
+import { brandRouteHandler } from "./rpc-router.js";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -265,12 +266,12 @@ export function buildOpenApiSpec(input: OpenApiSpecInput): Record<string, unknow
 /** RouteHandler serving `GET /api/v1/openapi.json` with the given spec. */
 export function makeOpenApiHandler(spec: Record<string, unknown>) {
   const body = extJsonStringify(spec);
-  return async (req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> => {
+  return brandRouteHandler(async (req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> => {
     if (url.pathname === "/api/v1/openapi.json" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(body);
       return true;
     }
     return false;
-  };
+  });
 }

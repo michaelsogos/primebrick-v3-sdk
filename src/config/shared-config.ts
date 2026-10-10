@@ -134,3 +134,19 @@ export async function fetchSharedConfig(
     return {};
   }
 }
+
+/**
+ * Holder for the last SharedConfig received from the BE — set by
+ * `createMicroservice` at startup and refreshed on `config.changed`.
+ * Request-time modules (rate limiters, integrations) read `redis_url`
+ * and friends from here instead of env vars.
+ */
+let currentSharedConfig: SharedConfig = {};
+
+export function setSharedConfig(config: SharedConfig): void {
+  currentSharedConfig = config;
+}
+
+export function getSharedConfig(): SharedConfig {
+  return currentSharedConfig;
+}

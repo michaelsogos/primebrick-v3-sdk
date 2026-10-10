@@ -37,7 +37,9 @@
  *   envSchema: {
  *     DATABASE_URL: { required: true, description: "PostgreSQL connection string" },
  *     DB_SCHEMA: { required: false, default: "my_service", description: "Database schema" },
- *     SERVICE_BASE_URL: { required: false, default: "http://localhost:3005", description: "Exposed URL" },
+ *     DATABASE_URL: { required: true, description: "PostgreSQL connection string" },
+ *     DB_SCHEMA: { required: false, default: "my_service", description: "Database schema" },
+ *   },
  *   },
  *   initDal,
  *   configRepositoryAdapter: () => new ConfigRepositoryAdapter(),
@@ -82,6 +84,7 @@ import {
   setLogOptions,
   fetchSharedConfig,
   subscribeConfigChanged,
+  setSharedConfig,
   initCacheFromSharedConfig,
   setSdkCachePort,
   configureInternalClient,
@@ -89,6 +92,7 @@ import {
   buildUserAgent,
   logModuleStartup,
   CLIENT_SHIELD_KEY_HEADER,
+  isFactoryRouteHandler,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
@@ -161,7 +165,10 @@ export interface MicroserviceOptions {
   healthCheckPort: () => HealthCheckPort;
 
   /**
-   * Custom route handler — receives req/res, returns true if handled.
+   * Custom route handler — MUST be produced by an approved factory
+   * (`makeRpcRouter`, `makeOpenApiHandler`, `composeRouteHandlers`).
+   * Arbitrary handlers are rejected at startup: the middleware chain
+   * (auth → RBAC → validation → RFC 7807) is not optional.
    * If omitted, only the /health endpoint is served.
    */
   routeHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>;
@@ -223,7 +230,7 @@ export interface MicroserviceContext {
   apiKeyPort?: ApiKeyPort;
   /** Service version (from package.json or option). */
   serviceVersion: string;
-  /** Base URL (from env.SERVICE_BASE_URL). */
+  /** Base URL (from `service_base_url` config key). */
   baseUrl: string;
 }
 
@@ -349,6 +356,7 @@ export async function createMicroservice(
       await new Promise((r) => setTimeout(r, 2000));
       shared = await fetchSharedConfig(NatsClient);
     }
+    setSharedConfig(shared);
     const globalKeys = [
       shared.redis_url ? "redis_url" : null,
       shared.telemetry ? "telemetry" : null,
@@ -385,6 +393,7 @@ export async function createMicroservice(
     await subscribeConfigChanged(NatsClient, async () => {
       try {
         const fresh = await fetchSharedConfig(NatsClient);
+        setSharedConfig(fresh);
         applyTelemetry(fresh.telemetry);
         // If redis_url was missed at startup (BE race) or has been added
         // since, bring the cache online without a restart.
@@ -403,7 +412,7 @@ export async function createMicroservice(
   }
 
   // 7. ServiceRegistrar
-  const baseUrl = env.SERVICE_BASE_URL!;
+  const baseUrl = configLoader.require("service_base_url");
   const serviceCode = configLoader.require("service_code");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
   const healthCheckPort = options.healthCheckPort();
@@ -492,6 +501,19 @@ export async function createMicroservice(
       tags: ["core"],
       error,
     });
+  }
+
+  // Route-handler enforcement — the service surface is closed-by-design:
+  // only factory-produced handlers (makeRpcRouter / makeOpenApiHandler /
+  // composeRouteHandlers) may be mounted. Anything else means a route
+  // bypassed the mandatory middleware chain — fail the boot, loudly.
+  if (options.routeHandler && !isFactoryRouteHandler(options.routeHandler)) {
+    throw new Error(
+      `createMicroservice(${options.serviceName}): routeHandler was not produced by an ` +
+        `approved route factory. Mount routes via makeRpcRouter([...RpcRoute]) ` +
+        `(or composeRouteHandlers of factory-produced handlers) — arbitrary ` +
+        `(req, res, url) => boolean functions are rejected.`,
+    );
   }
 
   const server = await createHttpServer({

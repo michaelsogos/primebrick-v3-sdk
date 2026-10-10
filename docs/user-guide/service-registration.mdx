@@ -30,9 +30,23 @@ Three NATS™ subjects carry lifecycle events:
 
 | Subject | When | Payload |
 |---------|------|---------|
-| `service.register` | On startup | `ServiceRegisterPayload` — code, base_url, endpoints, health, metadata |
+| `service.register` | On startup + on gateway restart | `ServiceRegisterPayload` — code, base_url, endpoints, health, metadata, capabilities |
 | `service.heartbeat` | Every 30s (default) | `ServiceHeartbeatPayload` — code, base_url, health, metadata |
 | `service.unregister` | On graceful shutdown | `ServiceUnregisterPayload` — code, base_url |
+| `service.stale` | Watchdog-detected silence | `ServiceStalePayload` |
+| `service.gateway_online` | BE startup (broadcast) | `{ at }` — every live service re-registers |
+
+### Gateway restart re-registration
+
+`service.register` is a request/reply handshake: the registrar retries every
+5 s until the BE acks `{ registered: true }` — a missing/negative ack means
+no heartbeats. After the first successful registration the service subscribes
+to `service.gateway_online`: when the BE restarts it announces itself and
+every live service **re-registers**, so the gateway re-ingests
+identity/endpoints/capabilities and re-discovers OpenAPI without polling.
+
+`service.gateway_online` is a broadcast — deliberately NOT a queue group —
+because every running service instance must observe it.
 
 These subjects are defined in the `SERVICE_SUBJECTS` constant.
 

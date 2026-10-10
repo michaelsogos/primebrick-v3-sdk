@@ -1,5 +1,6 @@
 import os from "node:os";
 import { logger } from "./logger.js";
+import { lifecycleRegistry } from "./process-registry.js";
 
 export type CleanupFn = () => Promise<void>;
 
@@ -28,20 +29,37 @@ export class GracefulShutdown {
     this.cleanups.push(fn);
   }
 
-  /** Install signal + crash handlers. */
+  /**
+   * Install signal + crash handlers. Hot-reload safe: a module reload
+   * creates a NEW GracefulShutdown whose cleanups reference the NEW
+   * service objects — the previous instance's listeners are removed via
+   * the process registry instead of stacking (observed: N reloads → N
+   * "shutting down" logs + N exit races on one signal).
+   */
   install(): void {
+    const registry = lifecycleRegistry();
+    for (const { event, fn } of registry.signalListeners ?? []) {
+      process.off(event as NodeJS.Signals, fn);
+    }
+    registry.signalListeners = [];
+
+    const on = (event: string, fn: (...args: any[]) => void): void => {
+      process.on(event, fn);
+      registry.signalListeners!.push({ event, fn });
+    };
+
     const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
     for (const sig of signals) {
-      process.on(sig, () => {
+      on(sig, () => {
         const code = 128 + (os.constants.signals[sig as keyof typeof os.constants.signals] ?? 0);
         void this.shutdown(sig, code);
       });
     }
-    process.on("uncaughtException", (err) => {
+    on("uncaughtException", (err: Error) => {
       logger.error("uncaughtException", { tags: ["core"], error: err });
       void this.shutdown("uncaughtException", 1);
     });
-    process.on("unhandledRejection", (reason) => {
+    on("unhandledRejection", (reason: unknown) => {
       logger.error("unhandledRejection", { tags: ["core"], error: reason });
       void this.shutdown("unhandledRejection", 1);
     });

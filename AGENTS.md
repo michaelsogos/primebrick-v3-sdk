@@ -23,6 +23,23 @@ shutdown, NATS™ client, health checks, and env validation.
 | Build | `pnpm run build` |
 | Test | `pnpm test` |
 
+## Architectural invariants (MANDATORY — do not weaken)
+
+- **Route factory is a closed set**: HTTP routes exist only via `makeRpcRouter`,
+  `makeOpenApiHandler`, `composeRouteHandlers` — outputs carry a
+  `Symbol.for("primebrick.sdk.factory-route-handler")` runtime brand and
+  `createMicroservice` refuses to boot on unbranded handlers. New route kinds
+  must be added INSIDE the factories (e.g. `streaming:"sse"`, `rawBody`,
+  `:param*` wildcards), never as an escape hatch.
+- **NATS queue groups**: `subscribe`/`subscribeRequest` accept `{ queue }` —
+  work items get a per-service queue, broadcasts every instance must receive
+  (`service.gateway_online`, `config.changed`, `client_registry.changed`)
+  MUST stay unqueued.
+- **Hot-reload dedupe**: `lifecycle/process-registry.ts` keeps
+  process-level handles (NATS subs, signal listeners) on `globalThis` so
+  watch-mode reloads REPLACE instead of stack. New per-instance
+  subscriptions/listeners must go through the same registry.
+
 ## Patch SHA256 management
 
 The SDK provides `applyPatches()` in `src/migrations/apply-patches.ts` which enforces
