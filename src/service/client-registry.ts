@@ -3,7 +3,7 @@
  * verification.
  *
  * Source of truth: `system.client_registry` (BE-owned). Distribution:
- *   - snapshot at boot via `system.clientRegistry.get` (nats-req, BE responder)
+ *   - snapshot at boot via `system.clientRegistry.get` (governed correlation-reply, BE responder)
  *   - live invalidation via `system.client_registry.changed` pub/sub —
  *     every mutation (register, admin CRUD, enable/disable) re-fetches
  *     the snapshot, so there is exactly one read pattern.
@@ -14,6 +14,8 @@
  */
 
 import { NatsClient } from "../nats/nats-client.js";
+import { callNats } from "../nats/nats-routes.js";
+import { subscribeShielded } from "../nats/service-shield.js";
 import { logger } from "../lifecycle/logger.js";
 import { clientKeyHash } from "./service-identity.js";
 
@@ -40,7 +42,7 @@ export class ClientRegistry {
    * the allowlist is empty and every internal call is rejected (fail-closed).
    */
   async start(): Promise<void> {
-    await NatsClient.subscribe(CLIENT_REGISTRY_SUBJECTS.CHANGED, async () => {
+    await subscribeShielded(CLIENT_REGISTRY_SUBJECTS.CHANGED, async () => {
       try {
         const changed = await this.reload();
         if (changed) this.logAllowed("have been updated");
@@ -84,10 +86,10 @@ export class ClientRegistry {
    * leave the set identical).
    */
   private async reload(): Promise<boolean> {
-    const rows = await NatsClient.request<ClientRegistryRow[]>(
+    const rows = await callNats<ClientRegistryRow[]>(
       CLIENT_REGISTRY_SUBJECTS.GET,
       null,
-      5000,
+      { timeoutMs: 5000 },
     );
     const next = new Map<string, string>();
     for (const row of rows ?? []) {

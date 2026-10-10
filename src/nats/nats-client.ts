@@ -53,7 +53,7 @@ function injectIdentity(hdrs: MsgHdrs): void {
  * can skip installing it and won't import this module.
  * No DB dependency.
  *
- * The `publish()`, `subscribe()`, and `subscribeRequest()` methods use
+ * The `publish()` and `subscribe()` methods use
  * Ext-JSON (BigInt-safe) serialization automatically. Consumers pass plain
  * TS objects and receive plain TS objects — they never call extJson functions
  * directly.
@@ -122,44 +122,6 @@ export class NatsClient {
     }
   }
 
-  /**
-   * @deprecated DEPRECATO — NON PASSIAMO DA NATS REQ/RES.
-   * The legal communication model (decided 2026-10-09) is:
-   * BE→US = HTTP proxy req/res, US→* = NATS pub/sub fire-and-forget or
-   * choreographed event bus. Synchronous-looking needs use pub/sub
-   * correlation replies (`x.call` → `x.response.<requestId>`).
-   * Kept only until auth.apikey.byHash / service.registry.get / config.get
-   * are migrated. Do NOT use in new code.
-   *
-   * Send a request-reply message and wait for the response.
-   * The request data is serialized with extJsonStringify (BigInt-safe) and
-   * the response is parsed with extJsonParse.
-   *
-   * @param subject - NATS subject to send the request to
-   * @param data - Request payload (any serializable object). Pass `null` or `""` for an empty request.
-   * @param timeoutMs - Timeout in milliseconds. If the responder doesn't reply within this time, the promise rejects.
-   * @returns The parsed response object, or `null` if the response was empty.
-   *
-   * Example:
-   *   const config = await NatsClient.request<SharedConfig>("config.get", null, 5000);
-   */
-  static async request<TResponse = unknown>(
-    subject: string,
-    data: unknown = null,
-    timeoutMs: number = 5000,
-  ): Promise<TResponse | null> {
-    const nc = await NatsClient.getConnection();
-    const payload = data === null || data === undefined
-      ? new Uint8Array(0)
-      : new TextEncoder().encode(extJsonStringify(data));
-    const hdrs = headers();
-    injectIdentity(hdrs);
-    injectInto(hdrs);
-    const msg = await nc.request(subject, payload, { timeout: timeoutMs, headers: hdrs });
-    const text = new TextDecoder().decode(msg.data);
-    if (text === "") return null;
-    return extJsonParse<TResponse>(text);
-  }
 
   /**
    * Publish a message with automatic Ext-JSON serialization.
@@ -257,87 +219,6 @@ export class NatsClient {
     return sub;
   }
 
-  /**
-   * Subscribe to a NATS subject with request-reply pattern.
-   *
-   * @deprecated DEPRECATO — NON PASSIAMO DA NATS REQ/RES. See request().
-   * The handler receives the parsed request and returns a response that is
-   * automatically serialized with extJsonStringify and published back to
-   * `msg.reply` (if set).
-   *
-   * @param subject - NATS subject to subscribe to
-   * @param handler - Async function receiving parsed request, returning response
-   * @returns The NATS Subscription
-   *
-   * Example:
-   *   await NatsClient.subscribeRequest<SendEmailRequest, SendEmailResponse>(
-   *     "emailsender.send",
-   *     async (request) => {
-   *       return { requestId: request.requestId, success: true };
-   *     }
-   *   );
-   */
-  static async subscribeRequest<TRequest = unknown, TResponse = unknown>(
-    subject: string,
-    handler: (request: TRequest, raw: Msg) => Promise<TResponse>,
-    opts?: { queue?: string },
-  ): Promise<Subscription> {
-    const nc = await NatsClient.getConnection();
-    // Queue group REQUIRED for req/res subjects when replicas exist —
-    // without it every replica would publish its own reply.
-    const subKey = `${subject}::${opts?.queue ?? ""}::req`;
-    const prev = lifecycleRegistry().natsSubscriptions?.get(subKey);
-    if (prev && typeof prev.unsubscribe === "function") prev.unsubscribe();
-    const sub = nc.subscribe(subject, opts?.queue ? { queue: opts.queue } : undefined);
-    (lifecycleRegistry().natsSubscriptions ??= new Map()).set(subKey, sub);
-
-    (async () => {
-      for await (const msg of sub) {
-        const parentCtx = extractNatsContext(msg.headers);
-        const span = natsTracer.startSpan(
-          `nats.serve ${subject}`,
-          { kind: SpanKind.SERVER, attributes: { "messaging.system": "nats", "messaging.destination.name": subject } },
-          parentCtx,
-        );
-        await context.with(trace.setSpan(parentCtx, span), async () => {
-          let requestId: string | undefined;
-          try {
-            const text = new TextDecoder().decode(msg.data);
-            // Empty payloads are legal for parameterless request/reply
-            // subjects (e.g. config.get) — treat them as `null`, not as a
-            // parse error that never reaches the handler.
-            const request = text === "" ? (null as TRequest) : extJsonParse<TRequest>(text);
-            requestId = (request as { requestId?: string })?.requestId;
-            const response = await handler(request, msg);
-            if (msg.reply) {
-              const replyHdrs = headers();
-              injectIdentity(replyHdrs);
-              injectInto(replyHdrs);
-              const payload = new TextEncoder().encode(extJsonStringify(response));
-              nc.publish(msg.reply, payload, { headers: replyHdrs });
-            }
-          } catch (error) {
-            span.recordException(error as Error);
-            span.setStatus({ code: SpanStatusCode.ERROR });
-            logger.error(`Error processing request on "${subject}"`, { tags: ["nats"], error: error });
-            if (msg.reply) {
-              const errorResponse = {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-                requestId,
-              };
-              const payload = new TextEncoder().encode(extJsonStringify(errorResponse));
-              nc.publish(msg.reply, payload);
-            }
-          } finally {
-            span.end();
-          }
-        });
-      }
-    })();
-
-    return sub;
-  }
 
   /**
    * Ensure a JetStream stream exists (idempotent). Creates it if missing;

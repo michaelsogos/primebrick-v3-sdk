@@ -56,6 +56,8 @@
 
 import { logger } from "../lifecycle/logger.js";
 import { ClientRegistry } from "../service/client-registry.js";
+import { setNatsShieldRegistry } from "../nats/service-shield.js";
+import { SecretProvider, startSecretProvider } from "../secrets/rotating-secret.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -368,6 +370,58 @@ export async function createMicroservice(
       format: t?.log_format,
     });
   };
+  // Internal HTTP client (B11): all service-to-service fetches go through
+  // `internalFetch` — identity headers are injected automatically and can
+  // never be forgotten or overridden by the caller. MUST run before any
+  // callNats (config.get, service.register): the BE's shield check reads
+  // these headers.
+  // Resolve service coordinates EARLY — the identity closure below captures
+  // serviceCode; every callNats (client_registry.get, secret.get, register)
+  // invokes it, so these must be initialized before the first NATS call.
+  const serviceCode = configLoader.require("service_code");
+  const baseUrl = configLoader.require("service_base_url");
+  const serviceVersion = options.serviceVersion ?? readServiceVersion();
+  const clientKey = configLoader.get("service_client_shield_key");
+  const selfIdentity = detectPackageIdentity();
+  configureInternalClient(() => ({
+    "User-Agent": buildUserAgent(selfIdentity, serviceCode),
+    ...(clientKey ? { [CLIENT_SHIELD_KEY_HEADER]: clientKey } : {}),
+  }));
+  if (clientKey) {
+    logger.done(`The service ${selfIdentity.name}/${selfIdentity.version ?? "?"} shield key enrolled`, { tags: ["core"] });
+  }
+
+  // Client-identity registry (B11): drives BOTH the HTTP client gate and
+  // the NATS publisher shield (verifyNatsPublisher). Must start before any
+  // shielded NATS subscription — fail-closed: an unavailable registry
+  // means every internal call is rejected, loudly.
+  const clientRegistry = new ClientRegistry();
+  setNatsShieldRegistry(clientRegistry);
+  try {
+    await clientRegistry.start();
+  } catch (error) {
+    logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
+      tags: ["core"],
+      error,
+    });
+  }
+
+  // Rotating secrets: provision `gateway_secret` (global scope) from the BE
+  // owner via the governed `secret.get` correlation route, and keep the
+  // in-memory slot fresh on every `secret.rotated` broadcast. The slot feeds
+  // BOTH sides of the wire — outbound header stamping and inbound verify —
+  // so the shared secret never lives in config_entries or on disk.
+  const secretProvider = new SecretProvider();
+  try {
+    await startSecretProvider(secretProvider);
+    await secretProvider.get({ scope: "global", name: "gateway_secret" });
+  } catch (error) {
+    logger.warn("rotating secret provisioning unavailable — falling back to config gateway secret", {
+      tags: ["core"],
+      error,
+    });
+  }
+
   try {
     // The BE registers its `config.get` responder after NATS connect — a
     // microservice that starts concurrently can hit the race where no
@@ -438,10 +492,7 @@ export async function createMicroservice(
     logger.error("init failed (non-fatal)", { tags: ["core"], error: error });
   }
 
-  // 7. ServiceRegistrar
-  const baseUrl = configLoader.require("service_base_url");
-  const serviceCode = configLoader.require("service_code");
-  const serviceVersion = options.serviceVersion ?? readServiceVersion();
+  // 7. ServiceRegistrar — serviceCode/baseUrl/serviceVersion resolved above.
   const healthCheckPort = options.healthCheckPort();
 
   // Build endpoints: merge service-specific + automatic health
@@ -490,19 +541,6 @@ export async function createMicroservice(
     registrarHealthCheckFn,
   );
 
-  // Internal HTTP client (B11): all service-to-service fetches go through
-  // `internalFetch` — identity headers are injected automatically and can
-  // never be forgotten or overridden by the caller.
-  const clientKey = configLoader.get("service_client_shield_key");
-  const selfIdentity = detectPackageIdentity();
-  configureInternalClient(() => ({
-    "User-Agent": buildUserAgent(selfIdentity, serviceCode),
-    ...(clientKey ? { [CLIENT_SHIELD_KEY_HEADER]: clientKey } : {}),
-  }));
-  if (clientKey) {
-    logger.done(`The service ${selfIdentity.name}/${selfIdentity.version ?? "?"} shield key enrolled`, { tags: ["core"] });
-  }
-
   // 8. HTTP server + HealthCheck
   // Build custom health checks — include NATS check automatically
   const customChecks: Record<string, () => Promise<HealthCheckResult>> = {
@@ -515,20 +553,6 @@ export async function createMicroservice(
 
   const healthCheck = new HealthCheck(healthCheckPort, customChecks);
   const httpPort = parseInt(configLoader.require("http_port"), 10);
-
-  // 7b. Client-identity gate (B11) — always on; only /health and the
-  //     service's declared public paths (identityExemptPaths) are exempt.
-  //     Fail-closed: if the registry snapshot can't load, the allowlist is
-  //     empty and every internal call is rejected.
-  const clientRegistry = new ClientRegistry();
-  try {
-    await clientRegistry.start();
-  } catch (error) {
-    logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
-      tags: ["core"],
-      error,
-    });
-  }
 
   // Route-handler enforcement — the service surface is closed-by-design:
   // only factory-produced handlers (makeRpcRouter / makeOpenApiHandler /

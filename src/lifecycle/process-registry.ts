@@ -15,7 +15,7 @@ const KEY = Symbol.for("primebrick.sdk.lifecycle-registry");
 export interface LifecycleRegistry {
   /**
    * NATS subscriptions keyed by `subject::queue` — NatsClient.subscribe/
-   * subscribeRequest replace the previous entry instead of stacking one
+   * subscription replace the previous entry instead of stacking one
    * subscription per hot reload.
    */
   natsSubscriptions?: Map<string, { unsubscribe(): void }>;

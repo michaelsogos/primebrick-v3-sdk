@@ -19,6 +19,7 @@ import { verifyAccessToken } from "./oidc-verifier.js";
 import { normalizeIdpToken, coerceRoles, buildAuthUser } from "./token-normalizer.js";
 import { expandPermissions } from "./permissions.js";
 import { deserializeAuthUserFromHeaders } from "./auth-user-serializer.js";
+import { validGatewaySecrets, SECRET_DEFAULTS } from "./gateway-secret.js";
 import type { ResolveInput } from "./ports/user-resolver-port.js";
 
 /** Ports needed ONLY by BE (STANDALONE mode). Microservices do NOT provide these. */
@@ -147,11 +148,15 @@ async function verifyGatewayWithPorts(
 
 function verifyGatewaySecret(headers: HeaderProvider, config: AuthConfig): void {
   const { secret, secret_header_name } = config.gateway;
-  if (!secret || !secret_header_name) {
+  // Rotating secret engine: when a slot is provisioned, `current` AND the
+  // in-grace `previous` are valid. Falls back to the static config secret
+  // for pre-engine paths (unit tests, mixed-version windows).
+  const valid = validGatewaySecrets(SECRET_DEFAULTS.graceMs, secret);
+  if (!secret_header_name || valid.length === 0) {
     throw new AuthError("AUTH_GATEWAY_NOT_CONFIGURED", "Gateway secret not configured");
   }
   const provided = headers.getHeader(secret_header_name);
-  if (typeof provided !== "string" || provided !== secret) {
+  if (typeof provided !== "string" || !valid.includes(provided)) {
     throw new AuthError("AUTH_GATEWAY_SECRET_INVALID", "Gateway authentication failed");
   }
 }

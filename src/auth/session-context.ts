@@ -21,6 +21,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { AuthUser } from "./types.js";
 
 /**
  * Session payload carried per HTTP request. Mirrors the relevant subset of
@@ -121,4 +122,30 @@ export function runAsSystem<T>(fn: () => T): T {
     { actor: SYSTEM_ACTOR, roles: [], idpCode: null, idpOrg: null, idpUsername: null },
     fn,
   );
+}
+
+/**
+ * Synthetic `is_system` AuthUser for service-initiated outbound calls —
+ * the governed path for operations with no acting user (welcome emails on
+ * self-registration, scheduled jobs, lifecycle work). Same shape the
+ * is_system API-key path produces in verify-api-key.ts: RBAC bypasses via
+ * `isSystem`, so the call must ALWAYS be additionally gated by the client
+ * shield (it is — verifyNatsPublisher runs first on every governed route).
+ *
+ * `initiator` records WHO triggered the send (the real session actor when
+ * one exists, else the service code) — it is audit metadata, not identity.
+ */
+export function systemAuthUser(initiator: string = SYSTEM_ACTOR): AuthUser {
+  return {
+    id: SYSTEM_ACTOR,
+    idp_code: `system:${initiator}`,
+    email: null,
+    name: initiator,
+    roles: [],
+    permissions: new Set(["*"]),
+    isAdmin: false,
+    isSystem: true,
+    idp_org: null,
+    idp_username: null,
+  };
 }

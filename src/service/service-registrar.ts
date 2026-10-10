@@ -1,4 +1,6 @@
 import { NatsClient } from "../nats/nats-client.js";
+import { callNats } from "../nats/nats-routes.js";
+import { subscribeShielded } from "../nats/service-shield.js";
 import { detectPackageIdentity, clientKeyHash } from "./service-identity.js";
 import { logger } from "../lifecycle/logger.js";
 import {
@@ -101,7 +103,7 @@ export class ServiceRegistrar {
 
   /**
    * Register with the BE via NATS request/reply (`service.register` is a
-   * subscribeRequest subject). Stateless by design: retries every 5s until
+   * correlation-reply endpoint). Stateless by design: retries every 5s until
    * the BE acknowledges — a service that never registers does not exist to
    * the system, so this method only resolves on ack.
    */
@@ -131,10 +133,10 @@ export class ServiceRegistrar {
     logger.info(`Registering ${ref} — attempt 1`, { tags: gwTag ? ["core", gwTag] : ["core"] });
     for (let attempt = 1; ; attempt++) {
       try {
-        const ack = await this.nats.request<{ registered?: boolean; error?: string }>(
+        const ack = await callNats<{ registered?: boolean; error?: string }>(
           SERVICE_SUBJECTS.REGISTER,
           payload,
-          3000,
+          { timeoutMs: 3000, natsClient: this.nats },
         );
         if (ack?.registered) {
           logger.done(
@@ -178,7 +180,7 @@ export class ServiceRegistrar {
     // NOTE: NatsClient.subscribe already dedupes by subject — the
     // registry gatewayOnlineSub entry is belt-and-suspenders for
     // subscribers that bypass NatsClient (none today).
-    await this.nats.subscribe(SERVICE_SUBJECTS.GATEWAY_ONLINE, async () => {
+    await subscribeShielded(SERVICE_SUBJECTS.GATEWAY_ONLINE, async () => {
       if (this.reregisterInFlight) return;
       this.reregisterInFlight = true;
       try {

@@ -8,20 +8,20 @@
  * in-memory TTL cache so repeated verifications don't hit NATS at all.
  */
 
-import { NatsClient } from "../../nats/nats-client.js";
+import { callNats } from "../../nats/nats-routes.js";
 import type { ApiKeyPort, ApiKeyRecord } from "./api-key-port.js";
 
 export class NatsApiKeyPort implements ApiKeyPort {
   /**
-   * @param timeoutMs - NATS request timeout. Keep it short: this port
+   * @param timeoutMs - NATS correlation timeout. Keep it short: this port
    *   backs authentication prechecks — fail fast, fail closed.
    */
   constructor(private timeoutMs: number = 3000) {}
 
   async findByHash(hash: string): Promise<ApiKeyRecord | null> {
-    const record = await NatsClient.request<
+    const record = await callNats<
       Omit<ApiKeyRecord, "expires_at"> & { expires_at: string | null }
-    >("auth.apikey.byHash", { hash }, this.timeoutMs);
+    >("auth.apikey.byHash", { hash }, { timeoutMs: this.timeoutMs });
     if (!record) return null;
     return {
       uuid: record.uuid,

@@ -21,6 +21,8 @@
 
 import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "nats";
 import { NatsClient } from "./nats-client.js";
+import { internalIdentityHeaders } from "../http/internal-client.js";
+import { verifyNatsPublisher } from "./service-shield.js";
 import { extJsonParse, extJsonStringify } from "../json/ext-json.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";
 import { enforceNatsRbac, RbacDeniedError } from "../auth/rbac-enforce.js";
@@ -32,13 +34,26 @@ import { logger } from "../lifecycle/logger.js";
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface NatsRouteContext<TReq = unknown> {
-  /** Resolved caller (GATEWAY-RESOLVED headers). */
-  user: AuthUser;
+  /**
+   * Resolved caller (GATEWAY-RESOLVED headers). `undefined` for
+   * service-authenticated routes (`verify` shield check) — services have
+   * no AuthUser.
+   */
+  user?: AuthUser;
   /** Validated request payload. */
   request: TReq;
   /** Raw NATS message — headers, subject, reply. */
   msg: Msg;
 }
+
+/**
+ * Custom caller verification. Replaces the default
+ * verifyNatsMessage+enforceNatsRbac chain. Return:
+ *   - `AuthUser`  → caller verified (user available in ctx.user)
+ *   - `undefined` → caller verified, no user (service-to-BE shield identity)
+ *   - `null`      → denied (auth error to the caller / drop for pub/sub)
+ */
+export type NatsRouteVerify = (msg: Msg) => Promise<AuthUser | null | undefined>;
 
 export interface NatsRoute<TReq = unknown> {
   /** NATS subject, e.g. "emailsender.send". */
@@ -49,9 +64,15 @@ export interface NatsRoute<TReq = unknown> {
    * message — that intent stays visible in the declaration.
    */
   queue?: string | null;
-  /** RBAC permissions — MANDATORY. */
+  /** RBAC permissions — MANDATORY unless `verify` is set. */
   permissions: readonly string[];
   rbacMode?: "any" | "all";
+  /**
+   * Service-identity verification (e.g. BE client-shield check) instead of
+   * the default AuthUser+RBAC chain. Use for service-to-BE subjects where
+   * the caller is a service, not a user.
+   */
+  verify?: NatsRouteVerify;
   /** Payload validator — throws on invalid shape (zod .parse or manual). */
   validate?: (raw: unknown) => TReq;
   /** The ONE service call. */
@@ -61,8 +82,11 @@ export interface NatsRoute<TReq = unknown> {
 export interface NatsRequestRoute<TReq = unknown, TRes = unknown> {
   subject: string;
   queue?: string | null;
+  /** RBAC permissions — MANDATORY unless `verify` is set. */
   permissions: readonly string[];
   rbacMode?: "any" | "all";
+  /** Service-identity verification — see NatsRoute.verify. */
+  verify?: NatsRouteVerify;
   validate?: (raw: unknown) => TReq;
   /** Returns the reply payload — published to msg.reply. */
   handler: (ctx: NatsRouteContext<TReq>) => Promise<TRes>;
@@ -93,11 +117,22 @@ function decode<T>(data: Uint8Array): T {
 
 async function verifyAndAuthorize(
   msg: Msg,
-  permissions: readonly string[],
-  rbacMode: "any" | "all" | undefined,
-): Promise<AuthUser> {
+  route: { permissions: readonly string[]; rbacMode?: "any" | "all"; verify?: NatsRouteVerify },
+): Promise<AuthUser | undefined> {
+  // Layer 1 — client shield: the publisher must be a registered client.
+  // Runs before everything else, on every governed route.
+  if (!(await verifyNatsPublisher(msg))) {
+    throw new AuthError("CLIENT_IDENTITY_DENIED", "client identity rejected");
+  }
+  // Layer 2 — caller verification: custom service-auth hook, or the
+  // default gateway-secret + AuthUser + RBAC chain.
+  if (route.verify) {
+    const result = await route.verify(msg);
+    if (result === null) throw new AuthError("SERVICE_AUTH_DENIED", "caller identity rejected");
+    return result ?? undefined;
+  }
   const user = await verifyNatsMessage(msg, getAuthConfig());
-  enforceNatsRbac(user, permissions, rbacMode);
+  enforceNatsRbac(user, route.permissions, route.rbacMode);
   return user;
 }
 
@@ -122,7 +157,7 @@ export async function makeNatsRoutes(
     (async () => {
       for await (const msg of sub) {
         try {
-          const user = await verifyAndAuthorize(msg, route.permissions, route.rbacMode);
+          const user = await verifyAndAuthorize(msg, route);
           const raw = decode(msg.data);
           const request = route.validate ? route.validate(raw) : raw;
           await route.handler({ user, request, msg });
@@ -165,7 +200,7 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
           if (msg.reply) msg.respond(encode({ error: { code, message } }));
         };
         try {
-          const user = await verifyAndAuthorize(msg, route.permissions, route.rbacMode);
+          const user = await verifyAndAuthorize(msg, route);
           const raw = decode<TReq>(msg.data);
           const request = route.validate ? route.validate(raw) : raw;
           const result = await route.handler({ user, request, msg });
@@ -196,9 +231,9 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
 export async function callNats<TRes = unknown>(
   subject: string,
   data: unknown,
-  opts: { timeoutMs?: number; headers?: Record<string, string>; connection?: NatsConnection } = {},
+  opts: { timeoutMs?: number; headers?: Record<string, string>; connection?: NatsConnection; natsClient?: typeof NatsClient } = {},
 ): Promise<TRes> {
-  const nc = opts.connection ?? (await NatsClient.getConnection());
+  const nc = opts.connection ?? (await (opts.natsClient ?? NatsClient).getConnection());
   const inbox = createInbox();
   const timeoutMs = opts.timeoutMs ?? 5000;
 
@@ -229,6 +264,14 @@ export async function callNats<TRes = unknown>(
     if (opts.headers) {
       hdrs = natsHeaders();
       for (const [k, v] of Object.entries(opts.headers)) hdrs.set(k, v);
+    }
+    // Stamp service identity (UA + shield key) — the BE's verifyPublisher
+    // check depends on it. Identity is applied AFTER caller headers so it
+    // can never be overridden. No-op until configureInternalClient() runs.
+    const identity = internalIdentityHeaders();
+    if (identity) {
+      hdrs ??= natsHeaders();
+      for (const [name, value] of Object.entries(identity)) hdrs.set(name.toLowerCase(), value);
     }
     nc.publish(subject, encode(data), { reply: inbox, headers: hdrs });
   });

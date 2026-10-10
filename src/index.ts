@@ -113,8 +113,34 @@ export {
   type NatsRoute,
   type NatsRequestRoute,
   type NatsRouteContext,
+  type NatsRouteVerify,
   type NatsRouterDeps,
 } from "./nats/nats-routes.js";
+export {
+  setNatsShieldRegistry,
+  getNatsShieldRegistry,
+  verifyNatsPublisher,
+  serviceShieldVerify,
+  subscribeShielded,
+  type ShieldRegistryLike,
+} from "./nats/service-shield.js";
+export {
+  RotatingSecretEngine,
+  SecretProvider,
+  startSecretProvider,
+  SECRET_SUBJECTS,
+  SECRET_DEFAULTS,
+  type RotatingSecretRef,
+  type SecretGetRequest,
+  type SecretGetResponse,
+} from "./secrets/rotating-secret.js";
+export {
+  setGatewaySecretSlot,
+  getGatewaySecretSlot,
+  currentGatewaySecret,
+  validGatewaySecrets,
+  type GatewaySecretSlot,
+} from "./auth/gateway-secret.js";
 
 // HTTP
 export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";
@@ -227,7 +253,7 @@ export {
   type CacheLogger,
 } from "./cache/cached-repository.js";
 export { RedisCachePort } from "./cache/redis-cache-port.js";
-export { createRedisClient, closeRedisClient } from "./cache/redis-client.js";
+export { createRedisClient, closeRedisClient, getRedisClient } from "./cache/redis-client.js";
 export { getRedisInfo, type RedisInfo } from "./cache/redis-info.js";
 export {
   initCacheFromSharedConfig,

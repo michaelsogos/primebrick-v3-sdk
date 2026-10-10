@@ -21,7 +21,7 @@ export { verifyAccessToken, resetOidcRuntimeForTest } from "./oidc-verifier.js";
 export { Permission, isPermissionSentinel, listNonSentinelPermissions, matchesWildcard, isPermissionGranted, expandPermissions, type Permission as PermissionType } from "./permissions.js";
 
 // Session context
-export { runWithSession, getSession, requireActor, runAsSystem, SYSTEM_ACTOR, type Session } from "./session-context.js";
+export { runWithSession, getSession, requireActor, runAsSystem, systemAuthUser, SYSTEM_ACTOR, type Session } from "./session-context.js";
 
 // Ports
 export { type AuthConfigPort } from "./ports/auth-config-port.js";

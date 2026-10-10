@@ -19,6 +19,8 @@
  */
 
 import { NatsClient } from "../nats/nats-client.js";
+import { callNats, makeNatsRequestRoute, type NatsRouteVerify } from "../nats/nats-routes.js";
+import { subscribeShielded } from "../nats/service-shield.js";
 
 /**
  * Shape of the shared config object exchanged via NATS `config.get`.
@@ -67,7 +69,9 @@ export async function subscribeConfigChanged(
   nats: typeof NatsClient,
   handler: (payload: { keys?: string[] }) => Promise<void>,
 ): Promise<void> {
-  await nats.subscribe<{ keys?: string[] }>(CONFIG_CHANGED_SUBJECT, handler);
+  // Shield-gated broadcast: only registered clients may trigger a config
+  // reload — a rogue publisher must not force config/auth refreshes.
+  await subscribeShielded<{ keys?: string[] }>(CONFIG_CHANGED_SUBJECT, handler);
 }
 
 /** Timeout for the NATS request (ms). If the BE doesn't respond, the caller continues without shared config. */
@@ -91,16 +95,27 @@ const SHARED_CONFIG_TIMEOUT_MS = 5_000;
 export async function subscribeSharedConfig(
   nats: typeof NatsClient,
   getConfig: () => SharedConfig,
+  verify?: NatsRouteVerify,
 ): Promise<void> {
-  await nats.subscribeRequest<unknown, SharedConfig>(
-    SHARED_CONFIG_SUBJECT,
-    async () => {
-      try {
-        return getConfig();
-      } catch {
-        return {};
-      }
-    },
+  // Governed correlation-reply endpoint (makeNatsRequestRoute): the caller
+  // publishes with a private reply inbox — pure pub/sub, never req/res.
+  await makeNatsRequestRoute<unknown, SharedConfig>(
+    [
+      {
+        subject: SHARED_CONFIG_SUBJECT,
+        queue: "primebrick-api",
+        permissions: [],
+        verify,
+        handler: async () => {
+          try {
+            return getConfig();
+          } catch {
+            return {};
+          }
+        },
+      },
+    ],
+    { serviceCode: "primebrick-api" },
   );
 }
 
@@ -122,12 +137,11 @@ export async function fetchSharedConfig(
   nats: typeof NatsClient,
 ): Promise<SharedConfig> {
   try {
-    const response = await nats.request<SharedConfig>(
+    const response = await callNats<SharedConfig>(
       SHARED_CONFIG_SUBJECT,
-      // send a JSON body: subscribeRequest used to throw on empty payloads
-      // before the handler could run — keep this as `{}` for robustness.
+      // send a JSON body: keep this as `{}` for robustness.
       {},
-      SHARED_CONFIG_TIMEOUT_MS,
+      { timeoutMs: SHARED_CONFIG_TIMEOUT_MS },
     );
     return response ?? {};
   } catch {

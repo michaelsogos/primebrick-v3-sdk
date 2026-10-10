@@ -31,6 +31,11 @@ export async function createRedisClient(url: string): Promise<RedisClientType> {
   return client;
 }
 
+/** Existing singleton client, or null if never created. */
+export function getRedisClient(): RedisClientType | null {
+  return client;
+}
+
 /**
  * Graceful shutdown — disconnect the Redis client. Safe to call multiple times.
  * Registered with the SDK's `GracefulShutdown` by the BE (or US) at bootstrap.
