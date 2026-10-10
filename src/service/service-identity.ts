@@ -4,7 +4,7 @@
  *
  * Every internal call carries two headers:
  *   - `User-Agent: {pkg_name}/{pkg_version} ({capabilities}) {runtime}/{ver}`
- *   - `x-primebrick-client-key: <key>`
+ *   - `x-primebrick-client-shield-key: <key>`
  *
  * The endpoint middleware `verifyClientIdentity()` enforces:
  *   - no UA            → 401 (unidentified caller)
@@ -16,11 +16,11 @@
  * payloads; `source='manual'` rows are admin-managed (e.g. Postman).
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 
-export const CLIENT_KEY_HEADER = "x-primebrick-client-key";
+export const CLIENT_SHIELD_KEY_HEADER = "x-primebrick-client-shield-key";
 
 /**
  * sha256 hex of a client key — the only form that ever leaves the service
@@ -34,20 +34,50 @@ export function clientKeyHash(key: string): string {
 export interface PackageIdentity {
   name: string;
   version?: string;
+  /**
+   * Declared capabilities from package.json (`"capabilities": [...]`),
+   * snake_case lowercase. Sent in `service.register` → persisted in
+   * `service_registry.capabilities` — refreshed at every registration.
+   */
+  capabilities?: string[];
 }
 
 /**
- * Derive the caller's package identity from `package.json` at cwd.
- * Same convention as the logger's `[service#version]` tag — deterministic,
- * zero config. Returns `{name: "app"}` when no package.json is found.
+ * Derive the caller's package identity from `package.json`.
+ *
+ * Search root: the entry file's directory (`process.argv[1]`), walking
+ * upward until a package.json is found — so identity is the *deployed
+ * package* regardless of the process cwd (e.g. `cd ../.. && bun --hot
+ * ./primebrick-us-v3/ai/src/index.ts` still resolves primebrick-ai).
+ * `startDir` overrides the search root (tests, scripts).
+ * Returns `{name: "app"}` when no package.json is found.
  */
-export function detectPackageIdentity(cwd = process.cwd()): PackageIdentity {
+function findPackageDir(startDir: string): string | undefined {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+export function detectPackageIdentity(startDir?: string): PackageIdentity {
+  const entryDir = process.argv[1] ? dirname(resolve(process.argv[1])) : process.cwd();
+  const cwd = startDir ?? findPackageDir(entryDir) ?? entryDir;
   try {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as {
       name?: string;
       version?: string;
+      capabilities?: unknown;
     };
-    return { name: pkg.name ?? "app", version: pkg.version };
+    return {
+      name: pkg.name ?? "app",
+      version: pkg.version,
+      capabilities: Array.isArray(pkg.capabilities)
+        ? pkg.capabilities.filter((c): c is string => typeof c === "string")
+        : undefined,
+    };
   } catch {
     return { name: "app" };
   }
@@ -79,7 +109,7 @@ export function buildUserAgent(identity: PackageIdentity, capabilities?: string)
 export function identityHeaders(identity: PackageIdentity, capabilities: string, clientKey: string): Record<string, string> {
   return {
     "User-Agent": buildUserAgent(identity, capabilities),
-    [CLIENT_KEY_HEADER]: clientKey,
+    [CLIENT_SHIELD_KEY_HEADER]: clientKey,
   };
 }
 
@@ -92,7 +122,7 @@ export type ClientIdentityResult =
  *
  * - `ua` missing                → 401 UNIDENTIFIED_CLIENT
  * - `ua` not starting with an allowed prefix → 403 UNKNOWN_CLIENT
- * - `verifyKey(key)` false      → 401 INVALID_CLIENT_KEY
+ * - `verifyKey(key)` false      → 401 INVALID_CLIENT_SHIELD_KEY
  *
  * `allowedPrefixes` is loaded from `system.client_registry` (cached by the
  * caller and refreshed on `system.client_registry.changed` events).
@@ -114,9 +144,9 @@ export async function verifyClientIdentity(
   if (!prefix) {
     return { ok: false, status: 403, error: "UNKNOWN_CLIENT" };
   }
-  const key = req.headers.get(CLIENT_KEY_HEADER) ?? "";
+  const key = req.headers.get(CLIENT_SHIELD_KEY_HEADER) ?? "";
   if (!key || !(await opts.verifyKey(prefix, key))) {
-    return { ok: false, status: 401, error: "INVALID_CLIENT_KEY" };
+    return { ok: false, status: 401, error: "INVALID_CLIENT_SHIELD_KEY" };
   }
   return { ok: true, ua };
 }

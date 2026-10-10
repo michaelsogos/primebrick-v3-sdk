@@ -34,3 +34,31 @@ export function logModuleStartup(name: string, version: string | null | undefine
 export function logServiceStartup(url: string): void {
   logger.done(`Listening on ${url}`, { tags: ["core"] });
 }
+
+/**
+ * Minimal pool shape — satisfied by `pg.Pool` and the DAL's pool without
+ * the SDK depending on `pg` types.
+ */
+export interface SqlPoolLike {
+  query(sql: string): Promise<{ rows: { version?: string }[] }>;
+}
+
+/**
+ * PostgreSQL startup banner probe for `createMicroservice`'s `dbBanner`
+ * option. Returns the same `{name, version, url}` the BE logs at boot:
+ * `PostgreSQL 18.4 connected (postgres://user@host:5432/db)`.
+ * The connection URL is printed with the password stripped.
+ */
+export async function pgServerBanner(
+  pool: SqlPoolLike,
+  databaseUrl: string,
+): Promise<{ name: string; version: string | null; url: string }> {
+  const res = await pool.query("SELECT version()");
+  const raw = res.rows[0]?.version ?? "";
+  const match = raw.match(/PostgreSQL\s+([\d.]+)/);
+  return {
+    name: "PostgreSQL",
+    version: match?.[1] ?? null,
+    url: databaseUrl.replace(/(:\/\/[^:/]+):[^@]+@/, "$1@"),
+  };
+}

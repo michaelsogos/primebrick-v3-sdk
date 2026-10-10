@@ -14,12 +14,34 @@ import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentele
 import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
+import { internalIdentityHeaders } from "../http/internal-client.js";
+import { msgHeader } from "./msg-headers.js";
+
+export { msgHeader };
 
 const natsTracer = trace.getTracer("@primebrick/sdk");
 
 /** Inject W3C traceparent/tracestate into a MsgHdrs instance. */
 function injectInto(hdrs: MsgHdrs): void {
   propagation.inject(context.active(), hdrs, natsCarrier);
+}
+
+/**
+ * Stamp the caller's service identity (User-Agent + client shield key)
+ * onto outbound message headers — applied AFTER caller-supplied headers
+ * so identity can never be overridden. Silent no-op until
+ * `configureInternalClient()` runs at boot.
+ *
+ * Header names are written lowercase: MsgHdrs is case-sensitive (unlike
+ * HTTP Headers), so the wire convention is lowercase — the same form the
+ * SDK's `msgHeader` reader looks up first.
+ */
+function injectIdentity(hdrs: MsgHdrs): void {
+  const identity = internalIdentityHeaders();
+  if (!identity) return;
+  for (const [name, value] of Object.entries(identity)) {
+    hdrs.set(name.toLowerCase(), value);
+  }
 }
 
 /**
@@ -130,6 +152,7 @@ export class NatsClient {
       ? new Uint8Array(0)
       : new TextEncoder().encode(extJsonStringify(data));
     const hdrs = headers();
+    injectIdentity(hdrs);
     injectInto(hdrs);
     const msg = await nc.request(subject, payload, { timeout: timeoutMs, headers: hdrs });
     const text = new TextDecoder().decode(msg.data);
@@ -159,6 +182,7 @@ export class NatsClient {
         natsHeaders.set(key, value);
       }
     }
+    injectIdentity(natsHeaders);
     injectInto(natsHeaders);
     nc.publish(subject, payload, { headers: natsHeaders });
   }
@@ -267,6 +291,7 @@ export class NatsClient {
             const response = await handler(request, msg);
             if (msg.reply) {
               const replyHdrs = headers();
+              injectIdentity(replyHdrs);
               injectInto(replyHdrs);
               const payload = new TextEncoder().encode(extJsonStringify(response));
               nc.publish(msg.reply, payload, { headers: replyHdrs });

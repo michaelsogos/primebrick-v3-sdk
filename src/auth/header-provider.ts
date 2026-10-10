@@ -8,6 +8,7 @@
 
 import type { IncomingMessage } from "node:http";
 import type { Msg } from "nats";
+import { msgHeader } from "../nats/msg-headers.js";
 
 export interface HeaderProvider {
   getHeader(name: string): string | undefined;
@@ -28,6 +29,7 @@ export class NatsHeaderProvider implements HeaderProvider {
   constructor(private msg: Msg) {}
 
   getHeader(name: string): string | undefined {
-    return this.msg.headers?.get(name) || undefined;
+    // MsgHdrs is case-sensitive — msgHeader tries the canonical form too.
+    return msgHeader(this.msg.headers, name) ?? undefined;
   }
 }

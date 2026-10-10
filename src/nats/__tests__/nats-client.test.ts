@@ -25,12 +25,14 @@ vi.mock("nats", () => ({
   connect: mocks.mockConnect,
   NatsConnection: {},
   JetStreamClient: {},
-  // Minimal MsgHdrs stand-in: case-insensitive get/set over a Map.
+  // MsgHdrs stand-in faithful to real nats.js: CASE-SENSITIVE verbatim
+  // get/set. A previous version normalized keys to lowercase, masking the
+  // real library's behaviour — that is the exact bug this must not hide.
   headers: () => {
     const map = new Map<string, string[]>();
     return {
-      get: (k: string) => map.get(k.toLowerCase())?.[0],
-      set: (k: string, v: string) => map.set(k.toLowerCase(), [v]),
+      get: (k: string) => map.get(k)?.[0],
+      set: (k: string, v: string) => map.set(k, [v]),
       [Symbol.iterator]: function* () {
         yield* map.entries();
       },

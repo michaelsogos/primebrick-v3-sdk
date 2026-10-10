@@ -20,6 +20,7 @@ import { createRedisClient } from "./redis-client.js";
 import { getRedisInfo, type RedisInfo } from "./redis-info.js";
 import { fetchSharedConfig, type SharedConfig } from "../config/shared-config.js";
 import { NatsClient } from "../nats/nats-client.js";
+import { logModuleStartup } from "../lifecycle/startup-logger.js";
 
 export type CacheBootstrapResult = {
   /** The initialized CachePort, or null if Redis is not configured/unreachable. */
@@ -64,11 +65,13 @@ export async function initCacheFromSharedConfig(
     const cachePort = new RedisCachePort(redis);
     const redisInfo = await getRedisInfo(redis);
 
-    if (redisInfo) {
-      (logger.done ?? logger.info)(`Redis connected (v${redisInfo.version})`, { tags: ["cache"] });
-    } else {
-      (logger.done ?? logger.info)("Redis connected (version unknown)", { tags: ["cache"] });
-    }
+    // Same banner as the BE: `Redis 8.8.0 connected (redis://host:6379)`
+    // (credentials stripped — never log secrets).
+    logModuleStartup(
+      "Redis",
+      redisInfo?.version ?? null,
+      sharedConfig.redis_url.replace(/(:\/\/[^:/]+):[^@]+@/, "$1@"),
+    );
 
     return { cachePort, redisInfo, sharedConfig };
   } catch (err) {

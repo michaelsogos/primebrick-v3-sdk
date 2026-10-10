@@ -34,14 +34,16 @@ export class ClientRegistry {
   private rows = new Map<string, string>();
 
   /**
-   * Load the snapshot and subscribe to invalidation events.
-   * Safe to call once at service start (after NATS connect).
+   * Subscribe to invalidation events first, then keep retrying the snapshot
+   * until the BE answers — the BE may be down at boot (same stateless-retry
+   * model as service.register). Non-blocking: until the first snapshot lands
+   * the allowlist is empty and every internal call is rejected (fail-closed).
    */
   async start(): Promise<void> {
-    await this.reload();
     await NatsClient.subscribe(CLIENT_REGISTRY_SUBJECTS.CHANGED, async () => {
       try {
-        await this.reload();
+        const changed = await this.reload();
+        if (changed) this.logAllowed("have been updated");
       } catch (error) {
         logger.warn("client_registry reload failed — keeping previous snapshot", {
           tags: ["core"],
@@ -49,19 +51,53 @@ export class ClientRegistry {
         });
       }
     });
-    logger.info(`Client registry loaded (${this.rows.size} allowed clients)`, { tags: ["core"] });
+    void this.reloadUntilOk();
   }
 
-  private async reload(): Promise<void> {
+  private async reloadUntilOk(): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.reload();
+        this.logAllowed("are", attempt > 1 ? attempt : undefined);
+        return;
+      } catch {
+        logger.warn(`client_registry snapshot attempt ${attempt} failed (BE unreachable?) — retrying in 5s`, { tags: ["core"], attempt });
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
+  }
+
+  private logAllowed(verb: "are" | "have been updated", attempts?: number): void {
+    logger.info(`Services allowed to communicate with ${verb}:`, {
+      tags: ["core"],
+      ...(attempts ? { attempts } : {}),
+    });
+    for (const prefix of this.rows.keys()) {
+      logger.info(`  - ${prefix}`, { tags: ["core"] });
+    }
+  }
+
+  /**
+   * Re-fetch the snapshot. Returns true when the enabled-prefix set
+   * actually changed — callers use it to log only on real diffs (the BE
+   * publishes `changed` on every enrollment, including re-registers that
+   * leave the set identical).
+   */
+  private async reload(): Promise<boolean> {
     const rows = await NatsClient.request<ClientRegistryRow[]>(
       CLIENT_REGISTRY_SUBJECTS.GET,
       null,
       5000,
     );
-    this.rows.clear();
+    const next = new Map<string, string>();
     for (const row of rows ?? []) {
-      if (row.is_enabled) this.rows.set(row.ua_prefix, row.client_key_hash);
+      if (row.is_enabled) next.set(row.ua_prefix, row.client_key_hash);
     }
+    const changed =
+      next.size !== this.rows.size ||
+      [...next].some(([k, v]) => this.rows.get(k) !== v);
+    this.rows = next;
+    return changed;
   }
 
   /** UA prefixes currently allowed (enabled rows only). */

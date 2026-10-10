@@ -76,7 +76,7 @@ export { applyPatches, type ApplyPatchesResult } from "./migrations/apply-patche
 export { type IServiceRegistry } from "./service/service-registry.js";
 export { ServiceRegistrar, type ServiceRegistrarConfig, type HealthCheckFn } from "./service/service-registrar.js";
 export {
-  CLIENT_KEY_HEADER,
+  CLIENT_SHIELD_KEY_HEADER,
   clientKeyHash,
   detectPackageIdentity,
   buildUserAgent,
@@ -86,6 +86,12 @@ export {
   type ClientIdentityResult,
 } from "./service/service-identity.js";
 export { ClientRegistry, CLIENT_REGISTRY_SUBJECTS, type ClientRegistryRow } from "./service/client-registry.js";
+export {
+  internalFetch,
+  configureInternalClient,
+  resetInternalClient,
+  type InternalIdentityProvider,
+} from "./http/internal-client.js";
 export {
   SERVICE_SUBJECTS,
   type ServiceHeartbeatPayload,
@@ -99,7 +105,7 @@ export {
 export { GracefulShutdown, type CleanupFn } from "./lifecycle/graceful-shutdown.js";
 
 // NATS
-export { NatsClient } from "./nats/nats-client.js";
+export { NatsClient, msgHeader } from "./nats/nats-client.js";
 export {
   makeNatsRoutes,
   makeNatsRequestRoute,
@@ -128,9 +134,21 @@ export {
 } from "./errors/dal-error-mapper.js";
 export { HealthCheck, type HealthCheckResult } from "./http/health-check.js";
 export { type HealthResponse } from "./http/health-response.js";
+export {
+  buildOpenApiSpec,
+  entityCrudSpec,
+  rpcSpec,
+  makeOpenApiHandler,
+  operationIdFor,
+  type JsonSchema,
+  type OpenApiRouteDoc,
+  type RpcRouteOpenApi,
+  type EntityCrudOp,
+  type OpenApiSpecInput,
+} from "./http/openapi.js";
 
 // Lifecycle — startup logging
-export { logModuleStartup, logServiceStartup } from "./lifecycle/startup-logger.js";
+export { logModuleStartup, logServiceStartup, pgServerBanner, type SqlPoolLike } from "./lifecycle/startup-logger.js";
 
 // Lifecycle — async structured logger + console bridge
 export {

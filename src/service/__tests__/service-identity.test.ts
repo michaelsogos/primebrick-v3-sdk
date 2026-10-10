@@ -7,7 +7,7 @@ import {
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,
-  CLIENT_KEY_HEADER,
+  CLIENT_SHIELD_KEY_HEADER,
 } from "../service-identity.js";
 
 function headersReq(h: Record<string, string>) {
@@ -37,7 +37,7 @@ describe("buildUserAgent", () => {
 describe("identityHeaders", () => {
   it("emits UA + client key header", () => {
     const h = identityHeaders({ name: "svc", version: "1.0.0" }, "svc", "secret-key");
-    expect(h[CLIENT_KEY_HEADER]).toBe("secret-key");
+    expect(h[CLIENT_SHIELD_KEY_HEADER]).toBe("secret-key");
     expect(h["User-Agent"]).toContain("svc/1.0.0 (svc)");
   });
 });
@@ -63,20 +63,20 @@ describe("verifyClientIdentity", () => {
       headersReq({ "user-agent": "primebrick-emailsender/1.4.0 (emailsender) Node/24" }),
       opts
     );
-    expect(r).toEqual({ ok: false, status: 401, error: "INVALID_CLIENT_KEY" });
+    expect(r).toEqual({ ok: false, status: 401, error: "INVALID_CLIENT_SHIELD_KEY" });
   });
 
   it("401 when client key invalid", async () => {
     const r = await verifyClientIdentity(
-      headersReq({ "user-agent": "primebrick-emailsender/1.4.0", [CLIENT_KEY_HEADER]: "bad" }),
+      headersReq({ "user-agent": "primebrick-emailsender/1.4.0", [CLIENT_SHIELD_KEY_HEADER]: "bad" }),
       { ...opts, verifyKey: async () => false }
     );
-    expect(r).toEqual({ ok: false, status: 401, error: "INVALID_CLIENT_KEY" });
+    expect(r).toEqual({ ok: false, status: 401, error: "INVALID_CLIENT_SHIELD_KEY" });
   });
 
   it("ok when UA prefix matches and key verifies", async () => {
     const r = await verifyClientIdentity(
-      headersReq({ "user-agent": "primebrick-emailsender/1.4.0 (emailsender) Bun/1.2", [CLIENT_KEY_HEADER]: "good" }),
+      headersReq({ "user-agent": "primebrick-emailsender/1.4.0 (emailsender) Bun/1.2", [CLIENT_SHIELD_KEY_HEADER]: "good" }),
       opts
     );
     expect(r).toEqual({ ok: true, ua: "primebrick-emailsender/1.4.0 (emailsender) Bun/1.2" });
@@ -84,7 +84,7 @@ describe("verifyClientIdentity", () => {
 
   it("manual entry (postman) works the same way", async () => {
     const r = await verifyClientIdentity(
-      headersReq({ "user-agent": "postman-runtime/7.40", [CLIENT_KEY_HEADER]: "k" }),
+      headersReq({ "user-agent": "postman-runtime/7.40", [CLIENT_SHIELD_KEY_HEADER]: "k" }),
       opts
     );
     expect(r.ok).toBe(true);

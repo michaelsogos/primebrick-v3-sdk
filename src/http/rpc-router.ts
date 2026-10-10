@@ -76,6 +76,13 @@ export interface RpcRoute<
   body?: (raw: unknown) => TBody;
   /** "sse" = governed streaming route: handler gets `ctx.sse`, owns res. */
   streaming?: "sse";
+  /**
+   * OpenAPI metadata — consumed by `rpcSpec()`/`buildOpenApiSpec()` to emit
+   * this route in the service's auto-generated `/api/v1/openapi.json`.
+   * Routes without it are still documented (path+method+security derived),
+   * but `summary`/`description`/schemas make them first-class.
+   */
+  openapi?: import("./openapi.js").RpcRouteOpenApi;
   /** The ONE service call — business logic lives behind it, not here. */
   handler: (ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>;
 }

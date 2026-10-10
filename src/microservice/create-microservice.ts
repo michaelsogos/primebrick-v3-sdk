@@ -52,10 +52,8 @@
  * ```
  */
 
-import { readFileSync } from "node:fs";
 import { logger } from "../lifecycle/logger.js";
 import { ClientRegistry } from "../service/client-registry.js";
-import { resolve } from "node:path";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import {
   ConfigLoader,
@@ -86,6 +84,11 @@ import {
   subscribeConfigChanged,
   initCacheFromSharedConfig,
   setSdkCachePort,
+  configureInternalClient,
+  detectPackageIdentity,
+  buildUserAgent,
+  logModuleStartup,
+  CLIENT_SHIELD_KEY_HEADER,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
@@ -117,6 +120,14 @@ export interface MicroserviceOptions {
    * Typically reads DATABASE_URL / DB_SCHEMA from env and calls getDal().
    */
   initDal: () => void;
+
+  /**
+   * Optional DB startup banner — called right after `initDal`, rendered
+   * via `logModuleStartup` (`PostgreSQL 18.4 connected (url)`). Keeps the
+   * SDK DB-agnostic: the service supplies a probe, e.g.
+   * `dbBanner: () => pgServerBanner(getDal().getPool(), process.env.DATABASE_URL!)`.
+   */
+  dbBanner?: () => Promise<{ name: string; version?: string | null; url: string }>;
 
   /**
    * DAL close callback — called during graceful shutdown.
@@ -154,6 +165,13 @@ export interface MicroserviceOptions {
    * If omitted, only the /health endpoint is served.
    */
   routeHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>;
+
+  /**
+   * Paths exempt from the client-identity gate — only for services with a
+   * genuinely public surface (e.g. the webhook ingress, whose callers are
+   * external providers). Everything else is gated by default.
+   */
+  identityExemptPaths?: RegExp[];
 
   /**
    * Auth dependency setters — called after auth config is loaded.
@@ -212,18 +230,12 @@ export interface MicroserviceContext {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /**
- * Read service version from package.json in the current working directory.
- * Works because the microservice's CWD is its own root directory
- * (both in dev with `bun --hot` and in Docker with WORKDIR set).
+ * Read service version from the deployed package.json — resolved by
+ * walking up from the entry file (`detectPackageIdentity`), so it is
+ * cwd-independent and always the same package as the service identity.
  */
 export function readServiceVersion(): string {
-  try {
-    const pkgPath = resolve(process.cwd(), "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
+  return detectPackageIdentity().version ?? "0.0.0";
 }
 
 // ─── Builder ───────────────────────────────────────────────────────────────
@@ -253,12 +265,21 @@ export async function createMicroservice(
 
   // 2. DAL init (consumer callback — DB-agnostic)
   options.initDal();
+  if (options.dbBanner) {
+    try {
+      const banner = await options.dbBanner();
+      logModuleStartup(banner.name, banner.version, banner.url);
+    } catch {
+      logger.warn("Database banner probe failed (connection up? /health will report)", { tags: ["core"] });
+    }
+  }
 
   // 3. ConfigLoader (reads config table via ConfigRepositoryPort)
   const configLoader = new ConfigLoader(options.configRepositoryAdapter());
   try {
-    await configLoader.load();
-    logger.info("Config loaded from DB", { tags: ["core"] });
+    const loaded = await configLoader.load();
+    const schema = env.DB_SCHEMA;
+    logger.done(`Module configuration loaded — ${Object.keys(loaded).length} keys found${schema ? ` (${schema}.config_entries)` : ""}`, { tags: ["core"] });
   } catch (error) {
     logger.error("Failed to load config (non-fatal — table may be empty)", { tags: ["core"], error: error });
   }
@@ -268,7 +289,7 @@ export async function createMicroservice(
   initAuthConfig(authConfigPort);
   try {
     await loadAuthConfig();
-    logger.info("Auth config loaded", { tags: ["core"] });
+    logger.done("Auth settings resolved", { tags: ["core"] });
   } catch (error) {
     logger.error("Failed to load auth config (non-fatal — config table may be empty)", { tags: ["core"], error: error });
   }
@@ -295,7 +316,6 @@ export async function createMicroservice(
   const natsUrl = configLoader.require("nats_url");
   try {
     await NatsClient.getConnection(natsUrl);
-    logger.done("NATS connection established", { tags: ["core"] });
   } catch (error) {
     logger.error("Failed to connect to NATS", { tags: ["core"], error: error });
     process.exit(1);
@@ -329,6 +349,14 @@ export async function createMicroservice(
       await new Promise((r) => setTimeout(r, 2000));
       shared = await fetchSharedConfig(NatsClient);
     }
+    const globalKeys = [
+      shared.redis_url ? "redis_url" : null,
+      shared.telemetry ? "telemetry" : null,
+    ].filter((k): k is string => k !== null);
+    logger.done(
+      `Global configuration received from BE — ${globalKeys.length} keys found (${globalKeys.join(", ") || "none"})`,
+      { tags: ["core"] },
+    );
     await initTelemetry(
       {
         enabled: shared.telemetry?.enabled ?? false,
@@ -416,19 +444,28 @@ export async function createMicroservice(
       icon: options.icon,
       icon_type: options.iconType,
       // Per-service client key from module config (never env).
-      clientKey: configLoader.get("client_key") ?? undefined,
+      clientKey: configLoader.get("service_client_shield_key") ?? undefined,
+      // API gateway endpoint — shown as a log tag on register/heartbeat.
+      // Required module config: it is also the identity of the only public
+      // ingress this service talks to; a missing value is a misconfigured
+      // module, not an optional nicety.
+      gatewayUrl: configLoader.require("be_base_url"),
     },
     registrarHealthCheckFn,
   );
 
-  try {
-    await registrar.register();
-    logger.done("Service registered via NATS", { tags: ["core"] });
-  } catch (error) {
-    logger.error("Failed to register service", { tags: ["core"], error: error });
+  // Internal HTTP client (B11): all service-to-service fetches go through
+  // `internalFetch` — identity headers are injected automatically and can
+  // never be forgotten or overridden by the caller.
+  const clientKey = configLoader.get("service_client_shield_key");
+  const selfIdentity = detectPackageIdentity();
+  configureInternalClient(() => ({
+    "User-Agent": buildUserAgent(selfIdentity, serviceCode),
+    ...(clientKey ? { [CLIENT_SHIELD_KEY_HEADER]: clientKey } : {}),
+  }));
+  if (clientKey) {
+    logger.done(`The service ${selfIdentity.name}/${selfIdentity.version ?? "?"} shield key enrolled`, { tags: ["core"] });
   }
-  registrar.startHeartbeat();
-  logger.info("Heartbeat started", { tags: ["core"] });
 
   // 8. HTTP server + HealthCheck
   // Build custom health checks — include NATS check automatically
@@ -443,24 +480,17 @@ export async function createMicroservice(
   const healthCheck = new HealthCheck(healthCheckPort, customChecks);
   const httpPort = parseInt(configLoader.require("http_port"), 10);
 
-  // 7b. Client-identity gate (B11). Enforcement is ON by default; set
-  //     PRIMEBRICK_IDENTITY_ENFORCEMENT=off to disable (e.g. legacy dev envs
-  //     where not all callers send identity headers yet). Fail-closed: if
-  //     the registry snapshot can't load, the allowlist is empty.
-  let clientRegistry: ClientRegistry | undefined;
-  if (process.env.PRIMEBRICK_IDENTITY_ENFORCEMENT !== "off") {
-    clientRegistry = new ClientRegistry();
-    try {
-      await clientRegistry.start();
-    } catch (error) {
-      logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
-        tags: ["core"],
-        error,
-      });
-    }
-  } else {
-    logger.warn("Client-identity enforcement disabled (PRIMEBRICK_IDENTITY_ENFORCEMENT=off)", {
+  // 7b. Client-identity gate (B11) — always on; only /health and the
+  //     service's declared public paths (identityExemptPaths) are exempt.
+  //     Fail-closed: if the registry snapshot can't load, the allowlist is
+  //     empty and every internal call is rejected.
+  const clientRegistry = new ClientRegistry();
+  try {
+    await clientRegistry.start();
+  } catch (error) {
+    logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
       tags: ["core"],
+      error,
     });
   }
 
@@ -472,9 +502,21 @@ export async function createMicroservice(
     serviceUrl: baseUrl,
     routeHandler: options.routeHandler,
     clientRegistry,
+    identityExemptPaths: options.identityExemptPaths,
   });
 
-  logger.done(`${options.serviceName} microservice started successfully`, { tags: ["core"] });
+  // 8b. Register AFTER the HTTP server is listening — the BE discovers
+  // this service's entities by fetching its OpenAPI spec the moment the
+  // register lands; registering before listen() would always race it.
+  // register() is a req/reply handshake with 5s retry — it resolves only
+  // when the BE acks. No ack = no heartbeats = the service is dead to
+  // the system.
+  try {
+    await registrar.register();
+  } catch (error) {
+    logger.error("Failed to register service", { tags: ["core"], error: error });
+  }
+  registrar.startHeartbeat();
 
   // 9. GracefulShutdown
   const shutdown = new GracefulShutdown(options.serviceName);

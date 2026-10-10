@@ -5,6 +5,7 @@ import { SERVICE_SUBJECTS } from "../service-lifecycle-subjects.js";
 function makeNatsMock() {
   return {
     publish: vi.fn(async () => {}),
+    request: vi.fn(async () => ({ registered: true })),
     isConnected: vi.fn(() => true),
   };
 }
@@ -24,10 +25,10 @@ describe("ServiceRegistrar", () => {
     registrar = new ServiceRegistrar(nats as any, baseConfig);
   });
 
-  it("register() publishes to service.register subject", async () => {
+  it("register() sends a service.register request and resolves on ack", async () => {
     await registrar.register();
-    expect(nats.publish).toHaveBeenCalledTimes(1);
-    const [subject, payload] = nats.publish.mock.calls[0];
+    expect(nats.request).toHaveBeenCalledTimes(1);
+    const [subject, payload] = nats.request.mock.calls[0];
     expect(subject).toBe(SERVICE_SUBJECTS.REGISTER);
     expect(payload.code).toBe("emailsender");
     expect(payload.base_url).toBe("http://localhost:8081");
@@ -49,13 +50,29 @@ describe("ServiceRegistrar", () => {
       is_behind_scaler: true,
     });
     await registrar.register();
-    const payload = nats.publish.mock.calls[0][1];
+    const payload = nats.request.mock.calls[0][1];
     expect(payload.name).toBe("Email Sender");
     expect(payload.description).toBe("Sends emails");
     expect(payload.author).toBe("PrimeBrick");
     expect(payload.github_repo_url).toBe("https://github.com/primebrick/emailsender");
     expect(payload.service_version).toBe("1.2.3");
     expect(payload.is_behind_scaler).toBe(true);
+  });
+
+  it("register() retries until acked (no ack = no resolve)", async () => {
+    vi.useFakeTimers();
+    try {
+      nats.request
+        .mockRejectedValueOnce(new Error("no responders"))
+        .mockResolvedValueOnce({ registered: false, error: "publisher identity rejected" })
+        .mockResolvedValueOnce({ registered: true });
+      const p = registrar.register();
+      await vi.advanceTimersByTimeAsync(10_000); // two 5s retries
+      await p;
+      expect(nats.request).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sendHeartbeat() publishes to service.heartbeat subject", async () => {

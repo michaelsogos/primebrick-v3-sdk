@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { logger } from "../lifecycle/logger.js";
+import { logServiceStartup } from "../lifecycle/startup-logger.js";
 import { verifyClientIdentity } from "../service/service-identity.js";
 import { context, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { HealthCheck } from "./health-check.js";
@@ -20,9 +21,16 @@ export interface HttpServerOptions {
   /**
    * Client-identity gate (B11): when set, every non-/health request must
    * carry a registry-listed `User-Agent` prefix + valid
-   * `x-primebrick-client-key` before the route handler runs.
+   * `x-primebrick-client-shield-key` before the route handler runs.
    */
   clientRegistry?: import("../service/client-registry.js").ClientRegistry;
+  /**
+   * URL paths exempt from the client-identity gate — for services that
+   * expose a genuinely public surface (e.g. the webhook ingress, whose
+   * callers are external providers that cannot carry our identity headers).
+   * `/health` is always public and does not need listing.
+   */
+  identityExemptPaths?: RegExp[];
 }
 
 /**
@@ -111,7 +119,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
 
       // Client-identity gate — internal callers must identify themselves
       // (User-Agent prefix + client key) before any route runs.
-      if (options.clientRegistry) {
+      if (
+        options.clientRegistry &&
+        !options.identityExemptPaths?.some((re) => re.test(url.pathname))
+      ) {
         const registry = options.clientRegistry;
         const headerAdapter = {
           headers: {
@@ -208,7 +219,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
   });
 
   server.listen(options.port, () => {
-    logger.done(`HTTP server listening on port ${options.port}`, { tags: ["core"] });
+    logServiceStartup(options.serviceUrl ?? `http://localhost:${options.port}`);
   });
 
   return server;
