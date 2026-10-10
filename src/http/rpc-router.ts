@@ -26,6 +26,7 @@ import { getAuthConfig } from "../auth/auth-config-cache.js";
 import { enforceHttpRbac } from "../auth/rbac-enforce.js";
 import { AuthError } from "../auth/verify.js";
 import { RbacDeniedError } from "../auth/rbac-enforce.js";
+import { runWithSession, type Session } from "../auth/session-context.js";
 import type { AuthUser } from "../auth/types.js";
 import type { ApiKeyPort } from "../auth/ports/api-key-port.js";
 import { createSseWriter } from "../sse/sse-writer.js";
@@ -282,6 +283,25 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
         }
         user = await verifyApiKey(new HttpHeaderProvider(req), port);
       }
+
+      // Mirror the authenticated user into AsyncLocalStorage so services /
+      // DAL writes can call `requireActor()` for audit stamping — the same
+      // contract the BE's auth.middleware establishes. `public` routes run
+      // without a session by design: requireActor() correctly throws there.
+      const run = async () => dispatch();
+      if (user) {
+        const session: Session = {
+          actor: user.id,
+          roles: user.roles,
+          idpCode: user.idp_code,
+          idpOrg: user.idp_org,
+          idpUsername: user.idp_username,
+        };
+        return await runWithSession(session, run);
+      }
+      return await run();
+
+      async function dispatch(): Promise<boolean> {
       if (route.permissions?.length) {
         enforceHttpRbac(user!, route.permissions, route.rbacMode);
       }
@@ -332,6 +352,7 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
         res.end(extJsonStringify(result ?? null));
       }
       return true;
+      }
     } catch (err) {
       if (res.headersSent) throw err; // let the server destroy the socket
 

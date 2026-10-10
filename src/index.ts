@@ -130,6 +130,13 @@ export {
   type RouteHandler,
 } from "./http/rpc-router.js";
 export {
+  makeEntityRouter,
+  parseBracketQuery,
+  type EntityRouterConfig,
+  type EntityServiceLike,
+  type EntityActionMeta,
+} from "./http/entity-router.js";
+export {
   mapDalError,
   type MappedDalError,
   type Rfc7807Body,

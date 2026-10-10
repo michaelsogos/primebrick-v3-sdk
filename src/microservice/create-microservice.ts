@@ -57,6 +57,8 @@
 import { logger } from "../lifecycle/logger.js";
 import { ClientRegistry } from "../service/client-registry.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   ConfigLoader,
   ServiceRegistrar,
@@ -66,6 +68,7 @@ import {
   HealthCheck,
   requireEnv,
   initAuthConfig,
+  invalidateAuthConfig,
   loadAuthConfig,
   getAuthConfig,
   type EnvSchema,
@@ -267,8 +270,26 @@ export async function createMicroservice(
   installConsoleBridge();
   logger.info(`Starting ${options.serviceName} microservice...`, { tags: ["core"] });
 
-  // 1. Environment validation
-  const env = requireEnv(options.envSchema);
+  // 1. Environment validation — loud preflight: a missing .env file or
+  //    missing required vars must never die silently (the logger is not
+  //    guaranteed to be wired/flushed this early, so write to stderr
+  //    directly AND throw for the caller's catch).
+  let env: Record<string, string | undefined>;
+  try {
+    env = requireEnv(options.envSchema);
+  } catch (error) {
+    const envFile = join(process.cwd(), ".env");
+    const missing = (error as Error).message;
+    const fileHint = existsSync(envFile)
+      ? `.env found at ${envFile} — the following keys are missing or empty in the environment:`
+      : `NO .env file at ${envFile} — create it from .env.example (or export the vars).`;
+    process.stderr.write(
+      `\n[FATAL] ${options.serviceName} — environment validation failed\n` +
+        `        ${fileHint}\n` +
+        `        ${missing.replace(/\n/g, "\n        ")}\n\n`,
+    );
+    throw error;
+  }
 
   // 2. DAL init (consumer callback — DB-agnostic)
   options.initDal();
@@ -392,6 +413,12 @@ export async function createMicroservice(
     // Hot-reload: BE broadcasts config.changed on config writes.
     await subscribeConfigChanged(NatsClient, async () => {
       try {
+        // Local config_entries may also have changed — reload the cache and
+        // re-resolve auth config so gateway/secret changes take effect
+        // without a restart.
+        await configLoader.load();
+        invalidateAuthConfig();
+        await loadAuthConfig();
         const fresh = await fetchSharedConfig(NatsClient);
         setSharedConfig(fresh);
         applyTelemetry(fresh.telemetry);
