@@ -13,7 +13,7 @@
 
 import type { HeaderProvider } from "./header-provider.js";
 import type { AuthConfig, AuthUser } from "./types.js";
-import { currentGatewaySecret } from "./gateway-secret.js";
+import { currentClientShieldSecret } from "./client-shield-secret.js";
 
 /** Default header names for AuthUser fields. */
 const DEFAULT_HEADER_NAMES = {
@@ -66,8 +66,8 @@ export function serializeAuthUserToHeaders(
   headers[names.is_system] = String(user.isSystem);
 
   // Gateway secret header for anti-spoofing — the rotating engine's current
-  // value wins over the static config fallback (see auth/gateway-secret.ts).
-  const gwSecret = currentGatewaySecret(config.gateway.secret);
+  // value wins over the static config fallback (see auth/client-shield-secret.ts).
+  const gwSecret = currentClientShieldSecret(config.gateway.secret);
   if (config.gateway.secret_header_name && gwSecret) {
     headers[config.gateway.secret_header_name] = gwSecret;
   }

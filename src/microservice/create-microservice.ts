@@ -58,6 +58,7 @@ import { logger } from "../lifecycle/logger.js";
 import { ClientRegistry } from "../service/client-registry.js";
 import { setNatsShieldRegistry } from "../nats/service-shield.js";
 import { SecretProvider, startSecretProvider } from "../secrets/rotating-secret.js";
+import { CLIENT_SHIELD_SECRET_REF } from "../auth/client-shield-secret.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -406,7 +407,7 @@ export async function createMicroservice(
     });
   }
 
-  // Rotating secrets: provision `gateway_secret` (global scope) from the BE
+  // Rotating secrets: provision `service_client_shield_secret` (global scope) from the BE
   // owner via the governed `secret.get` correlation route, and keep the
   // in-memory slot fresh on every `secret.rotated` broadcast. The slot feeds
   // BOTH sides of the wire — outbound header stamping and inbound verify —
@@ -414,9 +415,9 @@ export async function createMicroservice(
   const secretProvider = new SecretProvider();
   try {
     await startSecretProvider(secretProvider);
-    await secretProvider.get({ scope: "global", name: "gateway_secret" });
+    await secretProvider.get(CLIENT_SHIELD_SECRET_REF);
   } catch (error) {
-    logger.warn("rotating secret provisioning unavailable — falling back to config gateway secret", {
+    logger.warn("The secret engine is unreachable — falling back to the static client-shield secret from config", {
       tags: ["core"],
       error,
     });

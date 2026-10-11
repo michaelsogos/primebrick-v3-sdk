@@ -10,7 +10,7 @@ const CFG: AuthConfig = {
   mode: AuthMode.GATEWAY,
   roles_path: "roles",
   oidc: {},
-  gateway: { secret: "test-secret", secret_header_name: "x-gateway-secret", headers: {} },
+  gateway: { secret: "test-secret", secret_header_name: "x-client-shield-secret", headers: {} },
   enable_email_verification_check: false,
   enable_webauthn: false,
   passkey_required: false,

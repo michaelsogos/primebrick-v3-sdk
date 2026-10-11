@@ -13,7 +13,7 @@ const CFG: AuthConfig = {
   oidc: {},
   gateway: {
     secret: "test-secret",
-    secret_header_name: "x-gateway-secret",
+    secret_header_name: "x-client-shield-secret",
     headers: {},
   },
   enable_email_verification_check: false,

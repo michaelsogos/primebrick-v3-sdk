@@ -1,6 +1,6 @@
 /**
  * Rotating Secret Engine — self-sufficient rotation+provisioning for
- * internally-issued shared secrets (gateway_secret first; scoped keys such
+ * internally-issued shared secrets (service_client_shield_secret first; scoped keys such
  * as service_client_shield_key later).
  *
  * Model:
@@ -28,7 +28,7 @@ import type { RedisClientType } from "redis";
 import { NatsClient } from "../nats/nats-client.js";
 import { callNats } from "../nats/nats-routes.js";
 import { subscribeShielded } from "../nats/service-shield.js";
-import { setGatewaySecretSlot, SECRET_DEFAULTS, type GatewaySecretSlot } from "../auth/gateway-secret.js";
+import { setClientShieldSecretSlot, SECRET_DEFAULTS, humanizeMs, CLIENT_SHIELD_SECRET_REF, type ClientShieldSecretSlot } from "../auth/client-shield-secret.js";
 import { logger } from "../lifecycle/logger.js";
 
 export const SECRET_SUBJECTS = {
@@ -38,7 +38,7 @@ export const SECRET_SUBJECTS = {
 
 const KEY_PREFIX = "primebrick:secrets";
 const LOCK_TTL_MS = 10_000;
-export { SECRET_DEFAULTS } from "../auth/gateway-secret.js";
+export { SECRET_DEFAULTS } from "../auth/client-shield-secret.js";
 
 export interface RotatingSecretRef {
   /** "global" or a service code — scopes the key namespace. */
@@ -47,7 +47,7 @@ export interface RotatingSecretRef {
 }
 
 export interface SecretGetRequest extends RotatingSecretRef {}
-export interface SecretGetResponse extends GatewaySecretSlot {}
+export interface SecretGetResponse extends ClientShieldSecretSlot {}
 
 const redisKey = (ref: RotatingSecretRef) => `${KEY_PREFIX}:${ref.scope}:${ref.name}`;
 const lockKey = (ref: RotatingSecretRef) => `${redisKey(ref)}:lock`;
@@ -68,12 +68,12 @@ export class RotatingSecretEngine {
   private get graceMs() { return this.opts.graceMs ?? SECRET_DEFAULTS.graceMs; }
 
   /** Read the slot; generate on cold start (TTL-expired or first boot). */
-  async get(ref: RotatingSecretRef): Promise<GatewaySecretSlot> {
+  async get(ref: RotatingSecretRef): Promise<ClientShieldSecretSlot> {
     const h = await this.redis.hGetAll(redisKey(ref));
     const slot = h.current
       ? { current: h.current, previous: h.previous || null, rotated_at: Number(h.rotated_at) || 0 }
       : await this.rotate(ref);
-    if (ref.scope === "global" && ref.name === "gateway_secret") setGatewaySecretSlot(slot);
+    if (ref.scope === CLIENT_SHIELD_SECRET_REF.scope && ref.name === CLIENT_SHIELD_SECRET_REF.name) setClientShieldSecretSlot(slot);
     return slot;
   }
 
@@ -81,7 +81,7 @@ export class RotatingSecretEngine {
    * Rotate `ref`: previous := current, current := fresh random. Serialized by a
    * NX lock so concurrent owners (BE replicas, get-vs-timer races) rotate once.
    */
-  async rotate(ref: RotatingSecretRef): Promise<GatewaySecretSlot> {
+  async rotate(ref: RotatingSecretRef): Promise<ClientShieldSecretSlot> {
     const locked = await this.redis.set(lockKey(ref), "1", { NX: true, PX: LOCK_TTL_MS });
     if (!locked) {
       // Someone else is rotating — wait a beat and read what they wrote.
@@ -99,7 +99,7 @@ export class RotatingSecretEngine {
       if (h.current && Date.now() - rotatedAt < this.rotationMs) {
         return { current: h.current, previous: h.previous || null, rotated_at: rotatedAt };
       }
-      const slot: GatewaySecretSlot = {
+      const slot: ClientShieldSecretSlot = {
         current: newSecret(),
         previous: h.current || null,
         rotated_at: Date.now(),
@@ -114,12 +114,11 @@ export class RotatingSecretEngine {
       // regeneration, so no scheduler is required for self-healing.
       await this.redis.pExpire(key, this.rotationMs + this.graceMs);
       await NatsClient.publish(SECRET_SUBJECTS.ROTATED, { ...ref, rotated_at: slot.rotated_at });
-      if (ref.scope === "global" && ref.name === "gateway_secret") setGatewaySecretSlot(slot);
-      logger.info(`rotated secret ${ref.scope}/${ref.name}`, {
-        tags: ["secrets"],
-        rotated_at: new Date(slot.rotated_at).toISOString(),
-        next_rotation_in_ms: this.rotationMs,
-      });
+      if (ref.scope === CLIENT_SHIELD_SECRET_REF.scope && ref.name === CLIENT_SHIELD_SECRET_REF.name) setClientShieldSecretSlot(slot);
+      logger.info(
+        `The service client-shield secret has been rotated and broadcast to all registered services. Next rotation in ${humanizeMs(this.rotationMs)} (${this.rotationMs}ms).`,
+        { tags: ["secret-engine"] },
+      );
       return slot;
     } finally {
       await this.redis.del(lockKey(ref)).catch(() => {});
@@ -129,11 +128,17 @@ export class RotatingSecretEngine {
   /** Interval driver — ensure existence now, then rotate every rotationMs. */
   startAutoRotation(ref: RotatingSecretRef): void {
     void this.get(ref).catch((e) =>
-      logger.error(`secret engine init failed for ${ref.scope}/${ref.name}`, { tags: ["secrets"], error: e }),
+      logger.error(`The secret engine failed to provision the service client-shield secret at startup`, {
+        tags: ["secret-engine"],
+        error: e,
+      }),
     );
     const t = setInterval(() => {
       void this.rotate(ref).catch((e) =>
-        logger.error(`scheduled rotation failed for ${ref.scope}/${ref.name}`, { tags: ["secrets"], error: e }),
+        logger.error(`The scheduled client-shield secret rotation failed — retrying at next cadence`, {
+          tags: ["secret-engine"],
+          error: e,
+        }),
       );
     }, this.rotationMs);
     t.unref();
@@ -145,23 +150,26 @@ export class RotatingSecretEngine {
 // ---------------------------------------------------------------------------
 
 export class SecretProvider {
-  private readonly cache = new Map<string, GatewaySecretSlot>();
+  private readonly cache = new Map<string, ClientShieldSecretSlot>();
   private readonly refKey = (r: RotatingSecretRef) => `${r.scope}/${r.name}`;
 
-  async get(ref: RotatingSecretRef): Promise<GatewaySecretSlot> {
+  async get(ref: RotatingSecretRef): Promise<ClientShieldSecretSlot> {
     const k = this.refKey(ref);
     const cached = this.cache.get(k);
     if (cached) return cached;
     const raw = await callNats<SecretGetResponse>(SECRET_SUBJECTS.GET, ref, { timeoutMs: 5_000 });
     // ext-json transports integers as BigInt — coerce before caching/logging.
-    const slot: GatewaySecretSlot = {
+    const slot: ClientShieldSecretSlot = {
       current: raw.current,
       previous: raw.previous ?? null,
       rotated_at: Number(raw.rotated_at),
     };
     this.cache.set(k, slot);
-    this.applyGatewaySlot(ref, slot);
-    logger.info(`provisioned secret ${k} (rotated_at ${new Date(slot.rotated_at).toISOString()})`, { tags: ["secrets"] });
+    this.applyClientShieldSlot(ref, slot);
+    logger.info(
+      `Fetched the service client-shield secret from the secret engine (last rotated at ${new Date(slot.rotated_at).toISOString()}).`,
+      { tags: ["secret-provider"] },
+    );
     return slot;
   }
 
@@ -169,8 +177,8 @@ export class SecretProvider {
     this.cache.delete(`${scope}/${name}`);
   }
 
-  private applyGatewaySlot(ref: RotatingSecretRef, slot: GatewaySecretSlot): void {
-    if (ref.scope === "global" && ref.name === "gateway_secret") setGatewaySecretSlot(slot);
+  private applyClientShieldSlot(ref: RotatingSecretRef, slot: ClientShieldSecretSlot): void {
+    if (ref.scope === CLIENT_SHIELD_SECRET_REF.scope && ref.name === CLIENT_SHIELD_SECRET_REF.name) setClientShieldSecretSlot(slot);
   }
 }
 
@@ -184,9 +192,9 @@ export async function startSecretProvider(provider: SecretProvider): Promise<voi
     const { scope, name } = payload as RotatingSecretRef;
     provider.invalidate(scope, name);
     const slot = await provider.get({ scope, name });
-    logger.info(`updated secret ${scope}/${name} after rotation`, {
-      tags: ["secrets"],
-      rotated_at: new Date(slot.rotated_at).toISOString(),
-    });
+    logger.info(
+      `The service client-shield secret was rotated upstream — local copy refreshed (rotated at ${new Date(slot.rotated_at).toISOString()}).`,
+      { tags: ["secret-provider"] },
+    );
   });
 }

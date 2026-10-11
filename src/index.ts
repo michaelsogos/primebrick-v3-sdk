@@ -135,12 +135,14 @@ export {
   type SecretGetResponse,
 } from "./secrets/rotating-secret.js";
 export {
-  setGatewaySecretSlot,
-  getGatewaySecretSlot,
-  currentGatewaySecret,
-  validGatewaySecrets,
-  type GatewaySecretSlot,
-} from "./auth/gateway-secret.js";
+  setClientShieldSecretSlot,
+  getClientShieldSecretSlot,
+  currentClientShieldSecret,
+  validClientShieldSecrets,
+  humanizeMs,
+  CLIENT_SHIELD_SECRET_REF,
+  type ClientShieldSecretSlot,
+} from "./auth/client-shield-secret.js";
 
 // HTTP
 export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RotatingSecretEngine, SecretProvider, SECRET_SUBJECTS } from "../rotating-secret.js";
-import { setGatewaySecretSlot, validGatewaySecrets, currentGatewaySecret, SECRET_DEFAULTS } from "../../auth/gateway-secret.js";
+import { setClientShieldSecretSlot, validClientShieldSecrets, currentClientShieldSecret, SECRET_DEFAULTS } from "../../auth/client-shield-secret.js";
 
 function fakeRedis() {
   const store = new Map<string, Map<string, string>>();
@@ -14,14 +14,14 @@ function fakeRedis() {
   };
 }
 
-const REF = { scope: "global", name: "gateway_secret" };
+const REF = { scope: "global", name: "service_client_shield_secret" };
 
 vi.mock("../../nats/nats-client.js", () => ({
   NatsClient: { publish: vi.fn(async () => {}), subscribe: vi.fn(async () => {}), getConnection: vi.fn() },
 }));
 vi.mock("../../nats/service-shield.js", () => ({ subscribeShielded: vi.fn(async () => {}) }));
 
-beforeEach(() => setGatewaySecretSlot(null));
+beforeEach(() => setClientShieldSecretSlot(null));
 
 describe("RotatingSecretEngine", () => {
   it("cold start: generates and publishes a slot", async () => {
@@ -44,20 +44,20 @@ describe("RotatingSecretEngine", () => {
     const engine = new RotatingSecretEngine(fakeRedis() as any);
     const a = await engine.get(REF);
     // Force rotation by backdating rotated_at beyond the window.
-    const key = "primebrick:secrets:global:gateway_secret";
+    const key = "primebrick:secrets:global:service_client_shield_secret";
     const redis = (engine as any).redis;
     redis._store.get(key)!.set("rotated_at", "0");
     const b = await engine.rotate(REF);
     expect(b.current).not.toBe(a.current);
     expect(b.previous).toBe(a.current);
-    expect(currentGatewaySecret()).toBe(b.current);
+    expect(currentClientShieldSecret()).toBe(b.current);
   });
 
-  it("validGatewaySecrets: previous accepted inside grace, not after", async () => {
-    setGatewaySecretSlot({ current: "new", previous: "old", rotated_at: Date.now() });
-    expect(validGatewaySecrets(SECRET_DEFAULTS.graceMs)).toEqual(["new", "old"]);
-    setGatewaySecretSlot({ current: "new", previous: "old", rotated_at: Date.now() - SECRET_DEFAULTS.graceMs - 1 });
-    expect(validGatewaySecrets(SECRET_DEFAULTS.graceMs)).toEqual(["new"]);
+  it("validClientShieldSecrets: previous accepted inside grace, not after", async () => {
+    setClientShieldSecretSlot({ current: "new", previous: "old", rotated_at: Date.now() });
+    expect(validClientShieldSecrets(SECRET_DEFAULTS.graceMs)).toEqual(["new", "old"]);
+    setClientShieldSecretSlot({ current: "new", previous: "old", rotated_at: Date.now() - SECRET_DEFAULTS.graceMs - 1 });
+    expect(validClientShieldSecrets(SECRET_DEFAULTS.graceMs)).toEqual(["new"]);
   });
 });
 

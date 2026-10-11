@@ -28,7 +28,7 @@
 
 export const Permission = {
   // --- Sentinels (not mapped to any role; handled by rbac middleware) ---
-  /** Endpoint reachable anonymously. STILL requires gateway-secret in GATEWAY mode. */
+  /** Endpoint reachable anonymously. STILL requires client-shield-secret in GATEWAY mode. */
   PUBLIC: "_public",
   /** Any caller whose identity has been authenticated, regardless of roles. */
   AUTHENTICATED_USER: "_authenticated_user",

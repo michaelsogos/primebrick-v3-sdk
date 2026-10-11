@@ -125,7 +125,7 @@ async function verifyAndAuthorize(
     throw new AuthError("CLIENT_IDENTITY_DENIED", "client identity rejected");
   }
   // Layer 2 — caller verification: custom service-auth hook, or the
-  // default gateway-secret + AuthUser + RBAC chain.
+  // default client-shield-secret + AuthUser + RBAC chain.
   if (route.verify) {
     const result = await route.verify(msg);
     if (result === null) throw new AuthError("SERVICE_AUTH_DENIED", "caller identity rejected");
