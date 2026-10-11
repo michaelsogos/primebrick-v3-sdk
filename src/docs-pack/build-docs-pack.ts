@@ -47,14 +47,20 @@ export type GenerateDocsFn = (ctx: GenerateDocsContext) => Promise<GeneratedDoc[
 export interface BuildDocsPackOptions {
   /** Repo/service code written into the manifest (KB ingest key). */
   repo: string;
-  /** Source docs directory (e.g. "docs/user-guide") — copied verbatim. */
-  docsDir: string;
+  /** Source docs directory (e.g. "docs/user-guide") — copied verbatim.
+   * Optional: dev-only services may ship an openapi-only pack. */
+  docsDir?: string;
   /** Output dir (e.g. "dist/docs-pack"). Recreated each build. */
   outDir: string;
   /** Metadata-derived doc generators — run after the raw copy. */
   generators?: GenerateDocsFn[];
   /** Optional OpenAPI spec source — copied to outDir/openapi.json. */
   openapiPath?: string;
+  /** Optional OpenAPI spec object — serialized to outDir/openapi.json.
+   * Preferred over openapiPath: services generate their spec at module
+   * load via `buildOpenApiSpec`/`entityCrudSpec`, so the pack always
+   * carries the runtime spec with zero file plumbing. */
+  openapi?: Record<string, unknown>;
 }
 
 function listFilesRecursive(dir: string): string[] {
@@ -72,14 +78,14 @@ function sha256(content: string | Buffer): string {
 }
 
 export async function buildDocsPack(opts: BuildDocsPackOptions): Promise<DocsPackManifest> {
-  const { repo, docsDir, outDir, generators = [], openapiPath } = opts;
-  if (!existsSync(docsDir)) {
+  const { repo, docsDir, outDir, generators = [], openapiPath, openapi } = opts;
+  if (docsDir && !existsSync(docsDir)) {
     throw new Error(`buildDocsPack: docsDir not found: ${docsDir}`);
   }
 
   mkdirSync(outDir, { recursive: true });
   const docsOut = join(outDir, "docs");
-  cpSync(docsDir, docsOut, { recursive: true });
+  if (docsDir) cpSync(docsDir, docsOut, { recursive: true });
 
   for (const gen of generators) {
     const docs = await gen({ repo, outDir });
@@ -91,12 +97,15 @@ export async function buildDocsPack(opts: BuildDocsPackOptions): Promise<DocsPac
   }
 
   let hasOpenapi = false;
-  if (openapiPath && existsSync(openapiPath)) {
+  if (openapi) {
+    writeFileSync(join(outDir, "openapi.json"), JSON.stringify(openapi, null, 2), "utf-8");
+    hasOpenapi = true;
+  } else if (openapiPath && existsSync(openapiPath)) {
     cpSync(openapiPath, join(outDir, "openapi.json"));
     hasOpenapi = true;
   }
 
-  const files: DocsPackFile[] = listFilesRecursive(docsOut).map((full) => {
+  const files: DocsPackFile[] = (existsSync(docsOut) ? listFilesRecursive(docsOut) : []).map((full) => {
     const rel = relative(docsOut, full).split(sep).join("/");
     const content = readFileSync(full);
     return { path: rel, sha256: sha256(content), bytes: content.byteLength };
