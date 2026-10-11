@@ -87,6 +87,24 @@ export {
 } from "./service/service-identity.js";
 export { ClientRegistry, CLIENT_REGISTRY_SUBJECTS, type ClientRegistryRow } from "./service/client-registry.js";
 export {
+  DOCS_PACK_CAPABILITY,
+  DOCS_PACK_SCHEMA_VERSION,
+  parseDocsPackPayload,
+  type DocsPackManifest,
+  type DocsPackFile,
+  type DocsPackPayload,
+  type DocsPackContentFile,
+} from "./docs-pack/manifest.js";
+export {
+  buildDocsPack,
+  type BuildDocsPackOptions,
+  type GenerateDocsFn,
+  type GenerateDocsContext,
+  type GeneratedDoc,
+} from "./docs-pack/build-docs-pack.js";
+export { docsPackRouteHandler, DOCS_PACK_ROUTE } from "./docs-pack/serve-docs-pack.js";
+export { fetchDocsPack, DOCS_PACK_SHIELD_HEADER } from "./docs-pack/docs-pack-client.js";
+export {
   internalFetch,
   configureInternalClient,
   resetInternalClient,

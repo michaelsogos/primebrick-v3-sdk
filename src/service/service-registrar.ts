@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { NatsClient } from "../nats/nats-client.js";
+import { DOCS_PACK_CAPABILITY } from "../docs-pack/manifest.js";
 import { callNats } from "../nats/nats-routes.js";
 import { subscribeShielded } from "../nats/service-shield.js";
 import { detectPackageIdentity, clientKeyHash } from "./service-identity.js";
@@ -36,6 +39,12 @@ export interface ServiceRegistrarConfig {
    * heartbeats is visible on the service's stdout.
    */
   gatewayUrl?: string;
+  /**
+   * Absolute path of the built docs pack (e.g. `dist/docs-pack`). When it
+   * contains a manifest.json, the `docs_pack` capability is added to the
+   * registration automatically — no package.json edit needed.
+   */
+  docsPackDir?: string;
 }
 
 /**
@@ -65,7 +74,7 @@ export class ServiceRegistrar {
   /** sha256 of PRIMEBRICK_CLIENT_KEY — sent to the BE at register; raw key never leaves the service. */
   private readonly clientKeyHash?: string;
   private readonly pkgName: string;
-  private readonly capabilities?: string[];
+  private capabilities?: string[];
 
   constructor(
     private readonly nats: typeof NatsClient,
@@ -77,6 +86,16 @@ export class ServiceRegistrar {
     const pkg = detectPackageIdentity();
     this.pkgName = pkg.name;
     this.capabilities = pkg.capabilities;
+    // Auto-capability: a service that ships a built docs pack (dist/docs-pack/
+    // manifest.json next to the running entry) declares docs_pack without any
+    // manual config — the AI service pulls it on registration.
+    if (
+      config.docsPackDir &&
+      existsSync(join(config.docsPackDir, "manifest.json")) &&
+      !(this.capabilities ?? []).includes(DOCS_PACK_CAPABILITY)
+    ) {
+      this.capabilities = [...(this.capabilities ?? []), DOCS_PACK_CAPABILITY];
+    }
     // The client key is a module config (`service_client_shield_key`), never an env var —
     // each service has its own key; only the sha256 hash leaves the service.
     const clientKey = config.clientKey;

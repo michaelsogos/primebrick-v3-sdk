@@ -180,6 +180,13 @@ export interface MicroserviceOptions {
   routeHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>;
 
   /**
+   * Override the docs-pack dir served/declared by this service.
+   * Default: `<service cwd>/dist/docs-pack` — produced by `buildDocsPack`
+   * in the service's build script.
+   */
+  docsPackDir?: string;
+
+  /**
    * Paths exempt from the client-identity gate — only for services with a
    * genuinely public surface (e.g. the webhook ingress, whose callers are
    * external providers). Everything else is gated by default.
@@ -538,6 +545,9 @@ export async function createMicroservice(
       // ingress this service talks to; a missing value is a misconfigured
       // module, not an optional nicety.
       gatewayUrl: configLoader.require("be_base_url"),
+      // Docs pack lives next to the service entry (dist/docs-pack at the
+      // service root) — present → docs_pack capability auto-declared.
+      docsPackDir: options.docsPackDir ?? join(process.cwd(), "dist", "docs-pack"),
     },
     registrarHealthCheckFn,
   );
