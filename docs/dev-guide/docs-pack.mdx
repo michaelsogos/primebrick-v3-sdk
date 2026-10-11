@@ -1,0 +1,98 @@
+---
+title: Docs Pack
+description: "The self-contained documentation artifact every service ships — manifest + raw docs + runtime OpenAPI spec — and how build, serve, capability advertising and AI ingestion fit together."
+---
+
+# Docs pack
+
+A docs pack is the self-contained artifact by which a service publishes its
+end-user documentation and its API surface to the AI knowledge base. It is
+built at build time, served over a shielded route, and pulled by the AI
+microservice on lifecycle events — the KB always mirrors the set of
+currently-live services.
+
+```
+dist/docs-pack/
+  manifest.json    # { schema, repo, generated_at, files[{path,sha256,bytes}], has_openapi }
+  docs/...         # docs/user-guide copied verbatim (incl. _order.json, generated/)
+  openapi.json     # the service's runtime OpenAPI spec (optional but standard)
+```
+
+## Building — `buildDocsPack`
+
+```ts
+import { buildDocsPack } from "@primebrick/sdk";
+import { MY_OPENAPI_SPEC } from "../src/openapi.js";
+
+await buildDocsPack({
+  repo: "emailsender",            // becomes the KB's repo key for these docs
+  docsDir: "docs/user-guide",     // OPTIONAL — omit for openapi-only packs
+  outDir: "dist/docs-pack",
+  openapi: MY_OPENAPI_SPEC,       // runtime spec object — never a hand-kept file
+});
+```
+
+- `docsDir` is copied **verbatim** — `_order.json`, `generated/` pages, and
+  nested folders all travel. Dev-only services omit it entirely: their pack
+  is a manifest + `openapi.json` (their docs live in `docs/dev-guide` and
+  never enter the KB).
+- `openapi` accepts the spec *object* — services generate it at module load
+  via `buildOpenApiSpec`/`entityCrudSpec`/`rpcSpec`, so the pack always
+  carries exactly what the service serves. A file-based `openapiPath`
+  alternative exists for exotic cases.
+- `generators?: GenerateDocsFn[]` run after the raw copy — the repo's own
+  metadata extractors emit derived pages into the same tree (the BE uses
+  this slot via its own pre-step; see its `generate:docs` script).
+- `manifest.json` records a sha256 per file — the AI's hash-diff ingestion
+  re-embeds only what changed.
+
+The standard wiring is one `scripts/build-docs-pack.ts` (~15 lines) per
+service, exposed as `pnpm generate:docs` and invoked in the build chain.
+
+## Serving — `docsPackRouteHandler`
+
+```ts
+docsPackRouteHandler(join(process.cwd(), "dist", "docs-pack"))
+```
+
+Produces an `RouteHandler` for `composeRouteHandlers` serving
+`GET /api/v1/system/docs/pack` (payload: manifest + all docs + spec). The
+route is `auth: "public"` in route-table terms because the real wall is the
+**client-identity gate** — the request must carry the client-shield secret,
+which only services (and the BE proxy) possess.
+
+## Auto-capability — `ServiceRegistrar`
+
+`createMicroservice` defaults `docsPackDir` to `<cwd>/dist/docs-pack`. When
+a `manifest.json` exists there, `docs_pack` is appended to the registered
+`capabilities[]` automatically — a service advertises its pack with zero
+manual configuration.
+
+## Pulling — `fetchDocsPack`
+
+```ts
+const payload = await fetchDocsPack(baseUrl);
+```
+
+Wraps `internalFetch` (identity headers + client-shield secret) — the only
+caller today is the AI ingestion subscriber, which validates the payload
+with `parseDocsPackPayload` before ingesting.
+
+## The full loop
+
+```
+service build → generate:docs → dist/docs-pack (docs + openapi.json)
+     │ boot
+     ├─ ServiceRegistrar detects manifest → capabilities += "docs_pack"
+     ├─ GET /api/v1/system/docs/pack live (client-shield gated)
+     └─ service.register broadcast
+              │
+              ▼
+   AI subscriber → fetchDocsPack(base_url) → parse → ingest (repo-scoped)
+   service.unregister → delete repo docs
+   gateway_online   → re-pull BE pack (BE doesn't register via NATS)
+```
+
+Rules of thumb: docs reach the KB **only** via packs; the filesystem
+pipeline is a dev fallback (`docs_fs_pipeline`). FE/DAL/SDK ship no packs —
+they are dev-only repos.

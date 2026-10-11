@@ -217,6 +217,18 @@ produce RFC 7807 responses. Common codes:
 | `AUTH_API_KEY_INACTIVE` | Key marked inactive |
 | `AUTH_API_KEY_EXPIRED` | Key past `expires_at` |
 
+## MFA step-up
+
+`auth/mfa-step-up.ts` is the consumer-side half of the step-up flow: when a
+route handler needs an elevated check before a sensitive action, it calls
+`assertMfaStepUp(ctx, spec)` — which consumes a single-use action
+authorization minted by the BE over the `auth.mfa.consume` NATS subject
+and throws `MfaStepUpRequiredError` when none is present (the client then
+shows the step-up dialog, collects the TOTP, and retries with the
+`x-mfa-action-authorization` header). `MfaConsumeUnavailableError` covers
+the "BE unreachable" path. In an entity router, wire it as a per-action
+`guards` hook — see [entity-router](entity-router).
+
 ## Next steps
 
 - [NATS Client](nats-client) — publish/subscribe with auth headers

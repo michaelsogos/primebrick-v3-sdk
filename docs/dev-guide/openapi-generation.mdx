@@ -1,0 +1,75 @@
+---
+title: OpenAPI Generation
+description: "buildOpenApiSpec, entityCrudSpec, rpcSpec and makeOpenApiHandler — the runtime spec machinery that keeps the published contract identical to what the service actually serves."
+---
+
+# OpenAPI generation
+
+`http/openapi.ts` builds a service's OpenAPI 3 spec **from the same route
+tables that serve traffic**. The spec is never a hand-maintained document:
+a route that exists but isn't documented — or vice versa — is impossible
+by construction.
+
+## The three spec builders
+
+| Function | Input | Produces |
+|---|---|---|
+| `rpcSpec(routes)` | `RpcRoute[]` — reads each route's `openapi` field | `paths` entries for RPC-style routes |
+| `entityCrudSpec(entity, opts)` | entity code + declared ops | the canonical 8-op CRUD path set (`meta`, `list`, `get`, `create`, `update`, `delete`, `restore`, `audit`) |
+| `buildOpenApiSpec({info, serverUrl, tags, paths})` | merged paths + metadata | the full `{ openapi: "3.0.x", ... }` spec object |
+
+Routes declare their docs inline — `openapi` is a field on `RpcRoute`:
+
+```ts
+{
+  method: "POST",
+  path: "/api/v1/ai/chat",
+  auth: "user",
+  permissions: [Permission.AUTHENTICATED_USER],
+  openapi: {
+    summary: "Chat with AI (SSE streaming)",
+    description: "...",
+    tags: ["ai"],
+    requestSchema: { type: "object", properties: { ... } },
+  },
+  handler: ...
+}
+```
+
+## Serving the spec — `makeOpenApiHandler`
+
+```ts
+export const OPENAPI_SPEC = buildOpenApiSpec({ info, serverUrl, tags, paths });
+export const openapiRouteHandler = makeOpenApiHandler(OPENAPI_SPEC);
+// → GET /api/v1/openapi.json, factory-produced so it passes
+//   createMicroservice's route-handler enforcement.
+```
+
+## Canonical composition per service
+
+```ts
+export const AI_OPENAPI_SPEC = buildOpenApiSpec({
+  info: { title: "AI Catalog", version: "1.0.0", description: "..." },
+  serverUrl: "http://localhost:3004",
+  tags: [...],
+  paths: {
+    ...rpcSpec(AI_ROUTES),                                 // custom routes
+    ...entityCrudSpec("ai_model", { ops: ENTITY_OPS }),    // entity CRUD
+  },
+});
+```
+
+Every service owns one `src/openapi.ts` (or `openapi-route.ts`) following
+this exact shape — the same const then feeds two consumers:
+
+1. **`makeOpenApiHandler`** → served live at `/api/v1/openapi.json`
+2. **`buildDocsPack({ openapi })`** → serialized into `dist/docs-pack/openapi.json`,
+   shipped to the AI KB — so the assistant answers API questions from the
+   service's own runtime spec, not from a stale extracted file
+
+## When `openapi` metadata matters
+
+- Routes **without** an `openapi` field are absent from the spec — the flag
+  is also how you deliberately keep an internal route unpublished.
+- `entityCrudSpec`'s `ops` list must match the ops the entity router
+  actually registers; keep them adjacent in the same file.

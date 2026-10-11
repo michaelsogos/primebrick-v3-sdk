@@ -1,0 +1,57 @@
+---
+title: Translations
+description: "TranslationsService + TranslationsCache — the i18n contract: flat dicts built by PG jsonb_object_agg, Redis-cached per schema, DB-agnostic by construction."
+---
+
+# Translations
+
+The `translations` module is the shared i18n contract: a service-agnostic
+CRUD + read service over the `translations` table, backed by a Redis cache.
+It is **DB-agnostic by construction** — it imports nothing from
+`@primebrick/dal-pg`; the consumer passes the repository, the queryable,
+and the qualified table name.
+
+## The pieces
+
+| Export | Role |
+|---|---|
+| `TranslationsService` | CRUD + `getI18nDict` — the flat translation map for a language |
+| `TranslationsRepository` | structural interface — any DAL Repository satisfies it, no import needed |
+| `TranslationsCache` / `i18nCacheKey` | Redis cache of dicts, keyed `translations:i18n:{schema}:{language}` |
+| `I18nDict` | `Record<string, string>` — flat dict, keys are full dot-paths |
+
+## Reading a dict — `getI18nDict`
+
+```ts
+const dict = await translationsService.getI18nDict(
+  TranslationsEntity,          // DAL entity class (CRUD metadata)
+  "public",                    // schema — scopes the cache key
+  '"public"."translations"',   // qualified table, resolved by the BE from entity metadata
+  "it-IT",                     // BCP 47 language tag
+);
+// → { "app.auth.login.title": "Accedi", ... }
+```
+
+- The dict is built **in Postgres** via `jsonb_object_agg` — one row per
+  language, zero Node-side post-processing.
+- The table name is resolved by the consumer from DAL entity metadata
+  (compile-time `@Entity` decorator), the language is a bind parameter —
+  the SDK never string-interpolates identifiers.
+- **Cache-first**: `TranslationsCache` holds each `{schema, language}` dict
+  in Redis with a 6h TTL; writes invalidate, so the TTL is only a safety
+  net for edge cases (Redis down during a write, direct DB edits).
+
+## Why the schema is in the cache key
+
+`public.translations:it-IT` and `system.translations:it-IT` are different
+dicts living in different module schemas — the schema component of
+`i18nCacheKey` keeps them from colliding.
+
+## Consumption model today
+
+The BE is the only writer/reader path (`translations.router`): CRUD via
+`list/create/update/softDelete/restore`, and `getI18nDict` powering the FE
+locale fetch. Because the cache lives in **Redis** — a shared data plane —
+any future service that needs translated strings can read the same dict
+through `TranslationsCache` without breaching schema isolation: it reads
+the cache, never the other module's tables.
