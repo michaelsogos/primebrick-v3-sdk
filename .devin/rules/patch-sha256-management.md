@@ -48,3 +48,7 @@ This is BY DESIGN — patches are immutable. The correct way to handle a modifie
 - AI agent MUST keep the sha256 mismatch error message actionable and informative.
 - AI agent MUST NOT add fire-and-forget auto-apply logic to the SDK.
 - AI agent MUST maintain test coverage for all 4 sha256 scenarios.
+
+## Deep dive
+
+The normative rules live here; the full mechanics and rationale are in `docs/dev-guide/migrations.mdx` — link, do not duplicate.
