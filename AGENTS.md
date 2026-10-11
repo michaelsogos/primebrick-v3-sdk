@@ -59,17 +59,17 @@ rebuild gets the exact same dependency tree that was tested during UAT.
 See [.devin/rules/package-versioning.md](./.devin/rules/package-versioning.md)
 for the full rule and upgrade procedure.
 
-## User-facing documentation
+## Documentation (3 tiers — see `.devin/rules/docs-audience.md`)
 
-User-facing developer documentation lives in `docs/user-guide/` as MDX files.
-These are synced to `docs.primebrick.dev` by the docs repo's CI pipeline.
+Developer documentation lives in `docs/dev-guide/` as MDX files.
+These are synced to `docs.primebrick.dev` under the dev section — never ingested into the end-user AI KB.
 
-- **Location**: `docs/user-guide/*.mdx` — one file per topic
-- **Ordering**: `docs/user-guide/_order.json` defines the sidebar page order
-- **Conventions**: see `.devin/rules/docs-user-guide.md` for editorial rules
+- **Location**: `docs/dev-guide/*.mdx` — one file per topic
+- **Ordering**: `docs/dev-guide/_order.json` defines the sidebar page order
+- **Conventions**: see `.devin/rules/docs-dev-guide.md` for editorial rules
 - **Mermaid**: use `<Mermaid chart={...} />`, never ` ```Code ` or ` ```mermaid `
 - **API extraction**: run `pnpm extract-docs` to generate
-  `docs/user-guide/_extracted/api.json` from TypeDoc
+  `docs/dev-guide/_extracted/api.json` from TypeDoc
 - **Do NOT hand-edit** files in `docs/ai/` or `docs/skills/` — those are internal
 - **Internal docs** (`docs/ai/`, `docs/skills/`, `docs/gitflow.md`) are NOT synced
   to the docs site — they stay in this repo for AI agents only
@@ -80,4 +80,4 @@ These are synced to `docs.primebrick.dev` by the docs repo's CI pipeline.
 - Structured meta uses snake_case keys; never log secrets/PII.
 - Telemetry config is BE-owned (`config_entries`), shared via `SharedConfig.telemetry` + `config.changed` broadcast; `restartTelemetry` hot-swaps the OTel pipeline (proxy tracer provider — globals registered once).
 - NATS trace propagation is automatic in `NatsClient`; HTTP outbound uses `fetchTraced()`; inbound HTTP spans are created in `createHttpServer`.
-- See [.devin/rules/logging-telemetry.md](./.devin/rules/logging-telemetry.md) and `docs/user-guide/telemetry-logging.mdx`.
+- See [.devin/rules/logging-telemetry.md](./.devin/rules/logging-telemetry.md) and `docs/dev-guide/telemetry-logging.mdx`.
