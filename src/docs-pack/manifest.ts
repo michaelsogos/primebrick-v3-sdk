@@ -46,6 +46,8 @@ export interface DocsPackContentFile {
 export interface DocsPackPayload {
   manifest: DocsPackManifest;
   files: DocsPackContentFile[];
+  /** Raw openapi.json content, when the pack carries one. */
+  openapi?: string;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -74,5 +76,6 @@ export function parseDocsPackPayload(raw: unknown): DocsPackPayload {
     if (!isRecord(f) || typeof f.path !== "string" || !f.path) fail("files[].path invalid");
     if (typeof f.content !== "string") fail(`file ${f.path}: content not a string`);
   }
+  if (raw.openapi !== undefined && typeof raw.openapi !== "string") fail("openapi not a string");
   return raw as unknown as DocsPackPayload;
 }
