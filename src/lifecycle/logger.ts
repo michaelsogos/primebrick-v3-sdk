@@ -154,6 +154,14 @@ export function flushLogsSync(): void {
   }
 }
 
+// Drain pending log lines on ANY process exit — including process.exit(1)
+// after a boot failure and unhandled exceptions. Without this hook, fatal
+// errors enqueued via logger.error() right before exit are silently lost
+// because the buffered async writer never gets a chance to flush.
+// Only synchronous work is allowed inside an 'exit' handler; write() to a
+// pipe/TTY is sync and best-effort by definition here.
+process.on("exit", flushLogsSync);
+
 // ─── ANSI colors ────────────────────────────────────────────────────────────
 // Emitted only on a real TTY (pipes/files stay clean) and honoring the
 // NO_COLOR / FORCE_COLOR conventions. ESC is built via fromCharCode so the
