@@ -46,14 +46,18 @@ export function docsPackRouteHandler(packDir: string): RouteHandler {
       handler: async (): Promise<DocsPackPayload> => {
         const manifestPath = join(packDir, "manifest.json");
         const docsDir = join(packDir, "docs");
-        if (!existsSync(manifestPath) || !existsSync(docsDir)) {
+        if (!existsSync(manifestPath)) {
           throw new Error(`docs pack not built at ${packDir} — run buildDocsPack first`);
         }
         const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-        const files = listFilesRecursive(docsDir).map((full) => ({
-          path: relative(docsDir, full).split(sep).join("/"),
-          content: readFileSync(full, "utf-8"),
-        }));
+        // docs/ may be absent on openapi-only packs (dev-only services
+        // ship no user docs) — the manifest already reports files: [].
+        const files = existsSync(docsDir)
+          ? listFilesRecursive(docsDir).map((full) => ({
+              path: relative(docsDir, full).split(sep).join("/"),
+              content: readFileSync(full, "utf-8"),
+            }))
+          : [];
         const openapiPath = join(packDir, "openapi.json");
         const openapi = existsSync(openapiPath) ? readFileSync(openapiPath, "utf-8") : undefined;
         return parseDocsPackPayload({ manifest, files, openapi });
