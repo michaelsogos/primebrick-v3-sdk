@@ -58,7 +58,7 @@ import { logger } from "../lifecycle/logger.js";
 import { ClientRegistry } from "../service/client-registry.js";
 import { setNatsShieldRegistry } from "../nats/service-shield.js";
 import { SecretProvider, startSecretProvider } from "../secrets/rotating-secret.js";
-import { CLIENT_SHIELD_SECRET_REF } from "../auth/client-shield-secret.js";
+import { CLIENT_SHIELD_SECRET_REF, getClientShieldSecretSlot } from "../auth/client-shield-secret.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -430,6 +430,26 @@ export async function createMicroservice(
       tags: ["core"],
       error,
     });
+    // Self-heal: without the rotating secret every shield-verified inbound
+    // call is rejected — a boot-time miss must not become a permanent wall.
+    // Retry in the background until the slot lands (bounded; the
+    // secret.rotated broadcast may also heal it earlier).
+    void (async () => {
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      for (let attempt = 1; attempt <= 30 && !getClientShieldSecretSlot(); attempt++) {
+        await sleep(10_000);
+        try {
+          await secretProvider.get(CLIENT_SHIELD_SECRET_REF);
+          logger.info("Client-shield secret provisioned on background retry", { tags: ["core"] });
+          break;
+        } catch {
+          // engine still unreachable — keep waiting
+        }
+      }
+      if (!getClientShieldSecretSlot()) {
+        logger.error("Client-shield secret still missing after background retries — every shielded call will be rejected until rotation or restart", { tags: ["core"] });
+      }
+    })();
   }
 
   try {
