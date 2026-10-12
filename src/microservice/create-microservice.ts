@@ -62,6 +62,8 @@ import { CLIENT_SHIELD_SECRET_REF } from "../auth/client-shield-secret.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
+import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
 import {
   ConfigLoader,
   ServiceRegistrar,
@@ -513,6 +515,10 @@ export async function createMicroservice(
     }
   }
 
+  // Docs pack dir — shared between the registrar (capability) and the
+  // auto-mounted serving route below. One detection, one source of truth.
+  const docsPackDir = options.docsPackDir ?? join(process.cwd(), "dist", "docs-pack");
+
   // Build health check function for registrar heartbeats
   const registrarHealthCheckFn: HealthCheckFn = async () => {
     const dbOk = await healthCheckPort.ping();
@@ -547,7 +553,7 @@ export async function createMicroservice(
       gatewayUrl: configLoader.require("be_base_url"),
       // Docs pack lives next to the service entry (dist/docs-pack at the
       // service root) — present → docs_pack capability auto-declared.
-      docsPackDir: options.docsPackDir ?? join(process.cwd(), "dist", "docs-pack"),
+      docsPackDir,
     },
     registrarHealthCheckFn,
   );
@@ -569,7 +575,17 @@ export async function createMicroservice(
   // only factory-produced handlers (makeRpcRouter / makeOpenApiHandler /
   // composeRouteHandlers) may be mounted. Anything else means a route
   // bypassed the mandatory middleware chain — fail the boot, loudly.
-  if (options.routeHandler && !isFactoryRouteHandler(options.routeHandler)) {
+  // Auto-mount the docs-pack route when a built pack exists — the same
+  // manifest that makes the registrar declare `docs_pack`. Services never
+  // wire this by hand; building the pack is the only opt-in.
+  let routeHandler: RouteHandler | undefined = options.routeHandler;
+  if (existsSync(join(docsPackDir, "manifest.json"))) {
+    routeHandler = routeHandler
+      ? composeRouteHandlers(routeHandler, docsPackRouteHandler(docsPackDir))
+      : docsPackRouteHandler(docsPackDir);
+  }
+
+  if (routeHandler && !isFactoryRouteHandler(routeHandler)) {
     throw new Error(
       `createMicroservice(${options.serviceName}): routeHandler was not produced by an ` +
         `approved route factory. Mount routes via makeRpcRouter([...RpcRoute]) ` +
@@ -584,7 +600,7 @@ export async function createMicroservice(
     serviceName: options.serviceName,
     serviceVersion,
     serviceUrl: baseUrl,
-    routeHandler: options.routeHandler,
+    routeHandler,
     clientRegistry,
     identityExemptPaths: options.identityExemptPaths,
   });
