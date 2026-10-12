@@ -17,6 +17,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -85,6 +86,8 @@ export async function buildDocsPack(opts: BuildDocsPackOptions): Promise<DocsPac
 
   mkdirSync(outDir, { recursive: true });
   const docsOut = join(outDir, "docs");
+  // Recreate docs/ each build — stale files must never linger in the pack.
+  rmSync(docsOut, { recursive: true, force: true });
   if (docsDir) cpSync(docsDir, docsOut, { recursive: true });
 
   for (const gen of generators) {
