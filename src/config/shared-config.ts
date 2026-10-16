@@ -1,6 +1,10 @@
 /**
  * Shared config protocol — NATS `config.get` request/reply.
  *
+ * DEPRECATO — NON PASSIAMO DA NATS REQ/RES. Pending migration to pub/sub
+ * correlation reply (`config.get` → `config.response.<requestId>`).
+ * New code must NOT add req/res subjects.
+ *
  * Allows microservices to discover configuration that is centralized in the BE's
  * `auth_configurations` table (e.g. `redis_url`) without duplicating it in their
  * own config tables.
@@ -15,6 +19,8 @@
  */
 
 import { NatsClient } from "../nats/nats-client.js";
+import { callNats, makeNatsRequestRoute, type NatsRouteVerify } from "../nats/nats-routes.js";
+import { subscribeShielded } from "../nats/service-shield.js";
 
 /**
  * Shape of the shared config object exchanged via NATS `config.get`.
@@ -24,11 +30,49 @@ import { NatsClient } from "../nats/nats-client.js";
 export interface SharedConfig {
   /** Redis cache URL, e.g. `redis://localhost:6379`. Empty/undefined = cache disabled. */
   redis_url?: string;
+  /**
+   * Telemetry/logging config — BE-owned (config_entries rows), shared with
+   * all microservices. Single point of configuration; changes are pushed
+   * via the `config.changed` broadcast subject.
+   */
+  telemetry?: TelemetrySharedConfig;
   // Future: s3_url?, feature_flags?, etc.
+}
+
+/** Telemetry/logging block distributed via SharedConfig. */
+export interface TelemetrySharedConfig {
+  enabled?: boolean;
+  otlp_endpoint?: string;
+  otlp_headers?: Record<string, string>;
+  sampler?: "always_on" | "always_off" | "traceidratio";
+  sampler_arg?: number;
+  log_format?: "pretty" | "json";
+  log_level?: "debug" | "info" | "warn" | "error";
 }
 
 /** NATS subject for the shared config request/reply. */
 export const SHARED_CONFIG_SUBJECT = "config.get";
+
+/**
+ * NATS broadcast subject for config-change notifications.
+ * The BE publishes `{ keys: [...] }` (fire-and-forget) whenever relevant
+ * config rows are written; microservices re-fetch `config.get` and apply.
+ */
+export const CONFIG_CHANGED_SUBJECT = "config.changed";
+
+/**
+ * Microservice side: subscribe to `config.changed` broadcasts.
+ * The handler fires on every notification — it should re-fetch the shared
+ * config and apply changes (telemetry restart, logger options, etc.).
+ */
+export async function subscribeConfigChanged(
+  nats: typeof NatsClient,
+  handler: (payload: { keys?: string[] }) => Promise<void>,
+): Promise<void> {
+  // Shield-gated broadcast: only registered clients may trigger a config
+  // reload — a rogue publisher must not force config/auth refreshes.
+  await subscribeShielded<{ keys?: string[] }>(CONFIG_CHANGED_SUBJECT, handler);
+}
 
 /** Timeout for the NATS request (ms). If the BE doesn't respond, the caller continues without shared config. */
 const SHARED_CONFIG_TIMEOUT_MS = 5_000;
@@ -51,16 +95,27 @@ const SHARED_CONFIG_TIMEOUT_MS = 5_000;
 export async function subscribeSharedConfig(
   nats: typeof NatsClient,
   getConfig: () => SharedConfig,
+  verify?: NatsRouteVerify,
 ): Promise<void> {
-  await nats.subscribeRequest<unknown, SharedConfig>(
-    SHARED_CONFIG_SUBJECT,
-    async () => {
-      try {
-        return getConfig();
-      } catch {
-        return {};
-      }
-    },
+  // Governed correlation-reply endpoint (makeNatsRequestRoute): the caller
+  // publishes with a private reply inbox — pure pub/sub, never req/res.
+  await makeNatsRequestRoute<unknown, SharedConfig>(
+    [
+      {
+        subject: SHARED_CONFIG_SUBJECT,
+        queue: "primebrick-api",
+        permissions: [],
+        verify,
+        handler: async () => {
+          try {
+            return getConfig();
+          } catch {
+            return {};
+          }
+        },
+      },
+    ],
+    { serviceCode: "primebrick-api" },
   );
 }
 
@@ -82,13 +137,30 @@ export async function fetchSharedConfig(
   nats: typeof NatsClient,
 ): Promise<SharedConfig> {
   try {
-    const response = await nats.request<SharedConfig>(
+    const response = await callNats<SharedConfig>(
       SHARED_CONFIG_SUBJECT,
-      null,
-      SHARED_CONFIG_TIMEOUT_MS,
+      // send a JSON body: keep this as `{}` for robustness.
+      {},
+      { timeoutMs: SHARED_CONFIG_TIMEOUT_MS },
     );
     return response ?? {};
   } catch {
     return {};
   }
+}
+
+/**
+ * Holder for the last SharedConfig received from the BE — set by
+ * `createMicroservice` at startup and refreshed on `config.changed`.
+ * Request-time modules (rate limiters, integrations) read `redis_url`
+ * and friends from here instead of env vars.
+ */
+let currentSharedConfig: SharedConfig = {};
+
+export function setSharedConfig(config: SharedConfig): void {
+  currentSharedConfig = config;
+}
+
+export function getSharedConfig(): SharedConfig {
+  return currentSharedConfig;
 }

@@ -1,0 +1,26 @@
+{
+  "pages": [
+    "overview",
+    "getting-started",
+    "microservice-anatomy",
+    "authentication",
+    "client-shield-and-secrets",
+    "http-server",
+    "rpc-router",
+    "entity-router",
+    "openapi-generation",
+    "docs-pack",
+    "config-tables",
+    "migrations",
+    "translations",
+    "currency",
+    "nats-client",
+    "service-registration",
+    "sse-standard",
+    "presence",
+    "ext-json",
+    "cache-layer",
+    "telemetry-logging",
+    "api-reference"
+  ]
+}

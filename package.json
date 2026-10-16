@@ -1,6 +1,6 @@
 {
   "name": "@primebrick/sdk",
-  "version": "0.5.0",
+  "version": "3.0.0",
   "private": false,
   "type": "module",
   "engines": {
@@ -35,17 +35,32 @@
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
-    "test": "vitest run",
+    "test": "pnpm check:standards && vitest run",
     "test:watch": "vitest",
-    "extract-docs": "node scripts/extract-api-docs.mjs"
+    "extract-docs": "node scripts/extract-api-docs.mjs",
+    "check:standards": "bun tools/check-standards.ts src",
+    "prebuild": "pnpm check:standards"
   },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/context-async-hooks": "2.11.0",
+    "@opentelemetry/core": "2.11.0",
+    "@opentelemetry/exporter-logs-otlp-http": "0.222.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
+    "@opentelemetry/instrumentation": "0.222.0",
+    "@opentelemetry/auto-instrumentations-node": "0.80.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-logs": "0.222.0",
+    "@opentelemetry/sdk-trace-base": "2.11.0",
+    "@opentelemetry/semantic-conventions": "1.43.0",
+    "countries-list": "3.4.1",
     "jose": "6.2.3",
     "json-bigint": "1.0.0",
+    "libphonenumber-js": "1.13.12",
     "nats": "2.29.3",
     "redis": "6.1.0",
     "reflect-metadata": "0.2.2"

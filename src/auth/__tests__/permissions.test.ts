@@ -11,13 +11,20 @@ describe("Permission enum", () => {
     expect(Permission.AUTHENTICATED_USER).toBe("_authenticated_user");
   });
 
-  it("exposes the ROLE_MAPPINGS_* CRUD permissions", () => {
-    expect(Permission.ROLE_MAPPINGS_READ_ALL).toBe("role_mappings.read.all");
-    expect(Permission.ROLE_MAPPINGS_READ_SINGLE).toBe("role_mappings.read.single");
-    expect(Permission.ROLE_MAPPINGS_READ_AUDIT).toBe("role_mappings.read.audit");
-    expect(Permission.ROLE_MAPPINGS_CREATE).toBe("role_mappings.create");
-    expect(Permission.ROLE_MAPPINGS_UPDATE).toBe("role_mappings.update");
-    expect(Permission.ROLE_MAPPINGS_DELETE).toBe("role_mappings.delete");
+  it("exposes the ROLE_MAPPING_* CRUD permissions", () => {
+    expect(Permission.ROLE_MAPPING_READ_ALL).toBe("role_mapping.read.all");
+    expect(Permission.ROLE_MAPPING_READ_SINGLE).toBe("role_mapping.read.single");
+    expect(Permission.ROLE_MAPPING_READ_AUDIT).toBe("role_mapping.read.audit");
+    expect(Permission.ROLE_MAPPING_CREATE_SINGLE).toBe("role_mapping.create.single");
+    expect(Permission.ROLE_MAPPING_UPDATE_SINGLE).toBe("role_mapping.update.single");
+    expect(Permission.ROLE_MAPPING_DELETE_SINGLE).toBe("role_mapping.delete.single");
+  });
+
+  it("non-sentinel const names are mechanically derived: CONST = string.toUpperCase().replaceAll('.', '_')", () => {
+    for (const [key, value] of Object.entries(Permission)) {
+      if (isPermissionSentinel(value)) continue;
+      expect(key).toBe(value.toUpperCase().replaceAll(".", "_"));
+    }
   });
 });
 
@@ -35,9 +42,9 @@ describe("isPermissionSentinel", () => {
   });
 
   it("returns false for CRUD permissions", () => {
-    expect(isPermissionSentinel("users.update.single")).toBe(false);
-    expect(isPermissionSentinel("customers.read.all")).toBe(false);
-    expect(isPermissionSentinel(Permission.ROLE_MAPPINGS_CREATE)).toBe(false);
+    expect(isPermissionSentinel("user_profile.update.single")).toBe(false);
+    expect(isPermissionSentinel("customer.read.all")).toBe(false);
+    expect(isPermissionSentinel(Permission.ROLE_MAPPING_CREATE_SINGLE)).toBe(false);
   });
 
   it("returns false for unknown strings", () => {
@@ -54,18 +61,18 @@ describe("listNonSentinelPermissions", () => {
     expect(all).not.toContain(Permission.AUTHENTICATED_ADMIN);
   });
 
-  it("includes the ROLE_MAPPINGS_* CRUD permissions", () => {
+  it("includes the ROLE_MAPPING_* CRUD permissions", () => {
     const all = listNonSentinelPermissions();
-    expect(all).toContain(Permission.ROLE_MAPPINGS_READ_ALL);
-    expect(all).toContain(Permission.ROLE_MAPPINGS_CREATE);
-    expect(all).toContain(Permission.ROLE_MAPPINGS_UPDATE);
-    expect(all).toContain(Permission.ROLE_MAPPINGS_DELETE);
+    expect(all).toContain(Permission.ROLE_MAPPING_READ_ALL);
+    expect(all).toContain(Permission.ROLE_MAPPING_CREATE_SINGLE);
+    expect(all).toContain(Permission.ROLE_MAPPING_UPDATE_SINGLE);
+    expect(all).toContain(Permission.ROLE_MAPPING_DELETE_SINGLE);
   });
 
   it("includes existing module permissions", () => {
     const all = listNonSentinelPermissions();
-    expect(all).toContain(Permission.CUSTOMERS_READ_ALL);
-    expect(all).toContain(Permission.USERS_CREATE_SINGLE);
-    expect(all).toContain(Permission.ORGANIZATIONS_DELETE_SINGLE);
+    expect(all).toContain(Permission.CUSTOMER_READ_ALL);
+    expect(all).toContain(Permission.USER_PROFILE_CREATE_SINGLE);
+    expect(all).toContain(Permission.ORGANIZATION_DELETE_SINGLE);
   });
 });

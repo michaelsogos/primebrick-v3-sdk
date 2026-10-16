@@ -20,6 +20,7 @@ import { createRedisClient } from "./redis-client.js";
 import { getRedisInfo, type RedisInfo } from "./redis-info.js";
 import { fetchSharedConfig, type SharedConfig } from "../config/shared-config.js";
 import { NatsClient } from "../nats/nats-client.js";
+import { logModuleStartup } from "../lifecycle/startup-logger.js";
 
 export type CacheBootstrapResult = {
   /** The initialized CachePort, or null if Redis is not configured/unreachable. */
@@ -50,11 +51,12 @@ export type CacheBootstrapResult = {
 export async function initCacheFromSharedConfig(
   nats: typeof NatsClient,
   logger: CacheLogger,
+  prefetched?: SharedConfig,
 ): Promise<CacheBootstrapResult> {
-  const sharedConfig = await fetchSharedConfig(nats);
+  const sharedConfig = prefetched ?? (await fetchSharedConfig(nats));
 
   if (!sharedConfig.redis_url) {
-    logger.warn("[cache] redis_url not received from BE — cache disabled (best-effort)");
+    logger.warn("redis_url not received from BE — cache disabled (best-effort)", { tags: ["cache"] });
     return { cachePort: null, redisInfo: null, sharedConfig };
   }
 
@@ -63,15 +65,17 @@ export async function initCacheFromSharedConfig(
     const cachePort = new RedisCachePort(redis);
     const redisInfo = await getRedisInfo(redis);
 
-    if (redisInfo) {
-      logger.info(`[cache] Redis connected (v${redisInfo.version})`);
-    } else {
-      logger.info("[cache] Redis connected (version unknown)");
-    }
+    // Same banner as the BE: `Redis 8.8.0 connected (redis://host:6379)`
+    // (credentials stripped — never log secrets).
+    logModuleStartup(
+      "Redis",
+      redisInfo?.version ?? null,
+      sharedConfig.redis_url.replace(/(:\/\/[^:/]+):[^@]+@/, "$1@"),
+    );
 
     return { cachePort, redisInfo, sharedConfig };
   } catch (err) {
-    logger.warn(`[cache] Redis connection failed — cache disabled: ${err}`);
+    logger.warn(`Redis connection failed — cache disabled: ${err}`, { tags: ["cache"] });
     return { cachePort: null, redisInfo: null, sharedConfig };
   }
 }

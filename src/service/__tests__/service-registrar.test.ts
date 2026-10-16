@@ -2,9 +2,33 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ServiceRegistrar } from "../service-registrar.js";
 import { SERVICE_SUBJECTS } from "../service-lifecycle-subjects.js";
 
-function makeNatsMock() {
+/**
+ * callNats() drives the register handshake: publish with a reply inbox,
+ * then one message on the inbox subscription. The mock connection
+ * yields queued replies (or nothing → callNats timeout → retry).
+ */
+function makeNatsMock(replyBatches: unknown[][] = [[{ registered: true }]]) {
+  const conn = {
+    publish: vi.fn(),
+    subscribe: vi.fn((_inbox: string, _opts?: unknown) => {
+      const msgs = replyBatches.shift() ?? [];
+      return {
+        unsubscribe: vi.fn(),
+        [Symbol.asyncIterator]: async function* () {
+          for (const r of msgs) {
+            yield { data: new TextEncoder().encode(JSON.stringify(r)) };
+          }
+          // keep the iterator open — simulates "no reply yet"
+          await new Promise(() => {});
+        },
+      };
+    }),
+  };
   return {
     publish: vi.fn(async () => {}),
+    conn,
+    getConnection: vi.fn(async () => conn),
+    subscribe: vi.fn(async () => {}),
     isConnected: vi.fn(() => true),
   };
 }
@@ -24,10 +48,11 @@ describe("ServiceRegistrar", () => {
     registrar = new ServiceRegistrar(nats as any, baseConfig);
   });
 
-  it("register() publishes to service.register subject", async () => {
+  it("register() sends a service.register request and resolves on ack", async () => {
     await registrar.register();
-    expect(nats.publish).toHaveBeenCalledTimes(1);
-    const [subject, payload] = nats.publish.mock.calls[0];
+    expect(nats.conn.publish).toHaveBeenCalledTimes(1);
+    const [subject, raw] = nats.conn.publish.mock.calls[0];
+    const payload = JSON.parse(new TextDecoder().decode(raw));
     expect(subject).toBe(SERVICE_SUBJECTS.REGISTER);
     expect(payload.code).toBe("emailsender");
     expect(payload.base_url).toBe("http://localhost:8081");
@@ -49,13 +74,31 @@ describe("ServiceRegistrar", () => {
       is_behind_scaler: true,
     });
     await registrar.register();
-    const payload = nats.publish.mock.calls[0][1];
+    const payload = JSON.parse(new TextDecoder().decode(nats.conn.publish.mock.calls[0][1]));
     expect(payload.name).toBe("Email Sender");
     expect(payload.description).toBe("Sends emails");
     expect(payload.author).toBe("PrimeBrick");
     expect(payload.github_repo_url).toBe("https://github.com/primebrick/emailsender");
     expect(payload.service_version).toBe("1.2.3");
     expect(payload.is_behind_scaler).toBe(true);
+  });
+
+  it("register() retries until acked (no ack = no resolve)", async () => {
+    vi.useFakeTimers();
+    try {
+      nats = makeNatsMock([
+        [], // attempt 1: no reply → callNats timeout
+        [{ registered: false, error: "publisher identity rejected" }],
+        [{ registered: true }],
+      ]);
+      registrar = new ServiceRegistrar(nats as any, baseConfig);
+      const p = registrar.register();
+      await vi.advanceTimersByTimeAsync(15_000); // 3s callNats timeout + two 5s retries
+      await p;
+      expect(nats.conn.publish).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sendHeartbeat() publishes to service.heartbeat subject", async () => {

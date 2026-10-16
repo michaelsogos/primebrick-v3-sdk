@@ -1,0 +1,97 @@
+---
+title: Anatomy of a Microservice
+description: "createMicroservice end to end — the boot sequence, the two authentication layers, the NATS fabric it joins, its lifecycle in the registry, and where each piece is documented in depth."
+---
+
+# Anatomy of a microservice
+
+`microservice/create-microservice.ts` is the facade every Primebrick
+service boots through. It sequences ~12 wired stages — env, DAL, config,
+auth, NATS, shield, HTTP, registration, health, shutdown — so a service is
+declared by its **options**, not by handwritten infrastructure.
+
+## Boot sequence
+
+```
+installConsoleBridge          → every log line gets ts + trace_id
+requireEnv(envSchema)         → loud preflight; missing .env/vars = fatal, stderr + throw
+initDal() + dbBanner()        → consumer's own DB init (SDK stays DB-agnostic)
+ConfigLoader.load()           → <schema>.config_entries via ConfigRepositoryPort
+initAuthConfig + loadAuthConfig → auth resolved from config (ports, not env)
+apiKeyPort? / healthCheckPort / authDependencySetters
+NatsClient.getConnection(nats_url)  → joins the fabric
+client-registry + secret provider   → identity + shield slot warm
+setNatsShieldRegistry + shields     → inbound verification armed
+HTTP server (routeHandler)          → client-identity gate → auth → RBAC → validate → handler
+ServiceRegistrar.register + heartbeat → announces to the BE registry
+docs-pack manifest check            → capabilities += "docs_pack"
+onReady(ctx)                      → service-specific wiring (subscribers, jobs)
+graceful-shutdown hooks             → reverse-order teardown (dalClose, nats drain, http close)
+```
+
+The `MicroserviceContext` returned exposes `env`, `configLoader`,
+`natsClient`, `registrar`, `healthCheck` — the handles `onReady` uses to
+wire the service's own logic.
+
+## Topology — where a service sits
+
+<Mermaid chart={`flowchart LR
+  FE[Frontend] -->|HTTPS| BE[Backend gateway]
+  BE -->|/ws/:code/* proxy<br/>resolved identity + shield| US[Microservice HTTP]
+  BE <-->|NATS pub/sub| BUS[(NATS fabric)]
+  US <-->|register · heartbeat · secret.get| BUS
+  US --> PG[(own DB schema)]
+  US --> R[(Redis<br/>secrets slot · cache · rate limits)]
+`} />
+
+A microservice never answers public HTTP. Its HTTP surface exists only to
+be called by the BE proxy (or by other services over internal fetch); its
+outbound face is the NATS fabric.
+
+## Two authentication layers — L1 and L2
+
+Every inbound call clears two distinct walls:
+
+| Layer | Question | Mechanism | Details |
+|---|---|---|---|
+| **L1 — client/network** | *Is the caller a trusted client?* | `x-client-shield-secret` (rotating) + client-identity gate (User-Agent vs `client-registry`) | [client-shield-and-secrets](./client-shield-and-secrets.mdx) |
+| **L2 — user/RBAC** | *May this user do this?* | resolved `AuthUser` → `permissions[]` on the `RpcRoute`, `defaultDeny` | [authentication](./authentication.mdx), [rpc-router](./rpc-router.mdx) |
+
+The same split applies on NATS: `verifyNatsPublisher` + `subscribeShielded`
+(L1) before any subject handler runs.
+
+## The NATS fabric
+
+| Subject family | Direction | Purpose |
+|---|---|---|
+| `service.register` / `service.unregister` / `service.heartbeat` | US → BE | lifecycle announcements the registry consumes |
+| `service.gateway_online` | BE → all | "the gateway is back" — triggers re-registration and re-pulls |
+| `config.get` | US → BE | governed config lookups |
+| `secret.get` | US → BE | correlation-route request for the shield slot (allowlisted) |
+| `secret.rotated` | BE → all | shield rotation broadcast — consumers refresh their slot |
+| `client_shield_registry.get` | US → BE | known-client lookups for the identity gate |
+| `webhook.<code>.received` | webhook US → target US | JetStream stream for durable webhook delivery |
+
+Pub/sub is the default; JetStream only where durability/replay matters.
+NATS request/reply is **deprecated** — governed correlation routes
+(`makeNatsRequestRoute`) replaced it.
+
+## What the service must declare
+
+Required: `serviceName`, `envSchema`, `initDal`, `dalClose`,
+`configRepositoryAdapter`, `authConfigPort`, `healthCheckPort`.
+Optional: `routeHandler` (factory-produced only — `makeRpcRouter`,
+`makeOpenApiHandler`, `composeRouteHandlers`; arbitrary handlers are
+rejected), `apiKeyPort`, `endpoints`, `customHealthChecks`,
+`identityExemptPaths`, `docsPackDir`, `authDependencySetters`, `onReady`,
+identity/display/icon fields for the registry.
+
+## Deep-dives
+
+- Boot options & context → this page + `service-registration.mdx`
+- HTTP routes & middleware chain → `rpc-router.mdx`, `http-server.mdx`
+- Entity CRUD factory → `entity-router.mdx`
+- Spec from routes → `openapi-generation.mdx`
+- Docs to the KB → `docs-pack.mdx`
+- Secrets & shield → `client-shield-and-secrets.mdx`
+- NATS client → `nats-client.mdx`; SSE → `sse-standard.mdx`
