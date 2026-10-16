@@ -5,9 +5,9 @@
  * ZERO dependencies on any Primebrick library or DB driver.
  *
  * Modules:
- * - ports: ConfigRepositoryPort, DatabasePort, ServiceRegistryPort, HealthCheckPort
+ * - ports: ConfigRepositoryPort, ServiceRegistryPort, HealthCheckPort
  * - config: ConfigLoader, IConfigEntity
- * - migrations: applyPatches, patch-registry, patch-naming
+ * - migrations: boot step via dbPatches (engine lives in @primebrick/dal-pg)
  * - service: ServiceRegistrar, IServiceRegistry
  * - lifecycle: GracefulShutdown
  * - nats: NatsClient
@@ -18,7 +18,6 @@
 
 // Ports (dependency inversion — consumer implements these)
 export { type ConfigRepositoryPort } from "./ports/config-repository-port.js";
-export { type DatabasePort } from "./ports/database-port.js";
 export { type ServiceRegistryPort } from "./ports/service-registry-port.js";
 export { type HealthCheckPort } from "./ports/health-check-port.js";
 
@@ -58,19 +57,9 @@ export {
 // Currency helpers (BE/US only — FE has its own independent copy)
 export * from "./currency/index.js";
 
-// Migrations
-export {
-  PATCH_REGISTRY_DDL,
-  PATCH_REGISTRY_FQNAME,
-  isPatchBodyAlreadyRecorded,
-} from "./migrations/patch-registry.js";
-export {
-  utcTimestampForFilename,
-  slugifyPatchSegment,
-  patchIdFromFilename,
-  sha256Hex,
-} from "./migrations/patch-naming.js";
-export { applyPatches, type ApplyPatchesResult } from "./migrations/apply-patches.js";
+// Migrations — the engine lives in @primebrick/dal-pg (src/migrations/*).
+// The old SDK applyPatches/DatabasePort were deleted (breaking): services
+// wire `dbPatches` in createMicroservice and use `primebrick-db` CLI.
 
 // Service registration
 export { type IServiceRegistry } from "./service/service-registry.js";
@@ -85,7 +74,7 @@ export {
   type PackageIdentity,
   type ClientIdentityResult,
 } from "./service/service-identity.js";
-export { ClientRegistry, CLIENT_REGISTRY_SUBJECTS, type ClientRegistryRow } from "./service/client-registry.js";
+export { ClientShieldRegistry, CLIENT_SHIELD_REGISTRY_SUBJECTS, type ClientShieldRegistryRow } from "./service/client-shield-registry.js";
 export {
   DOCS_PACK_CAPABILITY,
   DOCS_PACK_SCHEMA_VERSION,
@@ -142,6 +131,16 @@ export {
   subscribeShielded,
   type ShieldRegistryLike,
 } from "./nats/service-shield.js";
+export {
+  ensureJobSchedule,
+  cancelJobSchedule,
+  dueLaneVerify,
+  forwardAuthHeaders,
+  JOB_SCHEDULE_HEADERS,
+  JOB_STREAM_SUBJECTS,
+  JOB_SCHEDULE_REQUEST_SUBJECT,
+  type EnsureJobScheduleOpts,
+} from "./nats/job-schedule.js";
 export {
   RotatingSecretEngine,
   SecretProvider,
@@ -203,7 +202,7 @@ export {
 } from "./http/openapi.js";
 
 // Lifecycle — startup logging
-export { logModuleStartup, logServiceStartup, pgServerBanner, type SqlPoolLike } from "./lifecycle/startup-logger.js";
+export { logModuleStartup, logServiceStartup, pgServerBanner, type SqlVersionProbe } from "./lifecycle/startup-logger.js";
 
 // Lifecycle — async structured logger + console bridge
 export {
@@ -241,8 +240,23 @@ export {
   type MicroserviceContext,
 } from "./microservice/create-microservice.js";
 
+// DB migration boot step + db_patch remediation surface (step 2.5)
+export {
+  runDbMigrationStep,
+  type DbMigrationBootOptions,
+  type DbMigrationEnginePort,
+  type MigrationBootState,
+  type MigrationRunResultLike,
+  type MigrationEngineOptsLike,
+} from "./microservice/db-migration-step.js";
+export {
+  makeDbMigrationRouteHandler,
+  MIGRATION_ROUTE_PREFIX,
+} from "./http/migration-routes.js";
+
 // Env validation
 export { validateEnv, requireEnv, type EnvSchema, type EnvValidationResult } from "./env/env-validator.js";
+export { assertDbEnv, type DbEnv } from "./env/db-env.js";
 
 // Ext-JSON — BigInt-safe JSON serialization/deserialization (BE/US only, NOT for FE)
 export {

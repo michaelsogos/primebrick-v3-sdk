@@ -11,6 +11,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { extJsonStringify } from "../json/ext-json.js";
 import {
   cpSync,
   existsSync,
@@ -101,6 +102,7 @@ export async function buildDocsPack(opts: BuildDocsPackOptions): Promise<DocsPac
 
   let hasOpenapi = false;
   if (openapi) {
+    // standards-exempt: ext-json — openapi.json is consumed by external OpenAPI tooling (plain JSON spec)
     writeFileSync(join(outDir, "openapi.json"), JSON.stringify(openapi, null, 2), "utf-8");
     hasOpenapi = true;
   } else if (openapiPath && existsSync(openapiPath)) {
@@ -121,6 +123,6 @@ export async function buildDocsPack(opts: BuildDocsPackOptions): Promise<DocsPac
     files,
     has_openapi: hasOpenapi || undefined,
   };
-  writeFileSync(join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf-8");
+  writeFileSync(join(outDir, "manifest.json"), extJsonStringify(manifest), "utf-8");
   return manifest;
 }

@@ -10,6 +10,8 @@
  * `57014` is PG `query_canceled` (statement_timeout) → logical ERR07.
  */
 
+import { extJsonParse } from "../json/ext-json.js";
+
 export interface Rfc7807Body {
   type: string;
   title: string;
@@ -35,7 +37,7 @@ function parseDetail(err: unknown): Record<string, unknown> {
   if (raw && typeof raw === "object") return raw as Record<string, unknown>;
   if (typeof raw !== "string") return {};
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = extJsonParse(raw);
     return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};

@@ -23,7 +23,7 @@ export interface HttpServerOptions {
    * carry a registry-listed `User-Agent` prefix + valid
    * `x-primebrick-client-shield-key` before the route handler runs.
    */
-  clientRegistry?: import("../service/client-registry.js").ClientRegistry;
+  clientShieldRegistry?: import("../service/client-shield-registry.js").ClientShieldRegistry;
   /**
    * URL paths exempt from the client-identity gate — for services that
    * expose a genuinely public surface (e.g. the webhook ingress, whose
@@ -120,10 +120,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
       // Client-identity gate — internal callers must identify themselves
       // (User-Agent prefix + client key) before any route runs.
       if (
-        options.clientRegistry &&
+        options.clientShieldRegistry &&
         !options.identityExemptPaths?.some((re) => re.test(url.pathname))
       ) {
-        const registry = options.clientRegistry;
+        const registry = options.clientShieldRegistry;
         const headerAdapter = {
           headers: {
             get: (name: string) => {

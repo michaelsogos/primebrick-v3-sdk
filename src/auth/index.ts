@@ -29,6 +29,10 @@ export { type UserResolverPort, type ResolveInput } from "./ports/user-resolver-
 export { type RoleMappingPort, type RoleMappingEntry } from "./ports/role-mapping-port.js";
 export { type ApiKeyPort, type ApiKeyRecord } from "./ports/api-key-port.js";
 export { NatsApiKeyPort } from "./ports/nats-api-key-port.js";
+export {
+  CachingApiKeyPort,
+  type ApiKeyCacheSource,
+} from "./ports/caching-api-key-port.js";
 export { apiKeyCacheKey, API_KEY_CACHE_TTL_MS } from "./api-key-cache.js";
 
 // Auth config cache

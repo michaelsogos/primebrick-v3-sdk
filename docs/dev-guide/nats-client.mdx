@@ -105,7 +105,7 @@ Rules of thumb:
   processed by the singleton gateway (`service.register` req/reply —
   the queue also prevents duplicate replies), req/res responders.
 - **Unqueued (broadcast):** events every replica's local state depends on —
-  `service.gateway_online`, `config.changed`, `client_registry.changed`,
+  `service.gateway_online`, `config.changed`, `client_shield_registry.changed`,
   per-instance registry caches.
 - JetStream consumers already have durable identity semantics — queue
   groups do not apply.

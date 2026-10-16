@@ -237,7 +237,7 @@ emailsender microservice).
 import { ConfigLoader } from "@primebrick/sdk";
 import type { AuthConfig } from "@primebrick/sdk";
 
-const loader = new ConfigLoader<AuthConfig>(new BeAuthConfigRepositoryAdapter(dal));
+const loader = new ConfigLoader(new ConfigRepositoryAdapter(dal)); // each US's src/adapters/config-repository-adapter.ts
 
 // Once at startup:
 const config = await loader.load();

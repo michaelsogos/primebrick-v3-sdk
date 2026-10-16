@@ -59,3 +59,8 @@ const result = await applyPatches(
 
 Each service wires this into its `pnpm db:migrate` script with its own
 schema's adapter (see `scripts/database-patch-apply.ts` in any US).
+
+> For new services the current model is the dal-pg migration engine
+> (`runMigrations` + signed `MANIFEST.json` + `primebrick-db` CLI —
+> per-schema registry, mandatory ordered patches, review workflow). See the
+> **dal-pg dev-guide → Database migrations** page.

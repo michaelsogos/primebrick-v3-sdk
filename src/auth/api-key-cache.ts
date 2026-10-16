@@ -1,10 +1,11 @@
 /**
  * Shared cache key + TTL for `api_keys` lookups.
  *
- * Both the BE (`BeApiKeyPort`) and microservices (e.g.
- * `EmailSenderApiKeyPort`) read the same `public.api_keys` table — using
- * ONE shared key means a single warm-up serves every reader and one
- * invalidation would cover all of them.
+ * Every cached `ApiKeyPort` is a `CachingApiKeyPort`: the BE resolves
+ * `public.api_keys` directly, microservices resolve via the governed
+ * `auth.apikey.byHash` NATS route — but all of them cache under the SAME
+ * key, so a single warm-up serves every reader and one invalidation would
+ * cover all of them.
  */
 export const API_KEY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 

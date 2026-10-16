@@ -35,9 +35,11 @@
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
-    "test": "vitest run",
+    "test": "pnpm check:standards && vitest run",
     "test:watch": "vitest",
-    "extract-docs": "node scripts/extract-api-docs.mjs"
+    "extract-docs": "node scripts/extract-api-docs.mjs",
+    "check:standards": "bun tools/check-standards.ts src",
+    "prebuild": "pnpm check:standards"
   },
   "publishConfig": {
     "access": "public",

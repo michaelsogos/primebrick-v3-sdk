@@ -29,7 +29,7 @@ export interface ServiceRegistrarConfig {
   icon_type?: 'url' | 'svg' | 'base64' | 'icon';
   /**
    * This service's own client key (module config `service_client_shield_key`) — paired with
-   * the UA prefix in `system.client_registry`. Only its sha256 hash is sent
+   * the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent
    * in `service.register`; the raw key never leaves the service.
    */
   clientKey?: string;
@@ -45,6 +45,13 @@ export interface ServiceRegistrarConfig {
    * registration automatically — no package.json edit needed.
    */
   docsPackDir?: string;
+  /**
+   * PG schema ownership claim — the service's `DATABASE_SCHEMA` list
+   * (validated by `assertDbEnv`, first = owned schema). Sent in
+   * `service.register` → persisted in `service_registry.schemas` so the
+   * BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`).
+   */
+  schemas?: string[];
 }
 
 /**
@@ -82,7 +89,7 @@ export class ServiceRegistrar {
     private readonly healthCheckFn?: HealthCheckFn,
   ) {
     // Auto-derive name/version from package.json — the registry row must
-    // always carry real identity (it feeds system.client_registry).
+    // always carry real identity (it feeds system.client_shield_registry).
     const pkg = detectPackageIdentity();
     this.pkgName = pkg.name;
     this.capabilities = pkg.capabilities;
@@ -102,7 +109,7 @@ export class ServiceRegistrar {
     this.clientKeyHash = clientKey ? clientKeyHash(clientKey) : undefined;
     if (!clientKey) {
       logger.error(
-        "config 'service_client_shield_key' is not set — this service cannot enroll in system.client_registry; inbound identity verification will reject its callers",
+        "config 'service_client_shield_key' is not set — this service cannot enroll in system.client_shield_registry; inbound identity verification will reject its callers",
         { tags: ["core"] },
       );
     }
@@ -146,6 +153,7 @@ export class ServiceRegistrar {
       pkg_name: this.pkgName,
       client_key_hash: this.clientKeyHash,
       capabilities: this.capabilities,
+      schemas: this.config.schemas ?? [],
     };
     const ref = `${this.pkgName}/${this.config.service_version ?? "?"}`;
     const gwTag = this.config.gatewayUrl;

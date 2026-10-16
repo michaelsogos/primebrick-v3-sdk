@@ -100,7 +100,9 @@ describe("mapDalError", () => {
     const mapped = mapDalError(err);
     expect(mapped!.status).toBe(412);
     expect(mapped!.body.internal_code).toBe("ERR10");
-    expect(mapped!.body.extra?.match).toEqual({ id: 5, uuid: "u2" });
+    // extJsonParse yields bigint for integer detail fields — preserves schema
+    // bigint identity end-to-end into the RFC7807 extras.
+    expect(mapped!.body.extra?.match).toEqual({ id: 5n, uuid: "u2" });
     expect(mapped!.body.extra?.table).toBe("public.dal_test_simple");
   });
 

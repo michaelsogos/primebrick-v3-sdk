@@ -44,7 +44,7 @@
  *   initDal,
  *   configRepositoryAdapter: () => new ConfigRepositoryAdapter(),
  *   authConfigPort: (configLoader) => new MyAuthConfigPort(configLoader),
- *   apiKeyPort: () => new MyApiKeyPort(),
+ *   apiKeyPort: () => new CachingApiKeyPort(new NatsApiKeyPort(3000), () => getSdkCachePort()),
  *   healthCheckPort: () => new HealthCheckAdapter(getDal().getPool()),
  *   routeHandler: compositeRouteHandler,
  *   endpoints: { webhook: "/webhook" },
@@ -55,7 +55,7 @@
  */
 
 import { logger } from "../lifecycle/logger.js";
-import { ClientRegistry } from "../service/client-registry.js";
+import { ClientShieldRegistry } from "../service/client-shield-registry.js";
 import { setNatsShieldRegistry } from "../nats/service-shield.js";
 import { SecretProvider, startSecretProvider } from "../secrets/rotating-secret.js";
 import { CLIENT_SHIELD_SECRET_REF, getClientShieldSecretSlot } from "../auth/client-shield-secret.js";
@@ -72,6 +72,8 @@ import {
   createHttpServer,
   HealthCheck,
   requireEnv,
+  assertDbEnv,
+  type DbEnv,
   initAuthConfig,
   invalidateAuthConfig,
   loadAuthConfig,
@@ -101,9 +103,16 @@ import {
   logModuleStartup,
   CLIENT_SHIELD_KEY_HEADER,
   isFactoryRouteHandler,
+  brandRouteHandler,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
+import {
+  runDbMigrationStep,
+  type DbMigrationBootOptions,
+  type MigrationBootState,
+} from "./db-migration-step.js";
+import { makeDbMigrationRouteHandler, MIGRATION_ROUTE_PREFIX } from "../http/migration-routes.js";
 
 // ─── Options ───────────────────────────────────────────────────────────────
 
@@ -163,6 +172,10 @@ export interface MicroserviceOptions {
   /**
    * Factory for ApiKeyPort — called after auth config is loaded.
    * Optional — only needed if the microservice uses API key auth (e.g. webhooks).
+   * Standard wiring: `new CachingApiKeyPort(new NatsApiKeyPort(3000), () => getSdkCachePort())`
+   * — microservices NEVER read `public.api_keys` directly; resolution goes
+   * through the governed BE route `auth.apikey.byHash`. The factory runs
+   * before the SDK cache port is set, so pass `getSdkCachePort` lazily.
    */
   apiKeyPort?: () => ApiKeyPort;
 
@@ -216,8 +229,19 @@ export interface MicroserviceOptions {
   customHealthChecks?: Record<string, () => Promise<HealthCheckResult>>;
 
   /**
+   * Database migration boot step — runs immediately after `initDal`, before
+   * ConfigLoader and any other table read. When set, the service owns its
+   * schema patches (`db-meta/patches` + signed MANIFEST.json) and applies
+   * them before registration. A critical failure boots the service in
+   * DEGRADED mode: only `/health` + the db-migration admin routes answer,
+   * domain traffic gets 503, heartbeat reports `db_migration.ok=false`.
+   */
+  dbPatches?: DbMigrationBootOptions;
+
+  /**
    * Callback fired after everything is wired (NATS subscriptions, business
    * logic init, etc.). Receives the full MicroserviceContext.
+   * SKIPPED entirely when the service booted degraded (migration failure).
    */
   onReady?: (ctx: MicroserviceContext) => Promise<void>;
 }
@@ -287,7 +311,11 @@ export async function createMicroservice(
   //    guaranteed to be wired/flushed this early, so write to stderr
   //    directly AND throw for the caller's catch).
   let env: Record<string, string | undefined>;
+  let dbEnv: DbEnv;
   try {
+    // Closed-set contract: DATABASE_URL + DATABASE_SCHEMA are the ONLY
+    // env vars a service may consume. Any violation crashes the boot.
+    dbEnv = assertDbEnv();
     env = requireEnv(options.envSchema);
   } catch (error) {
     const envFile = join(process.cwd(), ".env");
@@ -314,12 +342,19 @@ export async function createMicroservice(
     }
   }
 
+  // 2.5 Database migration — BEFORE any table read (ConfigLoader included).
+  //     The engine reads its own mode from <schema>.config_entries; if a
+  //     patch touched preloaded state, post-apply reads see fresh data by
+  //     construction (ConfigLoader has not run yet).
+  const migrationState: MigrationBootState = options.dbPatches
+    ? await runDbMigrationStep(options.dbPatches)
+    : { result: null, degraded: false, lastError: null, appliedCount: 0 };
+
   // 3. ConfigLoader (reads config table via ConfigRepositoryPort)
   const configLoader = new ConfigLoader(options.configRepositoryAdapter());
   try {
     const loaded = await configLoader.load();
-    const schema = env.DB_SCHEMA;
-    logger.done(`Module configuration loaded — ${Object.keys(loaded).length} keys found${schema ? ` (${schema}.config_entries)` : ""}`, { tags: ["core"] });
+    logger.done(`Module configuration loaded — ${Object.keys(loaded).length} keys found (${dbEnv.schemas[0]}.config_entries)`, { tags: ["core"] });
   } catch (error) {
     logger.error("Failed to load config (non-fatal — table may be empty)", { tags: ["core"], error: error });
   }
@@ -386,7 +421,7 @@ export async function createMicroservice(
   // callNats (config.get, service.register): the BE's shield check reads
   // these headers.
   // Resolve service coordinates EARLY — the identity closure below captures
-  // serviceCode; every callNats (client_registry.get, secret.get, register)
+  // serviceCode; every callNats (client_shield_registry.get, secret.get, register)
   // invokes it, so these must be initialized before the first NATS call.
   const serviceCode = configLoader.require("service_code");
   const baseUrl = configLoader.require("service_base_url");
@@ -405,10 +440,10 @@ export async function createMicroservice(
   // the NATS publisher shield (verifyNatsPublisher). Must start before any
   // shielded NATS subscription — fail-closed: an unavailable registry
   // means every internal call is rejected, loudly.
-  const clientRegistry = new ClientRegistry();
-  setNatsShieldRegistry(clientRegistry);
+  const clientShieldRegistry = new ClientShieldRegistry();
+  setNatsShieldRegistry(clientShieldRegistry);
   try {
-    await clientRegistry.start();
+    await clientShieldRegistry.start();
   } catch (error) {
     logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
       tags: ["core"],
@@ -544,10 +579,19 @@ export async function createMicroservice(
     const dbOk = await healthCheckPort.ping();
     const natsOk = NatsClient.isConnected();
     return {
-      http_healthy: dbOk,
+      // A degraded service is not healthy for domain traffic even when the
+      // DB itself answers — status never reaches `online`.
+      http_healthy: dbOk && !migrationState.degraded,
       checks: {
         db: { ok: dbOk },
         nats: { ok: natsOk },
+        // Live-read: a successful admin retry flips this without restart.
+        db_migration: {
+          ok: !migrationState.degraded,
+          ...(migrationState.degraded
+            ? { error: migrationState.lastError ?? "critical patch failure" }
+            : {}),
+        },
       },
     };
   };
@@ -574,6 +618,9 @@ export async function createMicroservice(
       // Docs pack lives next to the service entry (dist/docs-pack at the
       // service root) — present → docs_pack capability auto-declared.
       docsPackDir,
+      // Schema ownership claim — the validated DATABASE_SCHEMA list from
+      // the env contract (step 2). The BE enforces one-module-one-schema.
+      schemas: dbEnv.schemas,
     },
     registrarHealthCheckFn,
   );
@@ -605,6 +652,16 @@ export async function createMicroservice(
       : docsPackRouteHandler(docsPackDir);
   }
 
+  // db_patch system module — always mounted when migrations are configured
+  // (status surface for the FE admin page, and the ONLY reachable surface
+  // when the service is degraded).
+  if (options.dbPatches) {
+    const migrationHandler = makeDbMigrationRouteHandler(options.dbPatches, migrationState);
+    routeHandler = routeHandler
+      ? composeRouteHandlers(migrationHandler, routeHandler)
+      : migrationHandler;
+  }
+
   if (routeHandler && !isFactoryRouteHandler(routeHandler)) {
     throw new Error(
       `createMicroservice(${options.serviceName}): routeHandler was not produced by an ` +
@@ -614,6 +671,27 @@ export async function createMicroservice(
     );
   }
 
+  // Degraded gate — a critical migration failure must never serve domain
+  // traffic. Everything except the remediation surface answers 503.
+  if (migrationState.degraded && routeHandler) {
+    const inner = routeHandler;
+    routeHandler = brandRouteHandler(async (req, res, url) => {
+      if (url.pathname.startsWith(MIGRATION_ROUTE_PREFIX)) return inner(req, res, url);
+      res.writeHead(503, { "content-type": "application/problem+json" });
+      res.end(
+        // standards-exempt: ext-json — RFC7807 problem+json is plain JSON by spec
+        JSON.stringify({
+          type: "https://primebrick.io/errors/db_migration_failed",
+          title: "Service Unavailable",
+          status: 503,
+          detail: `service '${options.serviceName}' is degraded — a database migration failed; an admin can remediate via ${MIGRATION_ROUTE_PREFIX}`,
+          internal_code: "DB_MIGRATION_FAILED",
+        }),
+      );
+      return true;
+    });
+  }
+
   const server = await createHttpServer({
     port: httpPort,
     healthCheck,
@@ -621,7 +699,7 @@ export async function createMicroservice(
     serviceVersion,
     serviceUrl: baseUrl,
     routeHandler,
-    clientRegistry,
+    clientShieldRegistry,
     identityExemptPaths: options.identityExemptPaths,
   });
 
@@ -651,7 +729,9 @@ export async function createMicroservice(
   });
   shutdown.install();
 
-  // 10. onReady callback (consumer business logic)
+  // 10. onReady callback (consumer business logic) — skipped in degraded
+  // mode: subscribers and domain init must not run against a schema whose
+  // migrations failed.
   const ctx: MicroserviceContext = {
     env,
     configLoader,
@@ -666,8 +746,13 @@ export async function createMicroservice(
     baseUrl,
   };
 
-  if (options.onReady) {
+  if (options.onReady && !migrationState.degraded) {
     await options.onReady(ctx);
+  } else if (migrationState.degraded) {
+    logger.error(
+      `Service '${options.serviceName}' booted DEGRADED (db migration failed) — domain routes 503, onReady skipped. Remediate via ${MIGRATION_ROUTE_PREFIX}/* (admin).`,
+      { tags: ["core", "db-migration"], error: migrationState.lastError },
+    );
   }
 
   return ctx;

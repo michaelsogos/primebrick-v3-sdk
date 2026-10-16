@@ -51,7 +51,7 @@ export interface ServiceHeartbeatPayload {
   /**
    * Package name from the service's package.json — with `service_version`
    * it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-   * system.client_registry, service_registry.pkg_name, log messages).
+   * system.client_shield_registry, service_registry.pkg_name, log messages).
    */
   pkg_name?: string;
 }
@@ -61,7 +61,7 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
   /**
    * sha256 of the service's client shield key (module config
    * `service_client_shield_key`). The raw key NEVER travels — the BE
-   * stores only this hash in client_registry and verifies inbound
+   * stores only this hash in client_shield_registry and verifies inbound
    * `x-primebrick-client-shield-key` by hashing+comparing.
    */
   client_key_hash?: string;
@@ -73,6 +73,16 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    * so the registry always reflects the deployed artifact.
    */
   capabilities?: string[];
+  /**
+   * PG schema ownership claim — the service's `DATABASE_SCHEMA` env list
+   * (validated by `assertDbEnv`). The first schema is the owned one.
+   * Persisted in `service_registry.schemas`: the BE rejects registration
+   * when a claimed schema is owned by a different code, or is one of the
+   * platform schemas (the BE's own `DATABASE_SCHEMA`, e.g.
+   * public/system/custom). The claim survives offline/stale rows and is
+   * released only by `service.unregister` or admin purge.
+   */
+  schemas?: string[];
 }
 
 export interface ServiceUnregisterPayload {
@@ -95,6 +105,8 @@ export interface ServiceStalePayload {
   code: string;
   base_url: string;
   is_behind_scaler: boolean;
+  /** Status the stale-detection job just assigned: 'stale' or 'offline'. */
+  status: string;
   /** ISO 8601 timestamp of the last heartbeat received. */
   last_health_check_at: string;
 }

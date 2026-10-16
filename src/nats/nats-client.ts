@@ -17,6 +17,7 @@ import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { msgHeader } from "./msg-headers.js";
 import { lifecycleRegistry } from "../lifecycle/process-registry.js";
+import type { AuthUser } from "../auth/types.js";
 
 export { msgHeader };
 
@@ -222,22 +223,62 @@ export class NatsClient {
 
   /**
    * Ensure a JetStream stream exists (idempotent). Creates it if missing;
-   * returns silently if it already exists. Requires the server to run
-   * with JetStream enabled (`nats -js`).
+   * if it already exists and the requested options differ (e.g. the
+   * `allow_msg_schedules` feature flag was added later), the stream config
+   * is UPDATED in place — "ensure" means the declared state holds, not just
+   * that the name exists. Requires the server to run with JetStream
+   * enabled (`nats -js`).
    *
    * @param name - Stream name (e.g. "WEBHOOK")
-   * @param subjects - Subjects bound to the stream (e.g. ["webhook.>"])
+   * @param subjects - Subjects bound to the stream (e.g. ["webhook.>"]). For
+   *   scheduled-message streams BOTH the schedule subjects AND the fire
+   *   targets must be covered (ADR-51).
+   * @param opts.allowMsgSchedules - ADR-51: enables `Nats-Schedule*` header
+   *   processing on this stream (requires JetStream API level ≥ 2, verified
+   *   on nats-server 2.14.3).
+   * @param opts.syncSubjects - reconcile the existing stream's `subjects`
+   *   list to the provided one when they differ (default false — creating
+   *   an existing stream is normally a no-op).
    */
-  static async ensureStream(name: string, subjects: string[]): Promise<void> {
+  static async ensureStream(
+    name: string,
+    subjects: string[],
+    opts?: { allowMsgSchedules?: boolean; syncSubjects?: boolean },
+  ): Promise<void> {
     const nc = await NatsClient.getConnection();
     const jsm = NatsClient.jsm ?? (await nc.jetstreamManager());
+    const config = {
+      name,
+      subjects,
+      ...(opts?.allowMsgSchedules ? { allow_msg_schedules: true } : {}),
+    } as Parameters<JetStreamManager["streams"]["add"]>[0];
     try {
-      await jsm.streams.add({ name, subjects });
+      await jsm.streams.add(config);
+      return;
     } catch (error) {
-      // 10058 = stream name already in use — treat as already-ensured.
+      // 10058 = stream name already in use — fall through to reconcile.
       const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
-      if (apiErr?.err_code === 10058) return;
-      throw error;
+      if (apiErr?.err_code !== 10058) throw error;
+    }
+    const wantsSchedules = opts?.allowMsgSchedules === true;
+    if (!wantsSchedules && !opts?.syncSubjects) return;
+    const info = await jsm.streams.info(name);
+    const cfg = info.config as unknown as Record<string, unknown>;
+    let changed = false;
+    if (wantsSchedules && !cfg.allow_msg_schedules) {
+      cfg.allow_msg_schedules = true;
+      changed = true;
+    }
+    if (
+      opts?.syncSubjects &&
+      extJsonStringify([...(cfg.subjects as string[] ?? [])].sort()) !==
+        extJsonStringify([...subjects].sort())
+    ) {
+      cfg.subjects = subjects;
+      changed = true;
+    }
+    if (changed) {
+      await jsm.streams.update(name, cfg as unknown as typeof info.config);
     }
   }
 
@@ -261,6 +302,7 @@ export class NatsClient {
         natsHeaders.set(key, value);
       }
     }
+    injectIdentity(natsHeaders);
     injectInto(natsHeaders);
     const ack = await js.publish(subject, payload, { headers: natsHeaders });
     return BigInt(ack.seq);
@@ -272,15 +314,43 @@ export class NatsClient {
    * (idempotent), then loops `fetch()`: auto-`ack()` after the handler
    * resolves, `nak(5000)` (redelivery) when it throws.
    *
+   * Shield model — the `verify` callback runs BEFORE the handler, same
+   * convention as NatsRouteVerify:
+   *   - returns `AuthUser` → verified, handler receives `authUser`
+   *   - returns `undefined` → verified, no user context (system lane)
+   *   - returns `null` → denied: `term()` — auth failures are TERMINAL,
+   *     redelivery would just re-deny (same policy as webhook-subscriber)
+   *   - throws → transient: `nak()` redelivery applies
+   *
+   * `consumer` tunes the durable: `ackWaitMs` is the redelivery delay (size
+   * it above the handler's worst case), `maxAckPending` caps in-flight
+   * messages (concurrency), `maxDeliver` bounds retries.
+   *
    * @returns A handle whose `close()` stops the fetch loop.
    */
   static async jetstreamSubscribe<T = unknown>(opts: {
     stream: string;
     durable: string;
     filterSubject: string;
+    consumer?: {
+      batch?: number;
+      fetchExpiresMs?: number;
+      ackWaitMs?: number;
+      maxDeliver?: number;
+      maxAckPending?: number;
+    };
+    verify?: (msg: {
+      subject?: string;
+      headers?: MsgHdrs;
+    }) => Promise<AuthUser | null | undefined>;
     handler: (
       data: T,
-      msg: { headers?: MsgHdrs; info: { redeliveryCount: number } },
+      msg: {
+        subject: string;
+        headers?: MsgHdrs;
+        info: { redeliveryCount: number };
+        authUser?: AuthUser;
+      },
     ) => Promise<void>;
   }): Promise<{ close(): Promise<void> }> {
     const js = NatsClient.getJetStream();
@@ -294,6 +364,15 @@ export class NatsClient {
           durable_name: opts.durable,
           ack_policy: AckPolicy.Explicit,
           filter_subject: opts.filterSubject,
+          ...(opts.consumer?.ackWaitMs !== undefined
+            ? { ack_wait: opts.consumer.ackWaitMs * 1e6 }
+            : {}),
+          ...(opts.consumer?.maxDeliver !== undefined
+            ? { max_deliver: opts.consumer.maxDeliver }
+            : {}),
+          ...(opts.consumer?.maxAckPending !== undefined
+            ? { max_ack_pending: opts.consumer.maxAckPending }
+            : {}),
         });
         break;
       } catch (error) {
@@ -320,11 +399,23 @@ export class NatsClient {
       );
       await context.with(trace.setSpan(parentCtx, span), async () => {
         try {
+          let authUser: AuthUser | undefined;
+          if (opts.verify) {
+            const result = await opts.verify(m);
+            if (result === null) {
+              // Terminal denial — term() prevents pointless redelivery.
+              m.term();
+              return;
+            }
+            authUser = result;
+          }
           const text = new TextDecoder().decode(m.data);
           const data = text === "" ? (null as T) : extJsonParse<T>(text);
           await opts.handler(data, {
+            subject,
             headers: m.headers,
             info: { redeliveryCount: m.info.redeliveryCount },
+            authUser,
           });
           m.ack();
         } catch (error) {

@@ -6,8 +6,8 @@
  * user context exists.
  *
  * The registry holder is set once at boot:
- *   - `createMicroservice` calls `setNatsShieldRegistry(clientRegistry)`
- *     right after `clientRegistry.start()` (before any NATS subscription);
+ *   - `createMicroservice` calls `setNatsShieldRegistry(clientShieldRegistry)`
+ *     right after `clientShieldRegistry.start()` (before any NATS subscription);
  *   - the BE wires its own equivalent (createPublisherVerifier).
  *
  * When no registry is configured the check is skipped — that only happens
@@ -57,7 +57,7 @@ export async function verifyNatsPublisher(msg: { subject?: string; headers?: Msg
     return true;
   }
   // Cold-cache warm-up only — steady-state refreshes ride the shielded
-  // `client_registry.changed` broadcast; an empty snapshot fails closed.
+  // `client_shield_registry.changed` broadcast; an empty snapshot fails closed.
   if (registry.allowedPrefixes.length === 0) {
     try {
       await registry.refresh?.();
@@ -66,13 +66,29 @@ export async function verifyNatsPublisher(msg: { subject?: string; headers?: Msg
     }
   }
   const getHdr = (name: string): string | null => msgHeader(msg.headers, name);
-  const result = await verifyClientIdentity(
-    { headers: { get: getHdr } },
-    {
-      allowedPrefixes: [...registry.allowedPrefixes],
-      verifyKey: (prefix, key) => registry!.verifyKey(prefix, key),
-    },
-  );
+  // Pin the narrowed reference — `registry` is a mutable module slot, so
+  // closures need a const local for the non-null narrowing to hold.
+  const reg = registry;
+  const doVerify = () =>
+    verifyClientIdentity(
+      { headers: { get: getHdr } },
+      {
+        allowedPrefixes: [...reg.allowedPrefixes],
+        verifyKey: (prefix, key) => reg.verifyKey(prefix, key),
+      },
+    );
+  let result = await doVerify();
+  // Stale-snapshot recovery: a client enrolled AFTER the last refresh is
+  // UNKNOWN to the cached prefix list. One forced refresh + retry closes
+  // the window; a real unknown client still fails closed on the retry.
+  if (!result.ok && result.status === 403) {
+    try {
+      await reg.refresh?.();
+      result = await doVerify();
+    } catch {
+      // keep the first denial
+    }
+  }
   if (!result.ok) {
     logger.error(`NATS publisher rejected on "${msg.subject ?? "?"}" — ${result.error}`, {
       tags: ["nats-shield", `${result.status}`],

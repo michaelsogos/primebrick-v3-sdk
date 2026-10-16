@@ -36,11 +36,13 @@ export function logServiceStartup(url: string): void {
 }
 
 /**
- * Minimal pool shape — satisfied by `pg.Pool` and the DAL's pool without
- * the SDK depending on `pg` types.
+ * Minimal server-version probe — satisfied structurally by dal-pg's `Dal`
+ * (`dal.serverVersion()`) without the SDK depending on `@primebrick/dal-pg`
+ * types. Replaces the old pool-based probe so callers no longer need the
+ * raw `pg.Pool`.
  */
-export interface SqlPoolLike {
-  query(sql: string): Promise<{ rows: { version?: string }[] }>;
+export interface SqlVersionProbe {
+  serverVersion(): Promise<{ server_version: string; version: string }>;
 }
 
 /**
@@ -50,11 +52,10 @@ export interface SqlPoolLike {
  * The connection URL is printed with the password stripped.
  */
 export async function pgServerBanner(
-  pool: SqlPoolLike,
+  probe: SqlVersionProbe,
   databaseUrl: string,
 ): Promise<{ name: string; version: string | null; url: string }> {
-  const res = await pool.query("SELECT version()");
-  const raw = res.rows[0]?.version ?? "";
+  const { version: raw } = await probe.serverVersion();
   const match = raw.match(/PostgreSQL\s+([\d.]+)/);
   return {
     name: "PostgreSQL",

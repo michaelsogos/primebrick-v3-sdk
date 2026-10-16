@@ -148,6 +148,25 @@ API keys accept two header formats:
 - `Authorization: ApiKey <key>`
 - `Authorization: Bearer <key>` (when the key starts with `pbk_`)
 
+### Resolution — who owns `api_keys`
+
+The `api_keys` table lives in the BE-owned `public` schema. Exactly one
+implementation may read it directly:
+
+| Port | Where | Resolves via |
+|------|-------|--------------|
+| `DomainApiKeyPort` | BE only | `public.api_keys` (direct DB read) |
+| `NatsApiKeyPort` | microservices | governed `auth.apikey.byHash` req/reply → BE |
+| `CachingApiKeyPort` | everywhere | cache → inner resolver (one of the two above) |
+
+`CachingApiKeyPort` is the single cached implementation: pass a `CachePort`
+(or a lazy `() => getSdkCachePort()`) for the shared Redis key
+`be:api_keys:hash:<sha>` (5 min TTL, positive results only), or omit it for
+the bounded in-memory mode (60s positive / 10s negative / max 1000 entries —
+the webhook DMZ mode). A microservice must never read `public.api_keys`
+directly — sovereignty is enforced by the fact that only `DomainApiKeyPort`
+exists in the BE repo.
+
 ## RBAC
 
 RBAC evaluates whether an authenticated user has the permissions required by an

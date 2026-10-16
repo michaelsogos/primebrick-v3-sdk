@@ -14,6 +14,7 @@
 import type { ConfigType, ConfigValidation } from "./iconfig-entity.js";
 import { NUMERIC_TYPES, STRING_DERIVED_TYPES } from "./type-capabilities.js";
 import { parsePhoneNumber } from "libphonenumber-js";
+import { extJsonParse } from "../json/ext-json.js";
 
 /**
  * Error thrown when a config value fails validation.
@@ -48,7 +49,7 @@ export class ConfigValidationError extends Error {
 function parseTypeConfig(type_config: string | null | undefined): Record<string, unknown> | null {
   if (!type_config) return null;
   try {
-    return JSON.parse(type_config) as Record<string, unknown>;
+    return extJsonParse<Record<string, unknown>>(type_config);
   } catch {
     return null;
   }
@@ -316,7 +317,7 @@ function validateType(
     }
     case "json":
       try {
-        JSON.parse(value);
+        extJsonParse(value);
       } catch {
         throw new ConfigValidationError("app.common.validation.invalidJson", "type", config_key);
       }

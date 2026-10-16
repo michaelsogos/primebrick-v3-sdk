@@ -69,7 +69,7 @@ The same split applies on NATS: `verifyNatsPublisher` + `subscribeShielded`
 | `config.get` | US → BE | governed config lookups |
 | `secret.get` | US → BE | correlation-route request for the shield slot (allowlisted) |
 | `secret.rotated` | BE → all | shield rotation broadcast — consumers refresh their slot |
-| `client_registry.get` | US → BE | known-client lookups for the identity gate |
+| `client_shield_registry.get` | US → BE | known-client lookups for the identity gate |
 | `webhook.<code>.received` | webhook US → target US | JetStream stream for durable webhook delivery |
 
 Pub/sub is the default; JetStream only where durability/replay matters.

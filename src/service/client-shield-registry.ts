@@ -2,9 +2,9 @@
  * Client registry — the consumer-side allowlist cache for service-identity
  * verification.
  *
- * Source of truth: `system.client_registry` (BE-owned). Distribution:
- *   - snapshot at boot via `system.clientRegistry.get` (governed correlation-reply, BE responder)
- *   - live invalidation via `system.client_registry.changed` pub/sub —
+ * Source of truth: `system.client_shield_registry` (BE-owned). Distribution:
+ *   - snapshot at boot via `system.clientShieldRegistry.get` (governed correlation-reply, BE responder)
+ *   - live invalidation via `system.client_shield_registry.changed` pub/sub —
  *     every mutation (register, admin CRUD, enable/disable) re-fetches
  *     the snapshot, so there is exactly one read pattern.
  *
@@ -19,20 +19,20 @@ import { subscribeShielded } from "../nats/service-shield.js";
 import { logger } from "../lifecycle/logger.js";
 import { clientKeyHash } from "./service-identity.js";
 
-export const CLIENT_REGISTRY_SUBJECTS = {
+export const CLIENT_SHIELD_REGISTRY_SUBJECTS = {
   /** nats-req subject answered by the BE: full enabled-row snapshot. */
-  GET: "system.clientRegistry.get",
+  GET: "system.clientShieldRegistry.get",
   /** pub/sub subject published by the BE on every registry mutation. */
-  CHANGED: "system.client_registry.changed",
+  CHANGED: "system.client_shield_registry.changed",
 } as const;
 
-export interface ClientRegistryRow {
+export interface ClientShieldRegistryRow {
   ua_prefix: string;
   client_key_hash: string;
   is_enabled: boolean;
 }
 
-export class ClientRegistry {
+export class ClientShieldRegistry {
   private rows = new Map<string, string>();
 
   /**
@@ -42,12 +42,12 @@ export class ClientRegistry {
    * the allowlist is empty and every internal call is rejected (fail-closed).
    */
   async start(): Promise<void> {
-    await subscribeShielded(CLIENT_REGISTRY_SUBJECTS.CHANGED, async () => {
+    await subscribeShielded(CLIENT_SHIELD_REGISTRY_SUBJECTS.CHANGED, async () => {
       try {
         const changed = await this.reload();
         if (changed) this.logAllowed("have been updated");
       } catch (error) {
-        logger.warn("client_registry reload failed — keeping previous snapshot", {
+        logger.warn("client_shield_registry reload failed — keeping previous snapshot", {
           tags: ["core"],
           error,
         });
@@ -63,7 +63,7 @@ export class ClientRegistry {
         this.logAllowed("are", attempt > 1 ? attempt : undefined);
         return;
       } catch {
-        logger.warn(`client_registry snapshot attempt ${attempt} failed (BE unreachable?) — retrying in 5s`, { tags: ["core"], attempt });
+        logger.warn(`client_shield_registry snapshot attempt ${attempt} failed (BE unreachable?) — retrying in 5s`, { tags: ["core"], attempt });
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
@@ -86,8 +86,8 @@ export class ClientRegistry {
    * leave the set identical).
    */
   private async reload(): Promise<boolean> {
-    const rows = await callNats<ClientRegistryRow[]>(
-      CLIENT_REGISTRY_SUBJECTS.GET,
+    const rows = await callNats<ClientShieldRegistryRow[]>(
+      CLIENT_SHIELD_REGISTRY_SUBJECTS.GET,
       null,
       { timeoutMs: 5000 },
     );

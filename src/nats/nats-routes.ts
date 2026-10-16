@@ -73,6 +73,14 @@ export interface NatsRoute<TReq = unknown> {
    * the caller is a service, not a user.
    */
   verify?: NatsRouteVerify;
+  /**
+   * Enrollment channel — the route's `verify` REPLACES the global Layer-1
+   * client-shield check entirely (it must do the equivalent check itself,
+   * typically with `allowNewPrefix`). Only legal on routes whose purpose
+   * is first-time client enrollment (service.register): everywhere else a
+   * skipped L1 is a security hole and the flag must never be set.
+   */
+  enrollment?: boolean;
   /** Payload validator — throws on invalid shape (zod .parse or manual). */
   validate?: (raw: unknown) => TReq;
   /** The ONE service call. */
@@ -87,6 +95,8 @@ export interface NatsRequestRoute<TReq = unknown, TRes = unknown> {
   rbacMode?: "any" | "all";
   /** Service-identity verification — see NatsRoute.verify. */
   verify?: NatsRouteVerify;
+  /** Enrollment channel — see NatsRoute.enrollment. */
+  enrollment?: boolean;
   validate?: (raw: unknown) => TReq;
   /** Returns the reply payload — published to msg.reply. */
   handler: (ctx: NatsRouteContext<TReq>) => Promise<TRes>;
@@ -117,11 +127,18 @@ function decode<T>(data: Uint8Array): T {
 
 async function verifyAndAuthorize(
   msg: Msg,
-  route: { permissions: readonly string[]; rbacMode?: "any" | "all"; verify?: NatsRouteVerify },
+  route: {
+    permissions: readonly string[];
+    rbacMode?: "any" | "all";
+    verify?: NatsRouteVerify;
+    enrollment?: boolean;
+  },
 ): Promise<AuthUser | undefined> {
   // Layer 1 — client shield: the publisher must be a registered client.
-  // Runs before everything else, on every governed route.
-  if (!(await verifyNatsPublisher(msg))) {
+  // Runs before everything else, on every governed route — EXCEPT the
+  // enrollment channel, where the route's own `verify` owns the whole
+  // identity check (a first-time registrant cannot satisfy the snapshot).
+  if (!route.enrollment && !(await verifyNatsPublisher(msg))) {
     throw new AuthError("CLIENT_IDENTITY_DENIED", "client identity rejected");
   }
   // Layer 2 — caller verification: custom service-auth hook, or the

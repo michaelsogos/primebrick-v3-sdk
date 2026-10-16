@@ -2,8 +2,10 @@
  * Port for looking up API keys by hash.
  *
  * Used by verifyApiKey() to verify machine-to-machine credentials.
- * The `api_keys` table lives in the public schema — both BE and microservices
- * can implement this (microservices read cross-schema from `public.api_keys`).
+ * The `api_keys` table lives in the BE-owned `public` schema — only the BE
+ * may read it directly (`DomainApiKeyPort`); microservices resolve through the
+ * governed `auth.apikey.byHash` NATS route (`NatsApiKeyPort`). Both are
+ * wrapped by `CachingApiKeyPort` for the shared Redis/in-memory cache.
  */
 
 export interface ApiKeyRecord {

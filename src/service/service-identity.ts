@@ -11,7 +11,7 @@
  *   - UA prefix not in allowlist → 403 (unknown client)
  *   - bad client key   → 401
  *
- * The allowlist's source of truth is `system.client_registry` (BE-owned):
+ * The allowlist's source of truth is `system.client_shield_registry` (BE-owned):
  * rows with `source='registry'` are auto-maintained from `service.register`
  * payloads; `source='manual'` rows are admin-managed (e.g. Postman).
  */
@@ -19,12 +19,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { extJsonParse } from "../json/ext-json.js";
 
 export const CLIENT_SHIELD_KEY_HEADER = "x-primebrick-client-shield-key";
 
 /**
  * sha256 hex of a client key — the only form that ever leaves the service
- * (sent in `service.register` → stored in system.client_registry) and the
+ * (sent in `service.register` → stored in system.client_shield_registry) and the
  * only form compared at verification time.
  */
 export function clientKeyHash(key: string): string {
@@ -66,11 +67,11 @@ export function detectPackageIdentity(startDir?: string): PackageIdentity {
   const entryDir = process.argv[1] ? dirname(resolve(process.argv[1])) : process.cwd();
   const cwd = startDir ?? findPackageDir(entryDir) ?? entryDir;
   try {
-    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as {
+    const pkg = extJsonParse<{
       name?: string;
       version?: string;
       capabilities?: unknown;
-    };
+    }>(readFileSync(join(cwd, "package.json"), "utf8"));
     return {
       name: pkg.name ?? "app",
       version: pkg.version,
@@ -104,7 +105,7 @@ export function buildUserAgent(identity: PackageIdentity, capabilities?: string)
 /**
  * Identity headers to attach to every outbound internal call.
  * `clientKey` comes from the service's own config (env/config entry) —
- * it is the secret paired with the UA in `system.client_registry`.
+ * it is the secret paired with the UA in `system.client_shield_registry`.
  */
 export function identityHeaders(identity: PackageIdentity, capabilities: string, clientKey: string): Record<string, string> {
   return {
@@ -124,8 +125,8 @@ export type ClientIdentityResult =
  * - `ua` not starting with an allowed prefix → 403 UNKNOWN_CLIENT
  * - `verifyKey(key)` false      → 401 INVALID_CLIENT_SHIELD_KEY
  *
- * `allowedPrefixes` is loaded from `system.client_registry` (cached by the
- * caller and refreshed on `system.client_registry.changed` events).
+ * `allowedPrefixes` is loaded from `system.client_shield_registry` (cached by the
+ * caller and refreshed on `system.client_shield_registry.changed` events).
  * `verifyKey` compares the presented key against the registry entry for the
  * matched prefix (hash comparison — inject the hasher).
  */

@@ -24,6 +24,7 @@ import { context, trace } from "@opentelemetry/api";
 import { inspect } from "node:util";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { extJsonParse } from "../json/ext-json.js";
 
 export type LogLevel = "debug" | "info" | "done" | "warn" | "error";
 export type LogFormat = "pretty" | "json";
@@ -52,10 +53,9 @@ interface LoggerState {
 // still override `service` for non-package contexts.
 function detectService(): { service: string; version?: string } {
   try {
-    const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
-      name?: string;
-      version?: string;
-    };
+    const pkg = extJsonParse<{ name?: string; version?: string }>(
+      readFileSync(join(process.cwd(), "package.json"), "utf8"),
+    );
     return { service: pkg.name ?? "app", version: pkg.version };
   } catch {
     return { service: "app" };
@@ -254,7 +254,7 @@ export function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string
       ...(state.version ? { version: state.version } : {}),
       ...restMeta,
     };
-    // BigInt-safe JSON via a replacer (extJson isn't needed — plain JSON + bigint replacer)
+    // standards-exempt: ext-json — NDJSON log lines are an external wire format; bigint → plain string
     return JSON.stringify(record, (_k, v) => (typeof v === "bigint" ? v.toString() : v)) + "\n";
   }
 
@@ -371,6 +371,7 @@ export function argsToMsgAndMeta(args: unknown[]): { msg: string; meta?: LogMeta
 function stringifyArg(v: unknown): string {
   if (typeof v === "string") return v;
   try {
+    // standards-exempt: ext-json — log-arg serialization is an external wire format (see above)
     return JSON.stringify(safeSerialize(v), (_k, x) => (typeof x === "bigint" ? x.toString() : x)) ?? String(v);
   } catch {
     return String(v);

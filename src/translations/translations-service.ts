@@ -116,7 +116,9 @@ export class TranslationsService {
     const cached = await cache.getI18nDict(language);
     if (cached) return cached.data;
 
+    // standards-exempt: raw-query — TranslationsService takes an injected Queryable port by design
     const result = await this.opts.queryable.query(
+      // standards-exempt: raw-sql — dict aggregate is the port's sanctioned implementation
       `SELECT jsonb_object_agg(key, value) AS dict FROM ${qualifiedTable} WHERE language = $1 AND deleted_at IS NULL`,
       [language],
     );

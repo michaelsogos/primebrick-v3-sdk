@@ -1,11 +1,11 @@
 /**
  * ApiKeyPort implementation over NATS request-reply.
  *
- * For services WITHOUT a database (e.g. the `webhook` ingress): the
- * `api_keys` table lives in the public schema owned by BE, so lookup is
- * delegated to the BE `auth.apikey.byHash` req/reply endpoint (which
- * itself is Redis-cached). Callers typically wrap this port in an
- * in-memory TTL cache so repeated verifications don't hit NATS at all.
+ * For any microservice: the `api_keys` table lives in the BE-owned
+ * `public` schema — schema sovereignty forbids reading it directly, so
+ * lookup is delegated to the BE `auth.apikey.byHash` req/reply endpoint
+ * (which itself is Redis-cached). Callers wrap this port in
+ * `CachingApiKeyPort` so repeated verifications don't hit NATS at all.
  */
 
 import { callNats } from "../../nats/nats-routes.js";
