@@ -1,6 +1,6 @@
 {
   "name": "@primebrick/sdk",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "private": false,
   "type": "module",
   "engines": {
@@ -38,7 +38,7 @@
     "test": "pnpm check:standards && vitest run",
     "test:watch": "vitest",
     "extract-docs": "node scripts/extract-api-docs.mjs",
-    "check:standards": "bun tools/check-standards.ts src",
+    "check:standards": "node tools/check-standards.ts src",
     "prebuild": "pnpm check:standards"
   },
   "publishConfig": {
