@@ -1,4 +1,11 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { NatsClient } from "../nats/nats-client.js";
+import { DOCS_PACK_CAPABILITY } from "../docs-pack/manifest.js";
+import { callNats } from "../nats/nats-routes.js";
+import { subscribeShielded } from "../nats/service-shield.js";
+import { detectPackageIdentity, clientKeyHash } from "./service-identity.js";
+import { logger } from "../lifecycle/logger.js";
 import {
   SERVICE_SUBJECTS,
   type ServiceRegisterPayload,
@@ -20,6 +27,31 @@ export interface ServiceRegistrarConfig {
   is_behind_scaler?: boolean;
   icon?: string;
   icon_type?: 'url' | 'svg' | 'base64' | 'icon';
+  /**
+   * This service's own client key (module config `service_client_shield_key`) — paired with
+   * the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent
+   * in `service.register`; the raw key never leaves the service.
+   */
+  clientKey?: string;
+  /**
+   * API gateway base URL (the BE, e.g. `http://localhost:3001`) — used only
+   * as a log tag on lifecycle messages so the target of registration and
+   * heartbeats is visible on the service's stdout.
+   */
+  gatewayUrl?: string;
+  /**
+   * Absolute path of the built docs pack (e.g. `dist/docs-pack`). When it
+   * contains a manifest.json, the `docs_pack` capability is added to the
+   * registration automatically — no package.json edit needed.
+   */
+  docsPackDir?: string;
+  /**
+   * PG schema ownership claim — the service's `DATABASE_SCHEMA` list
+   * (validated by `assertDbEnv`, first = owned schema). Sent in
+   * `service.register` → persisted in `service_registry.schemas` so the
+   * BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`).
+   */
+  schemas?: string[];
 }
 
 /**
@@ -46,26 +78,61 @@ export type HealthCheckFn = () => Promise<{
 export class ServiceRegistrar {
   private readonly config: Required<ServiceRegistrarConfig>;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** sha256 of PRIMEBRICK_CLIENT_KEY — sent to the BE at register; raw key never leaves the service. */
+  private readonly clientKeyHash?: string;
+  private readonly pkgName: string;
+  private capabilities?: string[];
 
   constructor(
     private readonly nats: typeof NatsClient,
     config: ServiceRegistrarConfig,
     private readonly healthCheckFn?: HealthCheckFn,
   ) {
+    // Auto-derive name/version from package.json — the registry row must
+    // always carry real identity (it feeds system.client_shield_registry).
+    const pkg = detectPackageIdentity();
+    this.pkgName = pkg.name;
+    this.capabilities = pkg.capabilities;
+    // Auto-capability: a service that ships a built docs pack (dist/docs-pack/
+    // manifest.json next to the running entry) declares docs_pack without any
+    // manual config — the AI service pulls it on registration.
+    if (
+      config.docsPackDir &&
+      existsSync(join(config.docsPackDir, "manifest.json")) &&
+      !(this.capabilities ?? []).includes(DOCS_PACK_CAPABILITY)
+    ) {
+      this.capabilities = [...(this.capabilities ?? []), DOCS_PACK_CAPABILITY];
+    }
+    // The client key is a module config (`service_client_shield_key`), never an env var —
+    // each service has its own key; only the sha256 hash leaves the service.
+    const clientKey = config.clientKey;
+    this.clientKeyHash = clientKey ? clientKeyHash(clientKey) : undefined;
+    if (!clientKey) {
+      logger.error(
+        "config 'service_client_shield_key' is not set — this service cannot enroll in system.client_shield_registry; inbound identity verification will reject its callers",
+        { tags: ["core"] },
+      );
+    }
     this.config = {
       heartbeatIntervalMs: 30000,
       is_behind_scaler: false,
-      name: undefined,
+      name: pkg.name,
       description: undefined,
       author: undefined,
       github_repo_url: undefined,
-      service_version: undefined,
+      service_version: pkg.version,
       icon: undefined,
       icon_type: undefined,
       ...config,
     } as Required<ServiceRegistrarConfig>;
   }
 
+  /**
+   * Register with the BE via NATS request/reply (`service.register` is a
+   * correlation-reply endpoint). Stateless by design: retries every 5s until
+   * the BE acknowledges — a service that never registers does not exist to
+   * the system, so this method only resolves on ack.
+   */
   async register(): Promise<void> {
     const { http_healthy, checks } = await this.runHealthChecks();
     const payload: ServiceRegisterPayload = {
@@ -83,9 +150,80 @@ export class ServiceRegistrar {
       http_healthy,
       nats_connected: this.nats.isConnected(),
       checks,
+      pkg_name: this.pkgName,
+      client_key_hash: this.clientKeyHash,
+      capabilities: this.capabilities,
+      schemas: this.config.schemas ?? [],
     };
-    await this.nats.publish(SERVICE_SUBJECTS.REGISTER, payload);
-    console.log(`[service] Registered ${this.config.serviceCode} via NATS`);
+    const ref = `${this.pkgName}/${this.config.service_version ?? "?"}`;
+    const gwTag = this.config.gatewayUrl;
+    logger.info(`Registering ${ref} — attempt 1`, { tags: gwTag ? ["core", gwTag] : ["core"] });
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const ack = await callNats<{ registered?: boolean; error?: string }>(
+          SERVICE_SUBJECTS.REGISTER,
+          payload,
+          { timeoutMs: 3000, natsClient: this.nats },
+        );
+        if (ack?.registered) {
+          logger.done(
+            `The service ${ref} has been successfully registered after ${attempt} attempt${attempt === 1 ? "" : "s"}`,
+            { tags: gwTag ? ["core", gwTag] : ["core"] },
+          );
+          void this.watchGatewayRestarts();
+          return;
+        }
+        logger.warn(
+          `service.register rejected by BE — ${ack?.error ?? "no ack"} — retrying in 5s`,
+          { tags: gwTag ? ["core", gwTag] : ["core"], attempt },
+        );
+      } catch (error) {
+        // timeout / no responders (BE down) — keep retrying
+        logger.warn(
+          `Registering ${ref} — attempt ${attempt + 1} in 5s (${error instanceof Error ? error.message : String(error)})`,
+          { tags: gwTag ? ["core", gwTag] : ["core"], attempt: attempt + 1 },
+        );
+      }
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+
+  /**
+   * After a successful registration, listen for `service.gateway_online`:
+   * when the BE restarts it announces itself and every live service
+   * re-registers — the gateway re-ingests identity/endpoints/capabilities
+   * and re-discovers OpenAPI without polling anyone.
+   */
+  private gatewayWatchStarted = false;
+  private reregisterInFlight = false;
+  private async watchGatewayRestarts(): Promise<void> {
+    if (this.gatewayWatchStarted) return;
+    this.gatewayWatchStarted = true;
+    const gwTag = this.config.gatewayUrl;
+    // Hot-reload safety: a module reload creates a NEW registrar that
+    // subscribes on the SAME persistent NATS connection — replace the
+    // previous instance's subscription instead of accumulating one per
+    // reload (observed: N reloads → N parallel re-registers per event).
+    // NOTE: NatsClient.subscribe already dedupes by subject — the
+    // registry gatewayOnlineSub entry is belt-and-suspenders for
+    // subscribers that bypass NatsClient (none today).
+    await subscribeShielded(SERVICE_SUBJECTS.GATEWAY_ONLINE, async () => {
+      if (this.reregisterInFlight) return;
+      this.reregisterInFlight = true;
+      try {
+        logger.info("API gateway announced restart — re-registering", {
+          tags: gwTag ? ["core", gwTag] : ["core"],
+        });
+        await this.register();
+      } catch (error) {
+        logger.error("Re-registration after gateway restart failed", {
+          tags: gwTag ? ["core", gwTag] : ["core"],
+          error,
+        });
+      } finally {
+        this.reregisterInFlight = false;
+      }
+    });
   }
 
   async sendHeartbeat(): Promise<void> {
@@ -105,10 +243,11 @@ export class ServiceRegistrar {
         http_healthy,
         nats_connected: this.nats.isConnected(),
         checks,
+        pkg_name: this.pkgName,
       };
       await this.nats.publish(SERVICE_SUBJECTS.HEARTBEAT, payload);
     } catch (error) {
-      console.error(`[service] Heartbeat error for ${this.config.serviceCode}:`, error);
+      logger.error(`Heartbeat error for ${this.config.serviceCode}`, { tags: ["core"], error: error });
     }
   }
 
@@ -117,12 +256,23 @@ export class ServiceRegistrar {
       code: this.config.serviceCode,
       base_url: this.config.baseUrl,
       is_behind_scaler: this.config.is_behind_scaler,
+      pkg_name: this.pkgName,
+      service_version: this.config.service_version,
     };
     await this.nats.publish(SERVICE_SUBJECTS.UNREGISTER, payload);
-    console.log(`[service] Unregistered ${this.config.serviceCode} via NATS`);
+    logger.info(`Unregistered ${this.config.serviceCode} via NATS`, { tags: ["core"] });
   }
 
+  /**
+   * Start the heartbeat loop. The first heartbeat is sent immediately —
+   * the register ack already proved the BE is listening, so there's no
+   * reason to wait a full interval before the BE sees fresh health data.
+   */
   startHeartbeat(): ReturnType<typeof setInterval> {
+    const gwTag = this.config.gatewayUrl;
+    void this.sendHeartbeat().then(() => {
+      logger.info(`First heartbeat sent to api gateway`, { tags: gwTag ? ["core", gwTag] : ["core"] });
+    });
     this.heartbeatTimer = setInterval(() => void this.sendHeartbeat(), this.config.heartbeatIntervalMs);
     return this.heartbeatTimer;
   }

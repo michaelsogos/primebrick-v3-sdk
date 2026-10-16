@@ -19,6 +19,7 @@ import { verifyAccessToken } from "./oidc-verifier.js";
 import { normalizeIdpToken, coerceRoles, buildAuthUser } from "./token-normalizer.js";
 import { expandPermissions } from "./permissions.js";
 import { deserializeAuthUserFromHeaders } from "./auth-user-serializer.js";
+import { validClientShieldSecrets, SECRET_DEFAULTS } from "./client-shield-secret.js";
 import type { ResolveInput } from "./ports/user-resolver-port.js";
 
 /** Ports needed ONLY by BE (STANDALONE mode). Microservices do NOT provide these. */
@@ -52,7 +53,7 @@ export async function verifyAuthGatewayResolved(
   headers: HeaderProvider,
   config: AuthConfig,
 ): Promise<AuthUser> {
-  verifyGatewaySecret(headers, config);
+  verifyClientShieldSecret(headers, config);
   return deserializeAuthUserFromHeaders(headers, config);
 }
 
@@ -102,7 +103,7 @@ async function verifyGatewayWithPorts(
   config: AuthConfig,
   ports: AuthPorts,
 ): Promise<AuthUser> {
-  verifyGatewaySecret(headers, config);
+  verifyClientShieldSecret(headers, config);
 
   const { headers: headerNames } = config.gateway;
   const idpCode = headers.getHeader(headerNames.idp_code!);
@@ -145,14 +146,18 @@ async function verifyGatewayWithPorts(
 
 // --- Shared gateway secret verification ---
 
-function verifyGatewaySecret(headers: HeaderProvider, config: AuthConfig): void {
+function verifyClientShieldSecret(headers: HeaderProvider, config: AuthConfig): void {
   const { secret, secret_header_name } = config.gateway;
-  if (!secret || !secret_header_name) {
+  // Rotating secret engine: when a slot is provisioned, `current` AND the
+  // in-grace `previous` are valid. Falls back to the static config secret
+  // for pre-engine paths (unit tests, mixed-version windows).
+  const valid = validClientShieldSecrets(SECRET_DEFAULTS.graceMs, secret);
+  if (!secret_header_name || valid.length === 0) {
     throw new AuthError("AUTH_GATEWAY_NOT_CONFIGURED", "Gateway secret not configured");
   }
   const provided = headers.getHeader(secret_header_name);
-  if (typeof provided !== "string" || provided !== secret) {
-    throw new AuthError("AUTH_GATEWAY_SECRET_INVALID", "Gateway authentication failed");
+  if (typeof provided !== "string" || !valid.includes(provided)) {
+    throw new AuthError("AUTH_CLIENT_SHIELD_SECRET_INVALID", "Client-shield authentication failed");
   }
 }
 

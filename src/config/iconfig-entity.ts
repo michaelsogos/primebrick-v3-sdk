@@ -37,6 +37,8 @@ export interface IConfigEntity {
  * - `badge`: static set of options defined inline in `type_config.values`.
  * - `single_select`: single-selection dropdown (was `list`). Options from `type_config.api_url` or `type_config.values_source`.
  * - `multi_select`: multi-selection dropdown. Options from `type_config.api_url` or `type_config.values_source`. Value stored as comma-separated string.
+ * - `email`: validated as RFC 5322 simplified email. Stored as string.
+ * - `phone`: validated as E.164 via `libphonenumber-js`. Stored as string.
  * - `date` / `datetime` / `time`: ISO date/datetime/time strings.
  */
 export type ConfigType =
@@ -54,7 +56,9 @@ export type ConfigType =
   | "json"
   | "date"
   | "datetime"
-  | "time";
+  | "time"
+  | "email"
+  | "phone";
 
 /**
  * type_config shape for `money` config type.
@@ -66,6 +70,30 @@ export interface ConfigTypeMoneyConfig {
   currency: string;
   /** Optional: restrict selectable currencies. If absent, all ISO 4217 codes are allowed. */
   allowed_currencies?: string[];
+}
+
+/**
+ * type_config shape for `url` config type.
+ * The URL is stored in the `value` column; the default protocol and
+ * allowed-protocols list live in `type_config` JSON.
+ */
+export interface ConfigTypeUrlConfig {
+  /** Default protocol prepended when the user doesn't type one. e.g. "https". */
+  default_protocol: string;
+  /** Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. */
+  allowed_protocols: string[];
+}
+
+/**
+ * type_config shape for `phone` config type.
+ * The phone number is stored in the `value` column (E.164 format);
+ * the country code and optional allowed-countries list live in `type_config` JSON.
+ */
+export interface ConfigTypePhoneConfig {
+  /** ISO 3166-1 alpha-2 country code, e.g. "IT", "US". Drives formatting and validation. */
+  country: string;
+  /** Optional: restrict selectable countries. If absent, all countries are allowed. */
+  allowed_countries?: string[];
 }
 
 // ─── Validation rules (type_config.validation) ─────────────────────────────
@@ -92,7 +120,7 @@ export interface ConfigTypeMoneyConfig {
 export interface ConfigValidation {
   /** If true, empty/null values are rejected (except secrets with empty = "leave unchanged"). */
   required: boolean;
-  /** Optional i18n key for the required error message. Falls back to "validation.required". */
+  /** Optional i18n key for the required error message. Falls back to "app.common.validation.required". */
   required_error_label_key?: string;
   /**
    * If true, numeric values (bigint/number/money) are treated as unsigned:
@@ -107,15 +135,23 @@ export interface ConfigValidation {
 }
 
 export interface ConfigValidationRules {
-  /** Minimum value (for bigint/number/money) or minimum length (for string/secret). */
+  /** Minimum value (for bigint/number/money) or minimum length (for string/secret/url/email/phone). */
   min?: ValidationRuleMin;
-  /** Maximum value (for bigint/number/money) or maximum length (for string/secret). */
+  /** Maximum value (for bigint/number/money) or maximum length (for string/secret/url/email/phone). */
   max?: ValidationRuleMax;
-  /** URL protocol validation (for url type). */
+  /**
+   * URL protocol validation.
+   * @deprecated Use TYPE `url` with `type_config.allowed_protocols` instead.
+   * Kept for backward compatibility — still validated for `type === "url"`.
+   */
   url?: ValidationRuleUrl;
-  /** Email format validation (for string type). */
+  /**
+   * Email format validation.
+   * @deprecated Use TYPE `email` instead. Email validation is now inherent to the type.
+   * Kept for backward compatibility — still validated for `type === "email"`.
+   */
   email?: ValidationRuleEmail;
-  /** Regex pattern validation (for string/secret type). */
+  /** Regex pattern validation (for string/text/secret/url/email/phone). */
   regex?: ValidationRuleRegex;
 }
 
@@ -140,7 +176,13 @@ export interface ValidationRuleEmail {
 }
 
 export interface ValidationRuleRegex {
-  /** Regex pattern string (parsed via new RegExp(pattern)). */
+  /** Regex pattern string (parsed via new RegExp(pattern, flags)). */
   pattern: string;
+  /**
+   * Regex flags passed as the second argument to `new RegExp(pattern, flags)`.
+   * Common values: "g" (global), "i" (ignore case), "m" (multiline).
+   * Empty string or undefined = no flags. Flags are NOT parsed from the pattern string.
+   */
+  flags?: string;
   error_label_key: string;
 }

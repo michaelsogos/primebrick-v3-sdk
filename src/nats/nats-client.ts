@@ -1,5 +1,50 @@
-import { connect, headers, type NatsConnection, type JetStreamClient, type Subscription, type Msg, type MsgHdrs } from "nats";
+import {
+  connect,
+  headers,
+  AckPolicy,
+  type NatsConnection,
+  type JetStreamClient,
+  type JetStreamManager,
+  type JsMsg,
+  type Subscription,
+  type Msg,
+  type MsgHdrs,
+} from "nats";
+import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
+import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
+import { internalIdentityHeaders } from "../http/internal-client.js";
+import { msgHeader } from "./msg-headers.js";
+import { lifecycleRegistry } from "../lifecycle/process-registry.js";
+import type { AuthUser } from "../auth/types.js";
+
+export { msgHeader };
+
+const natsTracer = trace.getTracer("@primebrick/sdk");
+
+/** Inject W3C traceparent/tracestate into a MsgHdrs instance. */
+function injectInto(hdrs: MsgHdrs): void {
+  propagation.inject(context.active(), hdrs, natsCarrier);
+}
+
+/**
+ * Stamp the caller's service identity (User-Agent + client shield key)
+ * onto outbound message headers — applied AFTER caller-supplied headers
+ * so identity can never be overridden. Silent no-op until
+ * `configureInternalClient()` runs at boot.
+ *
+ * Header names are written lowercase: MsgHdrs is case-sensitive (unlike
+ * HTTP Headers), so the wire convention is lowercase — the same form the
+ * SDK's `msgHeader` reader looks up first.
+ */
+function injectIdentity(hdrs: MsgHdrs): void {
+  const identity = internalIdentityHeaders();
+  if (!identity) return;
+  for (const [name, value] of Object.entries(identity)) {
+    hdrs.set(name.toLowerCase(), value);
+  }
+}
 
 /**
  * Singleton NATS connection manager. Extracted from emailsender's
@@ -9,7 +54,7 @@ import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
  * can skip installing it and won't import this module.
  * No DB dependency.
  *
- * The `publish()`, `subscribe()`, and `subscribeRequest()` methods use
+ * The `publish()` and `subscribe()` methods use
  * Ext-JSON (BigInt-safe) serialization automatically. Consumers pass plain
  * TS objects and receive plain TS objects — they never call extJson functions
  * directly.
@@ -17,6 +62,7 @@ import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 export class NatsClient {
   private static nc: NatsConnection | null = null;
   private static js: JetStreamClient | null = null;
+  private static jsm: JetStreamManager | null = null;
   private static serverVersion: string | null = null;
   private static serverUrl: string | null = null;
 
@@ -25,11 +71,12 @@ export class NatsClient {
     const natsUrl = url ?? process.env.NATS_URL ?? "nats://127.0.0.1:4222";
     NatsClient.nc = await connect({ servers: natsUrl });
     NatsClient.js = NatsClient.nc.jetstream();
+    NatsClient.jsm = await NatsClient.nc.jetstreamManager();
     NatsClient.serverUrl = natsUrl;
     // nc.info is populated by the INFO handshake at connect time.
     // ServerInfo.version is a string like "2.14.3".
     NatsClient.serverVersion = NatsClient.nc.info?.version ?? null;
-    console.log(`[startup] NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`);
+    logger.done(`NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`, { tags: ["core"] });
     return NatsClient.nc;
   }
 
@@ -69,39 +116,13 @@ export class NatsClient {
       await NatsClient.nc.close();
       NatsClient.nc = null;
       NatsClient.js = null;
+      NatsClient.jsm = null;
       NatsClient.serverVersion = null;
       NatsClient.serverUrl = null;
-      console.log("NATS connection closed");
+      logger.info("NATS connection closed", { tags: ["core"] });
     }
   }
 
-  /**
-   * Send a request-reply message and wait for the response.
-   * The request data is serialized with extJsonStringify (BigInt-safe) and
-   * the response is parsed with extJsonParse.
-   *
-   * @param subject - NATS subject to send the request to
-   * @param data - Request payload (any serializable object). Pass `null` or `""` for an empty request.
-   * @param timeoutMs - Timeout in milliseconds. If the responder doesn't reply within this time, the promise rejects.
-   * @returns The parsed response object, or `null` if the response was empty.
-   *
-   * Example:
-   *   const config = await NatsClient.request<SharedConfig>("config.get", null, 5000);
-   */
-  static async request<TResponse = unknown>(
-    subject: string,
-    data: unknown = null,
-    timeoutMs: number = 5000,
-  ): Promise<TResponse | null> {
-    const nc = await NatsClient.getConnection();
-    const payload = data === null || data === undefined
-      ? new Uint8Array(0)
-      : new TextEncoder().encode(extJsonStringify(data));
-    const msg = await nc.request(subject, payload, { timeout: timeoutMs });
-    const text = new TextDecoder().decode(msg.data);
-    if (text === "") return null;
-    return extJsonParse<TResponse>(text);
-  }
 
   /**
    * Publish a message with automatic Ext-JSON serialization.
@@ -119,15 +140,15 @@ export class NatsClient {
   static async publish(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
     const nc = await NatsClient.getConnection();
     const payload = new TextEncoder().encode(extJsonStringify(data));
-    if (hdrs && Object.keys(hdrs).length > 0) {
-      const natsHeaders = headers();
+    const natsHeaders = headers();
+    if (hdrs) {
       for (const [key, value] of Object.entries(hdrs)) {
         natsHeaders.set(key, value);
       }
-      nc.publish(subject, payload, { headers: natsHeaders });
-    } else {
-      nc.publish(subject, payload);
     }
+    injectIdentity(natsHeaders);
+    injectInto(natsHeaders);
+    nc.publish(subject, payload, { headers: natsHeaders });
   }
 
   /**
@@ -143,7 +164,7 @@ export class NatsClient {
    *   await NatsClient.subscribe<SendEmailRequest>(
    *     "emailsender.send",
    *     async (request) => {
-   *       console.log(`Received: ${request.requestId}`);
+   *       logger.info(`Received: ${request.requestId}`);
    *       // request.entity_id is bigint if present
    *     }
    *   );
@@ -151,82 +172,286 @@ export class NatsClient {
   static async subscribe<T = unknown>(
     subject: string,
     handler: (data: T, raw: Msg) => Promise<void>,
+    opts?: { queue?: string },
   ): Promise<Subscription> {
     const nc = await NatsClient.getConnection();
-    const sub = nc.subscribe(subject);
+    // Queue groups are for WORK items only (one replica processes each
+    // message). Broadcasts every instance must receive — lifecycle events,
+    // cache invalidation — stay unqueued.
+    // Hot-reload dedupe: on `bun --hot`/`tsx watch` the connection survives
+    // module reloads while new instances re-subscribe — replace the
+    // previous subscription for the same subject+queue instead of
+    // accumulating one delivery per reload.
+    const subKey = `${subject}::${opts?.queue ?? ""}`;
+    const prev = lifecycleRegistry().natsSubscriptions?.get(subKey);
+    if (prev && typeof prev.unsubscribe === "function") prev.unsubscribe();
+    const sub = nc.subscribe(subject, opts?.queue ? { queue: opts.queue } : undefined);
+    (lifecycleRegistry().natsSubscriptions ??= new Map()).set(subKey, sub);
 
     (async () => {
       for await (const msg of sub) {
-        try {
-          const text = new TextDecoder().decode(msg.data);
-          if (text === "") {
-            // Empty payload — skip parsing, call handler with null
-            await handler(null as T, msg);
-            continue;
+        const parentCtx = extractNatsContext(msg.headers);
+        const span = natsTracer.startSpan(
+          `nats.consume ${subject}`,
+          { kind: SpanKind.CONSUMER, attributes: { "messaging.system": "nats", "messaging.destination.name": subject } },
+          parentCtx,
+        );
+        await context.with(trace.setSpan(parentCtx, span), async () => {
+          try {
+            const text = new TextDecoder().decode(msg.data);
+            if (text === "") {
+              // Empty payload — skip parsing, call handler with null
+              await handler(null as T, msg);
+              return;
+            }
+            const data = extJsonParse<T>(text);
+            await handler(data, msg);
+          } catch (error) {
+            span.recordException(error as Error);
+            span.setStatus({ code: SpanStatusCode.ERROR });
+            logger.error(`Error processing message on "${subject}"`, { tags: ["nats"], error: error });
+          } finally {
+            span.end();
           }
-          const data = extJsonParse<T>(text);
-          await handler(data, msg);
-        } catch (error) {
-          console.error(`[NATS] Error processing message on "${subject}":`, error);
-        }
+        });
       }
     })();
 
     return sub;
   }
 
+
   /**
-   * Subscribe to a NATS subject with request-reply pattern.
-   * The handler receives the parsed request and returns a response that is
-   * automatically serialized with extJsonStringify and published back to
-   * `msg.reply` (if set).
+   * Ensure a JetStream stream exists (idempotent). Creates it if missing;
+   * if it already exists and the requested options differ (e.g. the
+   * `allow_msg_schedules` feature flag was added later), the stream config
+   * is UPDATED in place — "ensure" means the declared state holds, not just
+   * that the name exists. Requires the server to run with JetStream
+   * enabled (`nats -js`).
    *
-   * @param subject - NATS subject to subscribe to
-   * @param handler - Async function receiving parsed request, returning response
-   * @returns The NATS Subscription
-   *
-   * Example:
-   *   await NatsClient.subscribeRequest<SendEmailRequest, SendEmailResponse>(
-   *     "emailsender.send",
-   *     async (request) => {
-   *       return { requestId: request.requestId, success: true };
-   *     }
-   *   );
+   * @param name - Stream name (e.g. "WEBHOOK")
+   * @param subjects - Subjects bound to the stream (e.g. ["webhook.>"]). For
+   *   scheduled-message streams BOTH the schedule subjects AND the fire
+   *   targets must be covered (ADR-51).
+   * @param opts.allowMsgSchedules - ADR-51: enables `Nats-Schedule*` header
+   *   processing on this stream (requires JetStream API level ≥ 2, verified
+   *   on nats-server 2.14.3).
+   * @param opts.syncSubjects - reconcile the existing stream's `subjects`
+   *   list to the provided one when they differ (default false — creating
+   *   an existing stream is normally a no-op).
    */
-  static async subscribeRequest<TRequest = unknown, TResponse = unknown>(
-    subject: string,
-    handler: (request: TRequest, raw: Msg) => Promise<TResponse>,
-  ): Promise<Subscription> {
+  static async ensureStream(
+    name: string,
+    subjects: string[],
+    opts?: { allowMsgSchedules?: boolean; syncSubjects?: boolean },
+  ): Promise<void> {
     const nc = await NatsClient.getConnection();
-    const sub = nc.subscribe(subject);
+    const jsm = NatsClient.jsm ?? (await nc.jetstreamManager());
+    const config = {
+      name,
+      subjects,
+      ...(opts?.allowMsgSchedules ? { allow_msg_schedules: true } : {}),
+    } as Parameters<JetStreamManager["streams"]["add"]>[0];
+    try {
+      await jsm.streams.add(config);
+      return;
+    } catch (error) {
+      // 10058 = stream name already in use — fall through to reconcile.
+      const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
+      if (apiErr?.err_code !== 10058) throw error;
+    }
+    const wantsSchedules = opts?.allowMsgSchedules === true;
+    if (!wantsSchedules && !opts?.syncSubjects) return;
+    const info = await jsm.streams.info(name);
+    const cfg = info.config as unknown as Record<string, unknown>;
+    let changed = false;
+    if (wantsSchedules && !cfg.allow_msg_schedules) {
+      cfg.allow_msg_schedules = true;
+      changed = true;
+    }
+    if (
+      opts?.syncSubjects &&
+      extJsonStringify([...(cfg.subjects as string[] ?? [])].sort()) !==
+        extJsonStringify([...subjects].sort())
+    ) {
+      cfg.subjects = subjects;
+      changed = true;
+    }
+    if (changed) {
+      await jsm.streams.update(name, cfg as unknown as typeof info.config);
+    }
+  }
+
+  /**
+   * Publish a message to JetStream and await the PubAck (durable write
+   * confirmed server-side). Same Ext-JSON serialization and header
+   * propagation as `publish()`.
+   *
+   * @returns The stream sequence number assigned by JetStream.
+   */
+  static async jetstreamPublish(
+    subject: string,
+    data: unknown,
+    hdrs?: Record<string, string>,
+  ): Promise<bigint> {
+    const js = NatsClient.getJetStream();
+    const payload = new TextEncoder().encode(extJsonStringify(data));
+    const natsHeaders = headers();
+    if (hdrs) {
+      for (const [key, value] of Object.entries(hdrs)) {
+        natsHeaders.set(key, value);
+      }
+    }
+    injectIdentity(natsHeaders);
+    injectInto(natsHeaders);
+    const ack = await js.publish(subject, payload, { headers: natsHeaders });
+    return BigInt(ack.seq);
+  }
+
+  /**
+   * Subscribe to a JetStream stream via a durable pull consumer
+   * (at-least-once). Creates the durable consumer if missing
+   * (idempotent), then loops `fetch()`: auto-`ack()` after the handler
+   * resolves, `nak(5000)` (redelivery) when it throws.
+   *
+   * Shield model — the `verify` callback runs BEFORE the handler, same
+   * convention as NatsRouteVerify:
+   *   - returns `AuthUser` → verified, handler receives `authUser`
+   *   - returns `undefined` → verified, no user context (system lane)
+   *   - returns `null` → denied: `term()` — auth failures are TERMINAL,
+   *     redelivery would just re-deny (same policy as webhook-subscriber)
+   *   - throws → transient: `nak()` redelivery applies
+   *
+   * `consumer` tunes the durable: `ackWaitMs` is the redelivery delay (size
+   * it above the handler's worst case), `maxAckPending` caps in-flight
+   * messages (concurrency), `maxDeliver` bounds retries.
+   *
+   * @returns A handle whose `close()` stops the fetch loop.
+   */
+  static async jetstreamSubscribe<T = unknown>(opts: {
+    stream: string;
+    durable: string;
+    filterSubject: string;
+    consumer?: {
+      batch?: number;
+      fetchExpiresMs?: number;
+      ackWaitMs?: number;
+      maxDeliver?: number;
+      maxAckPending?: number;
+    };
+    verify?: (msg: {
+      subject?: string;
+      headers?: MsgHdrs;
+    }) => Promise<AuthUser | null | undefined>;
+    handler: (
+      data: T,
+      msg: {
+        subject: string;
+        headers?: MsgHdrs;
+        info: { redeliveryCount: number };
+        authUser?: AuthUser;
+      },
+    ) => Promise<void>;
+  }): Promise<{ close(): Promise<void> }> {
+    const js = NatsClient.getJetStream();
+    const jsm = NatsClient.jsm ?? (await (await NatsClient.getConnection()).jetstreamManager());
+    // Consumers may start before the ingress service has created the stream —
+    // retry on "stream not found" (10059) the same way the registrar retries
+    // service.register until the BE is up. Other errors are fatal.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await jsm.consumers.add(opts.stream, {
+          durable_name: opts.durable,
+          ack_policy: AckPolicy.Explicit,
+          filter_subject: opts.filterSubject,
+          ...(opts.consumer?.ackWaitMs !== undefined
+            ? { ack_wait: opts.consumer.ackWaitMs * 1e6 }
+            : {}),
+          ...(opts.consumer?.maxDeliver !== undefined
+            ? { max_deliver: opts.consumer.maxDeliver }
+            : {}),
+          ...(opts.consumer?.maxAckPending !== undefined
+            ? { max_ack_pending: opts.consumer.maxAckPending }
+            : {}),
+        });
+        break;
+      } catch (error) {
+        const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
+        // 10014/10148 = consumer name already in use — already ensured.
+        if (apiErr?.err_code === 10014 || apiErr?.err_code === 10148) break;
+        if (apiErr?.err_code === 10059) {
+          logger.warn(`JetStream stream "${opts.stream}" not found — retrying in 5s`, { tags: ["nats"], attempt });
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    let stopped = false;
+    const process = async (m: JsMsg): Promise<void> => {
+      const subject = m.subject;
+      const parentCtx = extractNatsContext(m.headers);
+      const span = natsTracer.startSpan(
+        `nats.consume ${subject}`,
+        { kind: SpanKind.CONSUMER, attributes: { "messaging.system": "nats", "messaging.destination.name": subject } },
+        parentCtx,
+      );
+      await context.with(trace.setSpan(parentCtx, span), async () => {
+        try {
+          let authUser: AuthUser | undefined;
+          if (opts.verify) {
+            const result = await opts.verify(m);
+            if (result === null) {
+              // Terminal denial — term() prevents pointless redelivery.
+              m.term();
+              return;
+            }
+            authUser = result;
+          }
+          const text = new TextDecoder().decode(m.data);
+          const data = text === "" ? (null as T) : extJsonParse<T>(text);
+          await opts.handler(data, {
+            subject,
+            headers: m.headers,
+            info: { redeliveryCount: m.info.redeliveryCount },
+            authUser,
+          });
+          m.ack();
+        } catch (error) {
+          span.recordException(error as Error);
+          span.setStatus({ code: SpanStatusCode.ERROR });
+          logger.error(`Error processing JetStream message on "${subject}"`, { tags: ["nats"], error: error });
+          m.nak(5000);
+        } finally {
+          span.end();
+        }
+      });
+    };
 
     (async () => {
-      for await (const msg of sub) {
-        let requestId: string | undefined;
+      while (!stopped && NatsClient.isConnected()) {
         try {
-          const text = new TextDecoder().decode(msg.data);
-          const request = extJsonParse<TRequest>(text);
-          requestId = (request as { requestId?: string })?.requestId;
-          const response = await handler(request, msg);
-          if (msg.reply) {
-            const payload = new TextEncoder().encode(extJsonStringify(response));
-            nc.publish(msg.reply, payload);
+          const batch = js.fetch(opts.stream, opts.durable, { batch: 10, expires: 5000 });
+          for await (const m of batch) {
+            if (stopped) {
+              m.nak();
+              continue;
+            }
+            await process(m);
           }
         } catch (error) {
-          console.error(`[NATS] Error processing request on "${subject}":`, error);
-          if (msg.reply) {
-            const errorResponse = {
-              success: false,
-              error: error instanceof Error ? error.message : "Unknown error",
-              requestId,
-            };
-            const payload = new TextEncoder().encode(extJsonStringify(errorResponse));
-            nc.publish(msg.reply, payload);
-          }
+          if (stopped) break;
+          logger.error(`JetStream fetch failed on ${opts.stream}/${opts.durable}`, { tags: ["nats"], error: error });
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
     })();
 
-    return sub;
+    return {
+      async close(): Promise<void> {
+        stopped = true;
+      },
+    };
   }
 }

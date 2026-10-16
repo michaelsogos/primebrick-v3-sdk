@@ -1,0 +1,179 @@
+---
+title: NATS™ Client
+description: Singleton NATS™ connection manager with Ext-JSON publish, subscribe, and request-reply.
+---
+
+# NATS™ Client
+
+`NatsClient` is a singleton connection manager for NATS™. All `publish()`,
+`subscribe()`, and `subscribeRequest()` methods use Ext-JSON serialization
+automatically — consumers pass plain TypeScript® objects and receive plain
+TypeScript® objects. BigInt values are preserved across the wire.
+
+## Connection
+
+```ts
+import { NatsClient } from "@primebrick/sdk";
+
+// Connect using NATS_URL env var (or pass a URL explicitly)
+await NatsClient.getConnection();
+// or: await NatsClient.getConnection("nats://broker:4222");
+
+// Check if the connection is alive
+NatsClient.isConnected(); // boolean
+
+// Server metadata (from the INFO handshake) — useful for health checks + startup logs
+NatsClient.getServerVersion(); // "2.14.3" or null
+NatsClient.getServerUrl();     // "nats://broker:4222" or null
+
+// Close on shutdown
+await NatsClient.close();
+```
+
+The connection is a singleton — subsequent `getConnection()` calls return the
+existing connection. The JetStream client is also available via
+`getJetStream()` (throws if `getConnection()` was not called first).
+
+`getConnection()` logs a `[startup] NATS <version> connected (<url>)` banner
+automatically. Use `NatsClient.getServerVersion()` in your health check so the
+`/health` response includes the NATS server version:
+
+```ts
+import { HealthCheck } from "@primebrick/sdk";
+
+const healthCheck = new HealthCheck(dbPing, {
+  nats: async () => ({
+    ok: NatsClient.isConnected(),
+    version: NatsClient.getServerVersion() ?? undefined,
+  }),
+});
+```
+
+See [HTTP Server](http-server) for the full `HealthResponse` shape.
+
+## Publish
+
+Publish a message with automatic Ext-JSON serialization. Optional headers can
+be attached (e.g. auth headers for GATEWAY-RESOLVED mode).
+
+```ts
+// Without headers
+await NatsClient.publish("customer.created", { entity_id: 42n, action: "CREATED" });
+
+// With auth headers (BE publishing to a microservice)
+const authHeaders = buildNatsAuthHeaders(user, config);
+await NatsClient.publish("emailsender.send", requestBody, authHeaders);
+```
+
+BigInt values are serialized as JSON numbers (`42n` → `42` in the wire format)
+and parsed back to `bigint` on the receiving end.
+
+## Subscribe
+
+Subscribe to a subject with automatic Ext-JSON deserialization. The handler
+receives a typed object — no manual decode/parse.
+
+```ts
+await NatsClient.subscribe<SendEmailRequest>(
+  "emailsender.send",
+  async (request, raw) => {
+    console.log(`Received: ${request.requestId}`);
+    // request.entity_id is bigint if present in the payload
+  },
+);
+```
+
+Empty payloads are passed as `null` to the handler. Processing errors are
+caught and logged — they do not crash the subscription loop.
+
+### Queue groups — work items vs broadcasts
+
+Pass `{ queue }` when a message is a **work item** that exactly one replica
+must process. Leave it unset for **broadcasts** every instance must receive.
+
+```ts
+// Work item — one emailsender replica sends each request
+await NatsClient.subscribe("emailsender.send", handler, { queue: "emailsender" });
+
+// Broadcast — EVERY live service must observe this (no queue!)
+await NatsClient.subscribe("service.gateway_online", handler);
+```
+
+Rules of thumb:
+
+- **Queued (work):** commands/jobs (`emailsender.send`), lifecycle subjects
+  processed by the singleton gateway (`service.register` req/reply —
+  the queue also prevents duplicate replies), req/res responders.
+- **Unqueued (broadcast):** events every replica's local state depends on —
+  `service.gateway_online`, `config.changed`, `client_shield_registry.changed`,
+  per-instance registry caches.
+- JetStream consumers already have durable identity semantics — queue
+  groups do not apply.
+
+### Hot-reload deduplication
+
+Under watch-mode reloads (`bun --hot`, `tsx watch`) the NATS connection
+singleton survives while new service instances re-subscribe. `subscribe()`
+and `subscribeRequest()` dedupe by `subject::queue` at process level: the
+new subscription **replaces** the previous one instead of stacking, so a
+reloaded service never receives the same message twice.
+
+## Request-reply (responder side)
+
+`subscribeRequest()` implements the NATS™ request-reply pattern on the
+responder side. The handler receives the parsed request and returns a response
+that is automatically serialized and published to `msg.reply`.
+
+```ts
+await NatsClient.subscribeRequest<SendEmailRequest, SendEmailResponse>(
+  "emailsender.send",
+  async (request, raw) => {
+    return { requestId: request.requestId, success: true };
+  },
+);
+```
+
+If the handler throws, an error response `{ success: false, error, requestId }`
+is published back to the reply subject (if set).
+
+## Request-reply (caller side)
+
+`request()` is the caller-side counterpart — send a request and wait for the
+response. The request is serialized with `extJsonStringify`, the response is
+parsed with `extJsonParse`. Pass `null` or `undefined` for an empty request.
+
+```ts
+import { NatsClient } from "@primebrick/sdk";
+
+// Fetch shared config from the BE (the BE subscribes via subscribeSharedConfig)
+const config = await NatsClient.request<SharedConfig>("config.get", null, 5000);
+// → { auth_mode: "STANDALONE", casdoor_endpoint: "...", redis_url: "..." }
+
+// Send a request with a payload
+const result = await NatsClient.request<SendEmailResponse>(
+  "emailsender.send",
+  { requestId: "req-1", to: "alice@example.com", template: "welcome" },
+  10_000,
+);
+```
+
+If the responder doesn't reply within `timeoutMs`, the promise rejects with a
+NATS timeout error. The default timeout is 5000ms.
+
+## Shared config over NATS™
+
+The SDK uses `request()` internally for the BE→microservice config sharing
+protocol. The BE subscribes to `config.get` via `subscribeSharedConfig()` and
+responds with the `SharedConfig` payload; microservices call
+`fetchSharedConfig()` (which wraps `NatsClient.request("config.get", null)`)
+at startup to get their `auth_mode`, `casdoor_endpoint`, `redis_url`, etc. See
+[Config tables](config-tables) for the full protocol.
+
+## Next steps
+
+- [Authentication](authentication) — verifyNatsMessage and auth headers
+- [Service Registration](service-registration) — lifecycle events over NATS™
+- [Config tables](config-tables) — the `config.get` request-reply protocol
+- [HTTP Server](http-server) — using `getServerVersion()` in the health check
+- [Ext-JSON](ext-json) — how BigInt serialization works
+- [API Reference](api-reference) — NatsClient method signatures

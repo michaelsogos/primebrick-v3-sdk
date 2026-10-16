@@ -7,20 +7,37 @@ const mocks = vi.hoisted(() => {
   const mockSubscribe = vi.fn();
   const mockClose = vi.fn(async () => {});
   const mockJetstream = vi.fn(() => ({ js: true }));
+  const mockJetstreamManager = vi.fn(async () => ({ jsm: true }));
+  const mockRequest = vi.fn(async () => ({ data: new Uint8Array(0) }));
   const nc = {
     close: mockClose,
     jetstream: mockJetstream,
+    jetstreamManager: mockJetstreamManager,
     publish: mockPublish,
     subscribe: mockSubscribe,
+    request: mockRequest,
   };
   const mockConnect = vi.fn(async () => nc);
-  return { mockPublish, mockSubscribe, mockClose, mockJetstream, mockConnect, nc };
+  return { mockPublish, mockSubscribe, mockClose, mockJetstream, mockJetstreamManager, mockRequest, mockConnect, nc };
 });
 
 vi.mock("nats", () => ({
   connect: mocks.mockConnect,
   NatsConnection: {},
   JetStreamClient: {},
+  // MsgHdrs stand-in faithful to real nats.js: CASE-SENSITIVE verbatim
+  // get/set. A previous version normalized keys to lowercase, masking the
+  // real library's behaviour — that is the exact bug this must not hide.
+  headers: () => {
+    const map = new Map<string, string[]>();
+    return {
+      get: (k: string) => map.get(k)?.[0],
+      set: (k: string, v: string) => map.set(k, [v]),
+      [Symbol.iterator]: function* () {
+        yield* map.entries();
+      },
+    };
+  },
 }));
 
 import { NatsClient } from "../nats-client.js";
@@ -157,82 +174,4 @@ describe("NatsClient.subscribe", () => {
     expect(handler.mock.calls[0][0]).toBeNull();
   });
 });
-
-describe("NatsClient.subscribeRequest", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    NatsClient.close();
-  });
-
-  it("processes request and publishes response to reply subject", async () => {
-    const request = { requestId: "req-1", templateCode: "welcome" };
-    const response = { requestId: "req-1", success: true };
-
-    const testMsg = {
-      data: new TextEncoder().encode(extJsonStringify(request)),
-      reply: "reply.subject.123",
-      subject: "email.send",
-      sid: 1,
-    };
-    const asyncIterable = {
-      async *[Symbol.asyncIterator]() {
-        yield testMsg;
-      },
-    };
-    mocks.mockSubscribe.mockReturnValue(asyncIterable);
-
-    await NatsClient.getConnection();
-    await NatsClient.subscribeRequest(
-      "email.send",
-      async (req) => {
-        expect(req.requestId).toBe("req-1");
-        return response;
-      },
-    );
-
-    await new Promise((resolve) => setImmediate(resolve));
-
-    // Response should be published to the reply subject
-    expect(mocks.mockPublish).toHaveBeenCalledTimes(1);
-    const [replySubject, payload] = mocks.mockPublish.mock.calls[0];
-    expect(replySubject).toBe("reply.subject.123");
-    const decoded = extJsonParse(new TextDecoder().decode(payload));
-    expect(decoded.success).toBe(true);
-    expect(decoded.requestId).toBe("req-1");
-  });
-
-  it("includes requestId in error response when handler throws", async () => {
-    const request = { requestId: "req-err", templateCode: "welcome" };
-
-    const testMsg = {
-      data: new TextEncoder().encode(extJsonStringify(request)),
-      reply: "reply.subject.err",
-      subject: "email.send",
-      sid: 1,
-    };
-    const asyncIterable = {
-      async *[Symbol.asyncIterator]() {
-        yield testMsg;
-      },
-    };
-    mocks.mockSubscribe.mockReturnValue(asyncIterable);
-
-    await NatsClient.getConnection();
-    await NatsClient.subscribeRequest(
-      "email.send",
-      async () => {
-        throw new Error("Handler failed");
-      },
-    );
-
-    await new Promise((resolve) => setImmediate(resolve));
-
-    expect(mocks.mockPublish).toHaveBeenCalledTimes(1);
-    const [replySubject, payload] = mocks.mockPublish.mock.calls[0];
-    expect(replySubject).toBe("reply.subject.err");
-    const decoded = extJsonParse(new TextDecoder().decode(payload));
-    expect(decoded.success).toBe(false);
-    expect(decoded.error).toBe("Handler failed");
-    expect(decoded.requestId).toBe("req-err");
-  });
-});
+

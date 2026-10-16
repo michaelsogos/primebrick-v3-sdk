@@ -1,0 +1,81 @@
+---
+title: Entity Router
+description: "makeEntityRouter — the canonical CRUD route factory for /api/v1/entities/{name}: permission-declared routes, the {entity} write envelope, guards, and the derived meta.actions vocabulary."
+---
+
+# Entity router
+
+`http/entity-router.ts` exposes `makeEntityRouter` — the US-edition of the
+BE's entity CRUD factory. Feed it a service implementing
+`EntityServiceLike` and it emits governed `RpcRoute[]` carrying the
+factory brand `createMicroservice` requires: the same route table, the
+same mandatory chain (auth → RBAC → validation → **one** service call →
+RFC 7807), zero boilerplate per entity.
+
+## The 12 actions — declared by permissions
+
+A route exists **iff** its permission is declared — the permission IS the
+registration, exactly like the BE:
+
+| Action | Route | Service call |
+|---|---|---|
+| `meta` | `GET /meta` | assembled meta + derived `actions` |
+| `list` | `GET /list` | `service.list(query)` |
+| `create` | `POST /` | `service.create(entity)` → 201 |
+| `duplicate` | `POST /duplicate` | `service.duplicate(uuids)` — ON by default (pass `duplicate: false` to disable) |
+| `bulkDelete` | `POST /bulk-delete` | `service.bulkDelete(items)` |
+| `bulkRestore` | `POST /bulk-restore` | `service.bulkRestore(items)` |
+| `get` | `GET /:uuid` | `service.get(uuid)` |
+| `update` | `PUT /:uuid` | `service.update(uuid, entity)` |
+| `delete` | `DELETE /:uuid` | `service.delete(uuid, ?version)` |
+| `purge` | `DELETE /:uuid/purge` | `service.purge(uuid, ?version)` |
+| `restore` | `POST /:uuid/restore` | `service.restore(uuid, ?version)` |
+| `audit` | `GET /:uuid/audit` | `service.audit(uuid, page, limit)` |
+
+`meta.actions` is **derived** from the registered ops using the canonical
+vocabulary (`list`, `create.single`, `update.single`, `delete.single`,
+`purge.single`, `restore.single`, `read.audit`, `export`, `delete.bulk`,
+`restore.bulk`, `duplicate.bulk`) — the FE reads the same op names it gets
+from the BE; ops not registered appear `enabled: false`.
+
+## The contract
+
+```ts
+makeEntityRouter({
+  entityName: "ai_model",            // → /api/v1/entities/ai_model/*
+  service: aiModelService,           // EntityServiceLike — structural (dal-pg satisfies it)
+  permissions: { list: [...], get: [...], create: [...], ... },
+  meta: { ... },                     // static meta → GET /meta (+ actions derived)
+  auditable: true,                   // drives meta.collaboration.enabled
+  schemas: { createBody, updateBody, listQuery, auditQuery, duplicateBody },
+  guards: { delete: mfaGuard },      // async hook before the service call
+})
+```
+
+`EntityServiceLike` is a structural interface — the SDK cannot import
+`@primebrick/dal-pg` (dependency direction is dal → sdk), so dal-pg's
+`makeEntityService` output satisfies it without any coupling.
+
+## Deliberate differences from the BE edition
+
+- **Plain validators** — schemas are `(raw) => T` functions; the SDK is
+  zod-free, the service injects `schema.parse` bound to its own validator.
+- **`{entity}`-only writes** — the BE's `{entity, translations}` envelope
+  becomes `{entity}`: translation piggyback writes are gateway-owned
+  (translations live in the BE's system schema). A US entity route MUST
+  NOT accept a `translations` key — write schemas should `.strict()`.
+- **`guards` replaces Express middlewares** — per-action async hooks
+  inside the mandatory chain (the MFA step-up consume is the canonical
+  use).
+- **No write-tx orchestration** — with no translations piggyback, writes
+  are single-call.
+- **Bracket-notation queries** — `parseBracketQuery` turns
+  `filters[0][field]=x&filters[0][op]=%3D` into structured objects, the
+  same surface the FE produces against the BE.
+
+## See also
+
+- [rpc-router](./rpc-router.mdx) — the route shape, middleware chain and
+  factory-brand rules these routes inherit
+- [openapi-generation](./openapi-generation.mdx) — `entityCrudSpec`
+  documents the same op set so the spec matches the registered routes

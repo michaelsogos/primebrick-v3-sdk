@@ -1,0 +1,53 @@
+---
+title: Currency Utilities
+description: "ISO-4217 currency metadata and localized money formatting — getCurrencyInfo, currencySymbol, currencyDecimals, getAllCurrencies, defaultCurrencyForLang, formatMoney."
+---
+
+# Currency utilities
+
+`currency/currency-helpers.ts` is a small, dependency-free ISO-4217 helper
+set. Use it whenever a UI or an export must display money correctly for a
+given currency code — never hardcode `€`/`$` or assume 2 decimals.
+
+## API
+
+| Function | Signature | Returns |
+|---|---|---|
+| `getCurrencyInfo(code)` | `(code: string)` | `CurrencyInfo \| null` — `{code, symbol, symbolNative, decimals, name}` |
+| `currencySymbol(code)` | `(code: string)` | `string` — `"EUR"`→`"€"`; falls back to the code itself |
+| `currencyDecimals(code)` | `(code: string)` | `number` — `"JPY"`→`0`, `"KWD"`→`3`; falls back to `2` |
+| `getAllCurrencies()` | `()` | `CurrencyInfo[]` — the full supported table |
+| `defaultCurrencyForLang(lang)` | `(lang: string)` | `string` — uses the **region** of the lang (`"en-US"`→`"USD"`, `"it-IT"`→`"EUR"`); bare `"en"` or unknown → `"EUR"` |
+| `formatMoney(amount, lang, currency)` | `(number \| null \| undefined, string, string)` | localized string via `Intl.NumberFormat` |
+
+## Examples
+
+```ts
+import { formatMoney, currencyDecimals, currencySymbol } from "@primebrick/sdk";
+
+formatMoney(1234.5, "it-IT", "EUR");  // "1.234,50 €"
+formatMoney(1234.5, "en-US", "USD");  // "$1,234.50"
+formatMoney(1000,   "ja-JP", "JPY");  // "¥1,000"  (0 decimals — correct for JPY)
+formatMoney(null,   "it-IT", "EUR");  // ""        (null-safe for empty cells)
+
+currencyDecimals("KWD"); // 3 — Kuwaiti dinar has three decimal places
+currencySymbol("GBP");   // "£"
+defaultCurrencyForLang("en-US"); // "USD" — region-aware
+defaultCurrencyForLang("fr");    // "EUR" — no region → safe default
+```
+
+## What it does NOT do
+
+- **No conversion** — it formats amounts, it doesn't exchange them. A
+  `formatMoney(100, ..., "USD")` of a €100 amount is just "100" in USD
+  clothing; conversion rates are a service concern, not a formatter's.
+- **No rounding logic of your own** — always pass the raw amount; the
+  formatter applies the currency's native precision.
+
+## Alternatives for other cases
+
+- Need a bare number (CSV export, API payload)? Emit the raw numeric value
+  — format only at the presentation edge.
+- Need arbitrary decimal precision unrelated to the currency's standard?
+  Use `Intl.NumberFormat` directly — `formatMoney` intentionally pins
+  `min/maxFractionDigits` to the currency's real decimals.

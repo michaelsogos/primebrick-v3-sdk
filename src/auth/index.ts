@@ -21,16 +21,35 @@ export { verifyAccessToken, resetOidcRuntimeForTest } from "./oidc-verifier.js";
 export { Permission, isPermissionSentinel, listNonSentinelPermissions, matchesWildcard, isPermissionGranted, expandPermissions, type Permission as PermissionType } from "./permissions.js";
 
 // Session context
-export { runWithSession, getSession, requireActor, runAsSystem, SYSTEM_ACTOR, type Session } from "./session-context.js";
+export { runWithSession, getSession, requireActor, runAsSystem, systemAuthUser, SYSTEM_ACTOR, type Session } from "./session-context.js";
 
 // Ports
 export { type AuthConfigPort } from "./ports/auth-config-port.js";
 export { type UserResolverPort, type ResolveInput } from "./ports/user-resolver-port.js";
 export { type RoleMappingPort, type RoleMappingEntry } from "./ports/role-mapping-port.js";
 export { type ApiKeyPort, type ApiKeyRecord } from "./ports/api-key-port.js";
+export { NatsApiKeyPort } from "./ports/nats-api-key-port.js";
+export {
+  CachingApiKeyPort,
+  type ApiKeyCacheSource,
+} from "./ports/caching-api-key-port.js";
+export { apiKeyCacheKey, API_KEY_CACHE_TTL_MS } from "./api-key-cache.js";
 
 // Auth config cache
 export { initAuthConfig, loadAuthConfig, getAuthConfig, invalidateAuthConfig, resetAuthConfigForTest } from "./auth-config-cache.js";
+
+// MFA step-up (US endpoints)
+export {
+  MFA_ACTION_AUTH_HEADER,
+  AUTH_MFA_CONSUME_SUBJECT,
+  assertMfaStepUp,
+  consumeMfaActionAuthorization,
+  MfaStepUpRequiredError,
+  MfaConsumeUnavailableError,
+  type MfaStepUpSpec,
+  type MfaConsumeResult,
+  type MfaConsumeFn,
+} from "./mfa-step-up.js";
 
 // Core verification
 export { verifyAuth, verifyAuthGatewayResolved, AuthError, type AuthPorts } from "./verify.js";

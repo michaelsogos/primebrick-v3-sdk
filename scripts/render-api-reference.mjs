@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Deterministic renderer: reads docs/user-guide/_extracted/api.json (TypeDoc)
- * and writes docs/user-guide/api-reference.mdx.
+ * Deterministic renderer: reads docs/dev-guide/_extracted/api.json (TypeDoc)
+ * and writes docs/dev-guide/api-reference.mdx.
  *
  * No prose, no examples — just signatures and types in MDX tables.
  */
@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
-const apiJsonPath = join(root, 'docs', 'user-guide', '_extracted', 'api.json');
-const outPath = join(root, 'docs', 'user-guide', 'api-reference.mdx');
+const apiJsonPath = join(root, 'docs', 'dev-guide', '_extracted', 'api.json');
+const outPath = join(root, 'docs', 'dev-guide', 'api-reference.mdx');
 
 const data = JSON.parse(readFileSync(apiJsonPath, 'utf8'));
 const children = data.children || [];
@@ -260,7 +260,7 @@ description: Complete API reference for @primebrick/sdk — every exported symbo
 # API Reference
 
 Every exported symbol from \`@primebrick/sdk\`, rendered mechanically from the
-TypeDoc extraction. This page is regenerated from \`docs/user-guide/_extracted/api.json\`
+TypeDoc extraction. This page is regenerated from \`docs/dev-guide/_extracted/api.json\`
 on every \`pnpm extract-docs\` run — do not edit by hand.
 
 `;
