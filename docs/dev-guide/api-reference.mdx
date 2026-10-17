@@ -16,14 +16,14 @@ on every `pnpm extract-docs` run — do not edit by hand.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| internal_code | string |  |
+| internal_code | `string` |  |
 
 #### `AuthError(internal_code, message)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| internal_code | string |  |
-| message | string |  |
+| internal_code | `string` |  |
+| message | `string` |  |
 
 ### `CacheKeyBuilder`
 
@@ -70,7 +70,7 @@ Reads the snake_case table name from `Reflect.getMetadata("primebrick:tableName"
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityClass | (args: any[]) => any |  |
+| entityClass | `(args: any[]) => any` |  |
 
 #### `CacheKeyBuilder.forRowFromMeta(entityClass, row): string \| null`
 
@@ -82,8 +82,8 @@ throw if the class has NO key source at all (genuine misconfiguration).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityClass | (args: any[]) => any |  |
-| row | Record<string, unknown> |  |
+| entityClass | `(args: any[]) => any` |  |
+| row | `Record<string, unknown>` |  |
 
 ### `CachingApiKeyPort`
 
@@ -91,8 +91,8 @@ throw if the class has NO key source at all (genuine misconfiguration).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| inner | ApiKeyPort |  |
-| cache | ApiKeyCacheSource |  |
+| inner | `ApiKeyPort` |  |
+| cache | `ApiKeyCacheSource` |  |
 
 #### `CachingApiKeyPort.findByHash(hash): Promise<ApiKeyRecord \| null>`
 
@@ -100,25 +100,25 @@ Find an API key by its SHA-256 hash. Returns null if not found.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| hash | string |  |
+| hash | `string` |  |
 
-### `ClientShieldRegistry`
+### `ClientRegistry`
 
-#### `ClientShieldRegistry.start(): Promise<void>`
+#### `ClientRegistry.start(): Promise<void>`
 
 Subscribe to invalidation events first, then keep retrying the snapshot
 until the BE answers — the BE may be down at boot (same stateless-retry
 model as service.register). Non-blocking: until the first snapshot lands
 the allowlist is empty and every internal call is rejected (fail-closed).
 
-#### `ClientShieldRegistry.verifyKey(uaPrefix, presentedKey): boolean`
+#### `ClientRegistry.verifyKey(uaPrefix, presentedKey): boolean`
 
 Constant-time-ish hash comparison for the matched UA prefix.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| uaPrefix | string |  |
-| presentedKey | string |  |
+| uaPrefix | `string` |  |
+| presentedKey | `string` |  |
 
 ### `ConfigLoader`
 
@@ -137,7 +137,7 @@ Call invalidate() to force a reload on next load().
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| repo | ConfigRepositoryPort |  |
+| repo | `ConfigRepositoryPort` |  |
 
 #### `ConfigLoader.load(): Promise<Record<string, string \| null>>`
 
@@ -151,7 +151,7 @@ Throws if load() has not been called.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
+| key | `string` |  |
 
 #### `ConfigLoader.require(key): string`
 
@@ -159,7 +159,7 @@ Get a config value, throwing if it's missing or empty.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
+| key | `string` |  |
 
 #### `ConfigLoader.getTyped(key, converter): T \| null`
 
@@ -168,8 +168,8 @@ Returns null if the key is missing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
-| converter | (v: string) => T |  |
+| key | `string` |  |
+| converter | `(v: string) => T` |  |
 
 #### `ConfigLoader.requireTyped(key, converter): T`
 
@@ -177,8 +177,8 @@ Get a typed config value, throwing if it's missing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
-| converter | (v: string) => T |  |
+| key | `string` |  |
+| converter | `(v: string) => T` |  |
 
 #### `ConfigLoader.getAll(): Record<string, string \| null>`
 
@@ -196,18 +196,18 @@ passes it to the FE, which translates it using the current locale.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| error_label_key | string | i18n translation key for the error message (e.g. "app.common.validation.invalidBigint"). |
-| rule | string | Which rule failed (min, max, url, email, regex, required, type). |
-| config_key | string | The config key that failed validation (for context). |
+| error_label_key | `string` | i18n translation key for the error message (e.g. "app.common.validation.invalidBigint"). |
+| rule | `string` | Which rule failed (min, max, url, email, regex, required, type). |
+| config_key | `string` | The config key that failed validation (for context). |
 
 #### `ConfigValidationError(error_label_key, rule, config_key, message)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| error_label_key | string |  |
-| rule | string |  |
-| config_key | string |  |
-| message | string |  |
+| error_label_key | `string` |  |
+| rule | `string` |  |
+| config_key | `string` |  |
+| message | `string` |  |
 
 ### `GracefulShutdown`
 
@@ -225,7 +225,7 @@ Pure Node.js — no DB dependency. The consumer registers cleanup functions
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| serviceName | string |  |
+| serviceName | `string` |  |
 
 #### `GracefulShutdown.addCleanup(fn)`
 
@@ -233,7 +233,7 @@ Register a cleanup function to run on shutdown.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| fn | CleanupFn |  |
+| fn | `CleanupFn` |  |
 
 #### `GracefulShutdown.install()`
 
@@ -247,8 +247,8 @@ the process registry instead of stacking (observed: N reloads → N
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| reason | string |  |
-| code | number |  |
+| reason | `string` |  |
+| code | `number` |  |
 
 ### `HealthCheck`
 
@@ -266,8 +266,8 @@ the BE (Express) and US (createHttpServer) `/health` endpoints.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| dbPing | HealthCheckPort |  |
-| customChecks | Record<string, () => Promise<HealthCheckResult>> |  |
+| dbPing | `HealthCheckPort` |  |
+| customChecks | `Record<string, () => Promise<HealthCheckResult>>` |  |
 
 #### `HealthCheck.checkDb(): Promise<HealthCheckResult>`
 
@@ -277,7 +277,7 @@ the BE (Express) and US (createHttpServer) `/health` endpoints.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| results | Record<string, HealthCheckResult> |  |
+| results | `Record<string, HealthCheckResult>` |  |
 
 #### `HealthCheck.toResponse(service, version, url): Promise<HealthResponse>`
 
@@ -286,9 +286,9 @@ Used by both BE and US `/health` endpoints.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| service | string |  |
-| version | string |  |
-| url | string |  |
+| service | `string` |  |
+| version | `string` |  |
+| url | `string` |  |
 
 ### `HttpHeaderProvider`
 
@@ -298,13 +298,13 @@ Adapter for raw Node.js HTTP IncomingMessage (microservices using createHttpServ
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| req | IncomingMessage |  |
+| req | `IncomingMessage` |  |
 
 #### `HttpHeaderProvider.getHeader(name): string \| undefined`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| name | string |  |
+| name | `string` |  |
 
 ### `MfaConsumeUnavailableError`
 
@@ -314,7 +314,7 @@ The BE consume route could not be reached — transient, NOT a denial.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| cause | unknown |  |
+| cause | `unknown` |  |
 
 ### `MfaStepUpRequiredError`
 
@@ -325,16 +325,16 @@ FE re-runs the step-up dialog.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| internal_code | string |  |
-| action | string |  |
-| target_resource | string |  |
+| internal_code | `string` |  |
+| action | `string` |  |
+| target_resource | `string` |  |
 
 #### `MfaStepUpRequiredError(spec, code)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| spec | MfaStepUpSpec |  |
-| code | string |  |
+| spec | `MfaStepUpSpec` |  |
+| code | `string` |  |
 
 ### `NatsApiKeyPort`
 
@@ -342,7 +342,8 @@ FE re-runs the step-up dialog.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| timeoutMs | number | NATS correlation timeout. Keep it short: this port   backs authentication prechecks — fail fast, fail closed. |
+| timeoutMs | `number` | NATS correlation timeout. Keep it short: this port
+  backs authentication prechecks — fail fast, fail closed. |
 
 #### `NatsApiKeyPort.findByHash(hash): Promise<ApiKeyRecord \| null>`
 
@@ -350,7 +351,7 @@ Find an API key by its SHA-256 hash. Returns null if not found.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| hash | string |  |
+| hash | `string` |  |
 
 ### `NatsClient`
 
@@ -370,7 +371,7 @@ directly.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| url | string |  |
+| url | `string` |  |
 
 #### `NatsClient.getJetStream(): JetStreamClient`
 
@@ -399,9 +400,9 @@ and encoded as UTF-8 before publishing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| subject | string | NATS subject (e.g. "emailsender.send", "customer.created") |
-| data | unknown | Any serializable object (bigint values are preserved) |
-| hdrs | Record<string, string> |  |
+| subject | `string` | NATS subject (e.g. "emailsender.send", "customer.created") |
+| data | `unknown` | Any serializable object (bigint values are preserved) |
+| hdrs | `Record<string, string>` |  |
 
 #### `NatsClient.subscribe(subject, handler, opts): Promise<Subscription>`
 
@@ -411,9 +412,9 @@ Each incoming message is decoded from UTF-8 and parsed with extJsonParse
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| subject | string | NATS subject to subscribe to |
-| handler | (data: T, raw: Msg) => Promise<void> | Async function receiving the parsed message data and raw Msg |
-| opts | { queue: string } |  |
+| subject | `string` | NATS subject to subscribe to |
+| handler | `(data: T, raw: Msg) => Promise<void>` | Async function receiving the parsed message data and raw Msg |
+| opts | `{ queue: string }` |  |
 
 #### `NatsClient.ensureStream(name, subjects, opts): Promise<void>`
 
@@ -426,9 +427,11 @@ enabled (`nats -js`).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| name | string | Stream name (e.g. "WEBHOOK") |
-| subjects | string[] | Subjects bound to the stream (e.g. ["webhook.>"]). For   scheduled-message streams BOTH the schedule subjects AND the fire   targets must be covered (ADR-51). |
-| opts | { allowMsgSchedules: boolean; syncSubjects: boolean } |  |
+| name | `string` | Stream name (e.g. "WEBHOOK") |
+| subjects | `string[]` | Subjects bound to the stream (e.g. ["webhook.&#62;"]). For
+  scheduled-message streams BOTH the schedule subjects AND the fire
+  targets must be covered (ADR-51). |
+| opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean }` |  |
 
 #### `NatsClient.jetstreamPublish(subject, data, hdrs): Promise<bigint>`
 
@@ -438,9 +441,9 @@ propagation as `publish()`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| subject | string |  |
-| data | unknown |  |
-| hdrs | Record<string, string> |  |
+| subject | `string` |  |
+| data | `unknown` |  |
+| hdrs | `Record<string, string>` |  |
 
 #### `NatsClient.jetstreamSubscribe(opts): Promise<{ close:  }>`
 
@@ -463,7 +466,7 @@ messages (concurrency), `maxDeliver` bounds retries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | { stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<void> } |  |
+| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<void> }` |  |
 
 ### `NatsHeaderProvider`
 
@@ -473,13 +476,13 @@ Adapter for NATS Msg headers (NATS subscribers).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| msg | Msg |  |
+| msg | `Msg` |  |
 
 #### `NatsHeaderProvider.getHeader(name): string \| undefined`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| name | string |  |
+| name | `string` |  |
 
 ### `RbacDeniedError`
 
@@ -487,15 +490,15 @@ Error thrown when RBAC check fails.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| missing | string[] |  |
-| required | typeOperator |  |
+| missing | `string[]` |  |
+| required | `typeOperator` |  |
 
 #### `RbacDeniedError(missing, required)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| missing | string[] |  |
-| required | typeOperator |  |
+| missing | `string[]` |  |
+| required | `typeOperator` |  |
 
 ### `RedisCachePort`
 
@@ -507,7 +510,7 @@ conditions (key not found → return `null`, not throw).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| redis | RedisClientType |  |
+| redis | `RedisClientType` |  |
 
 #### `RedisCachePort.get(key): Promise<T \| null>`
 
@@ -515,7 +518,7 @@ Read a value from the cache.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
+| key | `string` |  |
 
 #### `RedisCachePort.set(key, value, ttl): Promise<void>`
 
@@ -523,9 +526,13 @@ Write a value to the cache.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
-| value | T |  |
-| ttl | number | Time-to-live in milliseconds. **Omit for no expiry** — use this ONLY for   genuinely immutable data (the cached value can never change). For mutable data,   pick a TTL that bounds the staleness window if Redis is intermittently unavailable   during invalidation. Recommended starting point for mutable data: `300_000` (5 min).   There is NO implicit default — omitting `ttl` means "no TTL, immutable". |
+| key | `string` |  |
+| value | `T` |  |
+| ttl | `number` | Time-to-live in milliseconds. **Omit for no expiry** — use this ONLY for
+  genuinely immutable data (the cached value can never change). For mutable data,
+  pick a TTL that bounds the staleness window if Redis is intermittently unavailable
+  during invalidation. Recommended starting point for mutable data: `300_000` (5 min).
+  There is NO implicit default — omitting `ttl` means "no TTL, immutable". |
 
 #### `RedisCachePort.del(key): Promise<void>`
 
@@ -533,7 +540,7 @@ Delete a single key. No-op if the key does not exist.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
+| key | `string` |  |
 
 #### `RedisCachePort.delByPrefix(prefix): Promise<void>`
 
@@ -543,7 +550,7 @@ Implementations should use SCAN + DEL (not KEYS) to avoid blocking Redis.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| prefix | string |  |
+| prefix | `string` |  |
 
 #### `RedisCachePort.ping(): Promise<boolean>`
 
@@ -559,8 +566,8 @@ Implementations should NOT throw — return false on any error.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| redis | RedisClientType |  |
-| ttlMs | number |  |
+| redis | `RedisClientType` |  |
+| ttlMs | `number` |  |
 
 #### `RedisPresencePort.upsertReading(entityType, entityUuid, entry): Promise<void>`
 
@@ -571,9 +578,9 @@ the `field`/`value` are cleared.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
-| entry | PresenceEntry |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
+| entry | `PresenceEntry` |  |
 
 #### `RedisPresencePort.upsertEditing(entityType, entityUuid, entry): Promise<void>`
 
@@ -583,9 +590,9 @@ The `field` and `value` from the entry are stored.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
-| entry | PresenceEntry |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
+| entry | `PresenceEntry` |  |
 
 #### `RedisPresencePort.remove(entityType, entityUuid, userUuid): Promise<void>`
 
@@ -595,9 +602,9 @@ No-op if the user was not present.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
-| userUuid | string |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
+| userUuid | `string` |  |
 
 #### `RedisPresencePort.heartbeat(entityType, entityUuid, userUuid, sessionId): Promise<void>`
 
@@ -607,10 +614,10 @@ Updates `last_seen_at` on the entry. No-op if the user is not present
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
-| userUuid | string |  |
-| sessionId | string |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
+| userUuid | `string` |  |
+| sessionId | `string` |  |
 
 #### `RedisPresencePort.getSnapshot(entityType, entityUuid): Promise<PresenceSnapshot>`
 
@@ -619,8 +626,8 @@ Called on SSE connect (snapshot event) and on GET presence.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
 
 #### `RedisPresencePort.setChanged(marker, ttlMs): Promise<void>`
 
@@ -629,8 +636,8 @@ Overwrites any existing marker. TTL is `ttlMs` (default 300000 = 5 min).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| marker | EntityChangedMarker |  |
-| ttlMs | number |  |
+| marker | `EntityChangedMarker` |  |
+| ttlMs | `number` |  |
 
 #### `RedisPresencePort.clearChanged(entityType, entityUuid): Promise<void>`
 
@@ -639,8 +646,8 @@ No-op if no marker exists.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
 
 ### `RotatingSecretEngine`
 
@@ -648,8 +655,8 @@ No-op if no marker exists.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| redis | RedisClientType |  |
-| opts | { rotationMs: number; graceMs: number } |  |
+| redis | `RedisClientType` |  |
+| opts | `{ rotationMs: number; graceMs: number }` |  |
 
 #### `RotatingSecretEngine.get(ref): Promise<ClientShieldSecretSlot>`
 
@@ -657,7 +664,7 @@ Read the slot; generate on cold start (TTL-expired or first boot).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ref | RotatingSecretRef |  |
+| ref | `RotatingSecretRef` |  |
 
 #### `RotatingSecretEngine.rotate(ref): Promise<ClientShieldSecretSlot>`
 
@@ -666,7 +673,7 @@ NX lock so concurrent owners (BE replicas, get-vs-timer races) rotate once.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ref | RotatingSecretRef |  |
+| ref | `RotatingSecretRef` |  |
 
 #### `RotatingSecretEngine.startAutoRotation(ref)`
 
@@ -674,7 +681,7 @@ Interval driver — ensure existence now, then rotate every rotationMs.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ref | RotatingSecretRef |  |
+| ref | `RotatingSecretRef` |  |
 
 ### `SecretProvider`
 
@@ -682,14 +689,14 @@ Interval driver — ensure existence now, then rotate every rotationMs.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ref | RotatingSecretRef |  |
+| ref | `RotatingSecretRef` |  |
 
 #### `SecretProvider.invalidate(scope, name)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| scope | string |  |
-| name | string |  |
+| scope | `string` |  |
+| name | `string` |  |
 
 ### `ServiceRegistrar`
 
@@ -707,9 +714,9 @@ health status (HTTP + NATS + custom checks).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nats | typeof NatsClient |  |
-| config | ServiceRegistrarConfig |  |
-| healthCheckFn | HealthCheckFn |  |
+| nats | `typeof NatsClient` |  |
+| config | `ServiceRegistrarConfig` |  |
+| healthCheckFn | `HealthCheckFn` |  |
 
 #### `ServiceRegistrar.register(): Promise<void>`
 
@@ -742,27 +749,27 @@ it to the service methods.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| port | CachePort \| null |  |
-| schema | string |  |
+| port | `CachePort \| null` |  |
+| schema | `string` |  |
 
 #### `TranslationsCache.getI18nDict(language): Promise<CacheEntry<I18nDict> \| null>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| language | string |  |
+| language | `string` |  |
 
 #### `TranslationsCache.setI18nDict(language, dict): Promise<void>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| language | string |  |
-| dict | I18nDict |  |
+| language | `string` |  |
+| dict | `I18nDict` |  |
 
 #### `TranslationsCache.invalidate(language): Promise<void>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| language | string |  |
+| language | `string` |  |
 
 ### `TranslationsService`
 
@@ -770,7 +777,7 @@ it to the service methods.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | TranslationsServiceOptions |  |
+| opts | `TranslationsServiceOptions` |  |
 
 #### `TranslationsService.getI18nDict(entity, schema, qualifiedTable, language): Promise<I18nDict>`
 
@@ -780,55 +787,56 @@ Cache-first; falls back to DB on miss.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entity | unknown | The DAL entity class (used by the Repository for CRUD) |
-| schema | string | The schema name (e.g. "public", "system") — for cache keying |
-| qualifiedTable | string | The schema-qualified table name (e.g. "public"."translations")                         — resolved by the BE from getQualifiedTableName(entity) |
-| language | string | BCP 47 language tag (e.g. "it-IT") |
+| entity | `unknown` | The DAL entity class (used by the Repository for CRUD) |
+| schema | `string` | The schema name (e.g. "public", "system") — for cache keying |
+| qualifiedTable | `string` | The schema-qualified table name (e.g. "public"."translations")
+                        — resolved by the BE from getQualifiedTableName(entity) |
+| language | `string` | BCP 47 language tag (e.g. "it-IT") |
 
 #### `TranslationsService.list(entity, schema, query): Promise<{ rows: TranslationRow[]; total: bigint }>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entity | unknown |  |
-| schema | string |  |
-| query | { page: number; page_size: number; language: string } |  |
+| entity | `unknown` |  |
+| schema | `string` |  |
+| query | `{ page: number; page_size: number; language: string }` |  |
 
 #### `TranslationsService.create(entity, schema, data, actor): Promise<TranslationRow>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entity | unknown |  |
-| schema | string |  |
-| data | { key: string; language: string; value: string } |  |
-| actor | string |  |
+| entity | `unknown` |  |
+| schema | `string` |  |
+| data | `{ key: string; language: string; value: string }` |  |
+| actor | `string` |  |
 
 #### `TranslationsService.update(entity, schema, uuid, data, actor): Promise<TranslationRow>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entity | unknown |  |
-| schema | string |  |
-| uuid | string |  |
-| data | { key: string; language: string; value: string } |  |
-| actor | string |  |
+| entity | `unknown` |  |
+| schema | `string` |  |
+| uuid | `string` |  |
+| data | `{ key: string; language: string; value: string }` |  |
+| actor | `string` |  |
 
 #### `TranslationsService.softDelete(entity, schema, uuid, actor): Promise<void>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entity | unknown |  |
-| schema | string |  |
-| uuid | string |  |
-| actor | string |  |
+| entity | `unknown` |  |
+| schema | `string` |  |
+| uuid | `string` |  |
+| actor | `string` |  |
 
 #### `TranslationsService.restore(entity, schema, uuid, actor): Promise<void>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entity | unknown |  |
-| schema | string |  |
-| uuid | string |  |
-| actor | string |  |
+| entity | `unknown` |  |
+| schema | `string` |  |
+| uuid | `string` |  |
+| actor | `string` |  |
 
 ### `ValidationError`
 
@@ -836,7 +844,7 @@ Cache-first; falls back to DB on miss.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| message | string |  |
+| message | `string` |  |
 
 ## Interfaces
 
@@ -848,18 +856,18 @@ Port for looking up API keys by hash.
 
 Used by verifyApiKey() to verify machine-to-machine credentials.
 The `api_keys` table lives in the BE-owned `public` schema — only the BE
-may read it directly (`DomainApiKeyPort`); microservices resolve through the
+may read it directly (`BeApiKeyPort`); microservices resolve through the
 governed `auth.apikey.byHash` NATS route (`NatsApiKeyPort`). Both are
 wrapped by `CachingApiKeyPort` for the shared Redis/in-memory cache.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| uuid | string |  |
-| name | string |  |
-| permissions | string[] |  |
-| is_system | boolean |  |
-| is_active | boolean |  |
-| expires_at | Date \| null |  |
+| uuid | `string` |  |
+| name | `string` |  |
+| permissions | `string[]` |  |
+| is_system | `boolean` |  |
+| is_active | `boolean` |  |
+| expires_at | `Date \| null` |  |
 
 ### `AuthConfig`
 
@@ -867,17 +875,27 @@ Full auth configuration loaded at startup from the service's config table.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| mode | AuthMode |  |
-| roles_path | string | Path expression used to extract the roles array from a JWT payload. Examples: "roles", "realm_access.roles", "resource_access.<client>.roles" |
-| oidc | OidcConfig |  |
-| gateway | GatewayConfig |  |
-| idp_endpoint | string |  |
-| idp_organization | string |  |
-| enable_email_verification_check | boolean |  |
-| enable_webauthn | boolean | Whether WebAuthn / passkey passwordless authentication is enabled. When false, the BE WebAuthn endpoints return 503 and the FE hides the passkey button. Parsed from the "true"/"false" string in the DB. |
-| passkey_required | boolean | Whether passkey enrollment is mandatory. When true, the FE passkey prompt cannot be dismissed and the "do not show again" checkbox is hidden. Parsed from the "true"/"false" string in the DB. |
-| enable_mfa | boolean | Whether MFA / 2FA is enabled (login MFA + step-up MFA). When false, login never branches to MFA and the step-up middleware passes through. Parsed from the "true"/"false" string in the DB. |
-| redis_url | string | Redis cache URL (e.g. `redis://localhost:6379` or `rediss://host:6380` for TLS). Empty string or `undefined` = cache disabled — the system runs without cache, with `warn` logs. Cache is a feature, not a requirement; the system is fully valid without it. Read from the `auth_configurations` table by the BE's `initCache()` at startup. |
+| mode | `AuthMode` |  |
+| roles_path | `string` | Path expression used to extract the roles array from a JWT payload.
+Examples: "roles", "realm_access.roles", "resource_access.&#60;client&#62;.roles" |
+| oidc | `OidcConfig` |  |
+| gateway | `GatewayConfig` |  |
+| idp_endpoint | `string` |  |
+| idp_organization | `string` |  |
+| enable_email_verification_check | `boolean` |  |
+| enable_webauthn | `boolean` | Whether WebAuthn / passkey passwordless authentication is enabled.
+When false, the BE WebAuthn endpoints return 503 and the FE hides the
+passkey button. Parsed from the "true"/"false" string in the DB. |
+| passkey_required | `boolean` | Whether passkey enrollment is mandatory. When true, the FE passkey prompt
+cannot be dismissed and the "do not show again" checkbox is hidden.
+Parsed from the "true"/"false" string in the DB. |
+| enable_mfa | `boolean` | Whether MFA / 2FA is enabled (login MFA + step-up MFA).
+When false, login never branches to MFA and the step-up middleware
+passes through. Parsed from the "true"/"false" string in the DB. |
+| redis_url | `string` | Redis cache URL (e.g. `redis://localhost:6379` or `rediss://host:6380` for TLS).
+Empty string or `undefined` = cache disabled — the system runs without cache, with
+`warn` logs. Cache is a feature, not a requirement; the system is fully valid without
+it. Read from the `auth_configurations` table by the BE's `initCache()` at startup. |
 
 ### `AuthConfigPort`
 
@@ -894,12 +912,16 @@ Ports needed ONLY by BE (STANDALONE mode). Microservices do NOT provide these.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| repo | string | Repo/service code written into the manifest (KB ingest key). |
-| docsDir | string | Source docs directory (e.g. "docs/user-guide") — copied verbatim. Optional: dev-only services may ship an openapi-only pack. |
-| outDir | string | Output dir (e.g. "dist/docs-pack"). Recreated each build. |
-| generators | GenerateDocsFn[] | Metadata-derived doc generators — run after the raw copy. |
-| openapiPath | string | Optional OpenAPI spec source — copied to outDir/openapi.json. |
-| openapi | Record<string, unknown> | Optional OpenAPI spec object — serialized to outDir/openapi.json. Preferred over openapiPath: services generate their spec at module load via `buildOpenApiSpec`/`entityCrudSpec`, so the pack always carries the runtime spec with zero file plumbing. |
+| repo | `string` | Repo/service code written into the manifest (KB ingest key). |
+| docsDir | `string` | Source docs directory (e.g. "docs/user-guide") — copied verbatim.
+Optional: dev-only services may ship an openapi-only pack. |
+| outDir | `string` | Output dir (e.g. "dist/docs-pack"). Recreated each build. |
+| generators | `GenerateDocsFn[]` | Metadata-derived doc generators — run after the raw copy. |
+| openapiPath | `string` | Optional OpenAPI spec source — copied to outDir/openapi.json. |
+| openapi | `Record<string, unknown>` | Optional OpenAPI spec object — serialized to outDir/openapi.json.
+Preferred over openapiPath: services generate their spec at module
+load via `buildOpenApiSpec`/`entityCrudSpec`, so the pack always
+carries the runtime spec with zero file plumbing. |
 
 ### `CacheableRepository`
 
@@ -918,9 +940,9 @@ Redis cache entry — wraps the cached value with its ETag.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| data | T |  |
-| etag | string |  |
-| cached_at | number | Epoch ms (debugging only — not used for TTL). |
+| data | `T` |  |
+| etag | `string` |  |
+| cached_at | `number` | Epoch ms (debugging only — not used for TTL). |
 
 ### `CacheLogger`
 
@@ -938,24 +960,24 @@ HTTP response metadata for cached endpoints.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| etag | string |  |
-| cached | boolean | True if the data came from Redis cache (vs fresh DB read). |
+| etag | `string` |  |
+| cached | `boolean` | True if the data came from Redis cache (vs fresh DB read). |
 
-### `ClientShieldRegistryRow`
+### `ClientRegistryRow`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| ua_prefix | string |  |
-| client_key_hash | string |  |
-| is_enabled | boolean |  |
+| ua_prefix | `string` |  |
+| client_key_hash | `string` |  |
+| is_enabled | `boolean` |  |
 
 ### `ClientShieldSecretSlot`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| current | string |  |
-| previous | string \| null |  |
-| rotated_at | number | Epoch ms of the last rotation. |
+| current | `string` |  |
+| previous | `string \| null` |  |
+| rotated_at | `number` | Epoch ms of the last rotation. |
 
 ### `ConfigRepositoryPort`
 
@@ -973,8 +995,8 @@ the currency and optional allowed-currencies list live in `type_config` JSON.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| currency | string | ISO 4217 currency code, e.g. "EUR", "USD". Set by user, stored in type_config. |
-| allowed_currencies | string[] | Optional: restrict selectable currencies. If absent, all ISO 4217 codes are allowed. |
+| currency | `string` | ISO 4217 currency code, e.g. "EUR", "USD". Set by user, stored in type_config. |
+| allowed_currencies | `string[]` | Optional: restrict selectable currencies. If absent, all ISO 4217 codes are allowed. |
 
 ### `ConfigTypePhoneConfig`
 
@@ -984,8 +1006,8 @@ the country code and optional allowed-countries list live in `type_config` JSON.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| country | string | ISO 3166-1 alpha-2 country code, e.g. "IT", "US". Drives formatting and validation. |
-| allowed_countries | string[] | Optional: restrict selectable countries. If absent, all countries are allowed. |
+| country | `string` | ISO 3166-1 alpha-2 country code, e.g. "IT", "US". Drives formatting and validation. |
+| allowed_countries | `string[]` | Optional: restrict selectable countries. If absent, all countries are allowed. |
 
 ### `ConfigTypeUrlConfig`
 
@@ -995,8 +1017,8 @@ allowed-protocols list live in `type_config` JSON.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| default_protocol | string | Default protocol prepended when the user doesn't type one. e.g. "https". |
-| allowed_protocols | string[] | Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. |
+| default_protocol | `string` | Default protocol prepended when the user doesn't type one. e.g. "https". |
+| allowed_protocols | `string[]` | Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. |
 
 ### `ConfigValidation`
 
@@ -1020,20 +1042,24 @@ Example type_config JSON:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| required | boolean | If true, empty/null values are rejected (except secrets with empty = "leave unchanged"). |
-| required_error_label_key | string | Optional i18n key for the required error message. Falls back to "app.common.validation.required". |
-| unsigned | boolean | If true, numeric values (bigint/number/money) are treated as unsigned: - Sign characters (`-`, `+`) are rejected at the type-validation level. - The effective minimum defaults to 0 when no explicit `rules.min` is set. Absent or false → signed (default, backward compatible). Only `unsigned: true` activates unsigned behavior. |
-| rules | ConfigValidationRules | Map of rule type → rule config. Each rule has its own error_label_key for i18n. |
+| required | `boolean` | If true, empty/null values are rejected (except secrets with empty = "leave unchanged"). |
+| required_error_label_key | `string` | Optional i18n key for the required error message. Falls back to "app.common.validation.required". |
+| unsigned | `boolean` | If true, numeric values (bigint/number/money) are treated as unsigned:
+- Sign characters (`-`, `+`) are rejected at the type-validation level.
+- The effective minimum defaults to 0 when no explicit `rules.min` is set.
+Absent or false → signed (default, backward compatible).
+Only `unsigned: true` activates unsigned behavior. |
+| rules | `ConfigValidationRules` | Map of rule type → rule config. Each rule has its own error_label_key for i18n. |
 
 ### `ConfigValidationRules`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| min | ValidationRuleMin | Minimum value (for bigint/number/money) or minimum length (for string/secret/url/email/phone). |
-| max | ValidationRuleMax | Maximum value (for bigint/number/money) or maximum length (for string/secret/url/email/phone). |
-| url | ValidationRuleUrl | URL protocol validation. |
-| email | ValidationRuleEmail | Email format validation. |
-| regex | ValidationRuleRegex | Regex pattern validation (for string/text/secret/url/email/phone). |
+| min | `ValidationRuleMin` | Minimum value (for bigint/number/money) or minimum length (for string/secret/url/email/phone). |
+| max | `ValidationRuleMax` | Maximum value (for bigint/number/money) or maximum length (for string/secret/url/email/phone). |
+| url | `ValidationRuleUrl` | URL protocol validation. |
+| email | `ValidationRuleEmail` | Email format validation. |
+| regex | `ValidationRuleRegex` | Regex pattern validation (for string/text/secret/url/email/phone). |
 
 ### `CurrencyInfo`
 
@@ -1041,24 +1067,24 @@ ISO 4217 currency metadata.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| code | string |  |
-| name | string |  |
-| symbol | string |  |
-| symbolNative | string |  |
-| numeric | string |  |
-| decimals | number |  |
+| code | `string` |  |
+| name | `string` |  |
+| symbol | `string` |  |
+| symbolNative | `string` |  |
+| numeric | `string` |  |
+| decimals | `number` |  |
 
 ### `DbMigrationBootOptions`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| engine | DbMigrationEnginePort | dal-pg migrations surface — `import * as m from "@primebrick/dal-pg"` satisfies this. |
-| pool | () => unknown | Live pg pool — evaluated lazily right after `initDal()` ran. |
-| schema | () => string | Owning service schema (e.g. `env.DATABASE_SCHEMA`) — registry lives there. |
-| patchesDir | string | Directory containing the .sql patch files (usually `<svc>/db-meta/patches`). |
-| dbMetaDir | string | db-meta dir with MANIFEST.json + keys.json — defaults to dirname(patchesDir). |
-| allowedTrust | typeOperator | Manifest signature trust levels accepted by this deploy. Default ["release"]. |
-| entityRegistry | typeOperator | Entity registry of this service — enables the post-apply drift check. |
+| engine | `DbMigrationEnginePort` | dal-pg migrations surface — `import * as m from "@primebrick/dal-pg"` satisfies this. |
+| pool | `() => unknown` | Live pg pool — evaluated lazily right after `initDal()` ran. |
+| schema | `() => string` | Owning service schema (e.g. `env.DATABASE_SCHEMA`) — registry lives there. |
+| patchesDir | `string` | Directory containing the .sql patch files (usually `<svc>/db-meta/patches`). |
+| dbMetaDir | `string` | db-meta dir with MANIFEST.json + keys.json — defaults to dirname(patchesDir). |
+| allowedTrust | `typeOperator` | Manifest signature trust levels accepted by this deploy. Default ["release"]. |
+| entityRegistry | `typeOperator` | Entity registry of this service — enables the post-apply drift check. |
 
 ### `DbMigrationEnginePort`
 
@@ -1074,55 +1100,64 @@ One file of pack content — wire format.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| path | string | Path relative to the pack's docs/ dir (e.g. "dev-guide/index.mdx"). |
-| content | string | UTF-8 file content — the KB's source of truth. |
+| path | `string` | Path relative to the pack's docs/ dir (e.g. "dev-guide/index.mdx"). |
+| content | `string` | UTF-8 file content — the KB's source of truth. |
 
 ### `DocsPackFile`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| path | string |  |
-| sha256 | string | sha256 hex of the file content — incremental ingest key. |
-| bytes | number |  |
+| path | `string` |  |
+| sha256 | `string` | sha256 hex of the file content — incremental ingest key. |
+| bytes | `number` |  |
 
 ### `DocsPackManifest`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| schema | 1 |  |
-| repo | string | Owning repo/service code — the KB ingest key (e.g. "ai", "be"). |
-| generated_at | string |  |
-| files | DocsPackFile[] | Doc-relative paths (e.g. "dev-guide/index.mdx") with content hashes. |
-| has_openapi | boolean | Present when the pack carries an openapi.json at root. |
+| schema | `1` |  |
+| repo | `string` | Owning repo/service code — the KB ingest key (e.g. "ai", "be"). |
+| generated_at | `string` |  |
+| files | `DocsPackFile[]` | Doc-relative paths (e.g. "dev-guide/index.mdx") with content hashes. |
+| has_openapi | `boolean` | Present when the pack carries an openapi.json at root. |
 
 ### `DocsPackPayload`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| manifest | DocsPackManifest |  |
-| files | DocsPackContentFile[] |  |
-| openapi | string | Raw openapi.json content, when the pack carries one. |
+| manifest | `DocsPackManifest` |  |
+| files | `DocsPackContentFile[]` |  |
+| openapi | `string` | Raw openapi.json content, when the pack carries one. |
 
 ### `EnsureJobScheduleOpts`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| scheduleSubject | string | Unique schedule subject — `jobs.schedule.<svc>.<name>[.<entity-id>]`. One schedule per subject; republishing replaces it atomically. |
-| schedule | string | `"@every 30s"` \| `"@at 2025-12-01T09:00:00Z"` \| cron expression. |
-| target | string | Subject the stored message is republished to at fire time —  `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same  stream's subjects. |
-| payload | unknown | Payload stored on the schedule message — fired verbatim unless  `source` is set. Serialized via extJson by jetstreamPublish. |
-| source | string | Fire-time indirection (ADR-51): at fire time the scheduler reads the  LATEST message on this subject and fires THAT as the payload — the  schedule declaration never holds business state. |
-| ttl | string | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
-| forwardHeaders | Record<string, string> | Extra headers stamped on the declaration and forwarded VERBATIM to the fired message. For `jobs.due.user.*` targets pass the triggering message's auth headers via `forwardAuthHeaders()` so the executor can run the full L2+RBAC chain on the ORIGINATING user. |
+| scheduleSubject | `string` | Unique schedule subject — `jobs.schedule.<svc>.<name>[.<entity-id>]`.
+One schedule per subject; republishing replaces it atomically. |
+| schedule | `string` | `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | cron expression. |
+| target | `string` | Subject the stored message is republished to at fire time —
+ `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
+ stream's subjects. |
+| payload | `unknown` | Payload stored on the schedule message — fired verbatim unless
+ `source` is set. Serialized via extJson by jetstreamPublish. |
+| source | `string` | Fire-time indirection (ADR-51): at fire time the scheduler reads the
+ LATEST message on this subject and fires THAT as the payload — the
+ schedule declaration never holds business state. |
+| ttl | `string` | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
+| forwardHeaders | `Record<string, string>` | Extra headers stamped on the declaration and forwarded VERBATIM to the
+fired message. For `jobs.due.user.*` targets pass the triggering
+message's auth headers via `forwardAuthHeaders()` so the executor can
+run the full L2+RBAC chain on the ORIGINATING user. |
 
 ### `EntityActionMeta`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| op | string |  |
-| permissions | string[] |  |
-| sentinel | string |  |
-| enabled | boolean |  |
+| op | `string` |  |
+| permissions | `string[]` |  |
+| sentinel | `string` |  |
+| enabled | `boolean` |  |
 
 ### `EntityChangedMarker`
 
@@ -1132,25 +1167,36 @@ most recent change without scanning the audit log.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| entity_type | string |  |
-| entity_uuid | string |  |
-| version | number | The new `version` after the save. |
-| audit_log_id | number | The `audit_log_id` of the change (for the GET audit/:auditLogId diff endpoint). |
-| changed_by | string | user_uuid of the writer. |
-| changed_at | number | Epoch ms of the save. |
+| entity_type | `string` |  |
+| entity_uuid | `string` |  |
+| version | `number` | The new `version` after the save. |
+| audit_log_id | `number` | The `audit_log_id` of the change (for the GET audit/:auditLogId diff endpoint). |
+| changed_by | `string` | user_uuid of the writer. |
+| changed_at | `number` | Epoch ms of the save. |
 
 ### `EntityRouterConfig`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| entityName | string | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
-| service | EntityServiceLike<TEntity> |  |
-| permissions | Partial<Record<EntityAction, typeOperator>> | Permission per action — presence registers the route. |
-| meta | Record<string, unknown> & { display_field: string; actions_overrides: Record<string, { enabled: boolean }> } | Static entity meta — served by GET /meta with derived  `display_name` + `actions` + `collaboration`. When omitted, the meta  route is not registered even if `permissions.meta` is set. |
-| auditable | boolean | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`  in the meta response (the BE derives it from entity persistence meta;  the SDK cannot inspect decorators, so the caller declares it). |
-| schemas | { listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] } } | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery` receive the parsed bracket-notation query object; `createBody`/ `updateBody`/`duplicateBody` receive the parsed JSON body and MUST validate the `{entity}` envelope (strict — reject `translations`). Throw `ValidationError` (or anything — it is wrapped) on failure. |
-| duplicate | false | `duplicate` is ON by default (BE E.8): registers with the conventional  `<entity>.duplicate.bulk` permission when not declared. `false`  disables the route entirely. |
-| guards | Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>> | Async per-action guards invoked before the service call — the US  replacement for Express action middlewares (MFA step-up, B9). |
+| entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
+| service | `EntityServiceLike<TEntity>` |  |
+| permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
+| meta | `Record<string, unknown> & { display_field: string; actions_overrides: Record<string, { enabled: boolean }> }` | Static entity meta — served by GET /meta with derived
+ `display_name` + `actions` + `collaboration`. When omitted, the meta
+ route is not registered even if `permissions.meta` is set. |
+| auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
+ in the meta response (the BE derives it from entity persistence meta;
+ the SDK cannot inspect decorators, so the caller declares it). |
+| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] } }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
+receive the parsed bracket-notation query object; `createBody`/
+`updateBody`/`duplicateBody` receive the parsed JSON body and MUST
+validate the `{entity}` envelope (strict — reject `translations`).
+Throw `ValidationError` (or anything — it is wrapped) on failure. |
+| duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
+ `<entity>.duplicate.bulk` permission when not declared. `false`
+ disables the route entirely. |
+| guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
+ replacement for Express action middlewares (MFA step-up, B9). |
 
 ### `EntityServiceLike`
 
@@ -1160,9 +1206,9 @@ most recent change without scanning the audit log.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| valid | boolean |  |
-| errors | string[] |  |
-| env | Record<string, string \| undefined> |  |
+| valid | `boolean` |  |
+| errors | `string[]` |  |
+| env | `Record<string, string \| undefined>` |  |
 
 ### `GatewayConfig`
 
@@ -1170,11 +1216,11 @@ Gateway configuration (GATEWAY mode).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| secret | string |  |
-| secret_header_name | string |  |
-| public_secret | string |  |
-| public_secret_header_name | string |  |
-| headers | { user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string } |  |
+| secret | `string` |  |
+| secret_header_name | `string` |  |
+| public_secret | `string` |  |
+| public_secret_header_name | `string` |  |
+| headers | `{ user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string }` |  |
 
 ### `GeneratedDoc`
 
@@ -1182,8 +1228,8 @@ A generated doc emitted by a repo's extractor.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| path | string | Path relative to the pack root (e.g. "generated/entity-field-reference.mdx"). |
-| content | string |  |
+| path | `string` | Path relative to the pack root (e.g. "generated/entity-field-reference.mdx"). |
+| content | `string` |  |
 
 ### `GenerateDocsContext`
 
@@ -1191,8 +1237,8 @@ Context handed to each generator — repos read their own metadata.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| repo | string | Repo/service code as declared in the manifest. |
-| outDir | string | Absolute path of the pack output dir (already contains raw docs). |
+| repo | `string` | Repo/service code as declared in the manifest. |
+| outDir | `string` | Absolute path of the pack output dir (already contains raw docs). |
 
 ### `HeaderProvider`
 
@@ -1211,10 +1257,10 @@ metadata (version, type, error message).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| ok | boolean |  |
-| version | string | Server version (e.g. "18.0" for PostgreSQL, "8.8.0" for Redis). |
-| type | string | Service type (e.g. "Casdoor" for IDP). |
-| error | string | Error message if ok is false. |
+| ok | `boolean` |  |
+| version | `string` | Server version (e.g. "18.0" for PostgreSQL, "8.8.0" for Redis). |
+| type | `string` | Service type (e.g. "Casdoor" for IDP). |
+| error | `string` | Error message if ok is false. |
 
 ### `HealthResponse`
 
@@ -1222,24 +1268,29 @@ The unified health response returned by `/health` on both BE and US.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| ok | boolean | true only if ALL checks pass. |
-| service | string | Service identifier (e.g. "primebrick-api", "emailsender"). |
-| version | string | Service version (from package.json). |
-| url | string | Base URL the service is listening on (if applicable). |
-| checks | Record<string, HealthCheckResult> | Map of check name → result. Keys are service-specific (db, redis, nats, idp). |
+| ok | `boolean` | true only if ALL checks pass. |
+| service | `string` | Service identifier (e.g. "primebrick-api", "emailsender"). |
+| version | `string` | Service version (from package.json). |
+| url | `string` | Base URL the service is listening on (if applicable). |
+| checks | `Record<string, HealthCheckResult>` | Map of check name → result. Keys are service-specific (db, redis, nats, idp). |
 
 ### `HttpServerOptions`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| port | number |  |
-| healthCheck | HealthCheck |  |
-| serviceName | string |  |
-| serviceVersion | string | Service version (from package.json) — included in /health response. |
-| serviceUrl | string | Base URL the service is listening on — included in /health response. |
-| routeHandler | (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> | Custom route handler — receives req/res, returns true if handled. |
-| clientShieldRegistry | ClientShieldRegistry | Client-identity gate (B11): when set, every non-/health request must carry a registry-listed `User-Agent` prefix + valid `x-primebrick-client-shield-key` before the route handler runs. |
-| identityExemptPaths | RegExp[] | URL paths exempt from the client-identity gate — for services that expose a genuinely public surface (e.g. the webhook ingress, whose callers are external providers that cannot carry our identity headers). `/health` is always public and does not need listing. |
+| port | `number` |  |
+| healthCheck | `HealthCheck` |  |
+| serviceName | `string` |  |
+| serviceVersion | `string` | Service version (from package.json) — included in /health response. |
+| serviceUrl | `string` | Base URL the service is listening on — included in /health response. |
+| routeHandler | `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>` | Custom route handler — receives req/res, returns true if handled. |
+| clientRegistry | `ClientRegistry` | Client-identity gate (B11): when set, every non-/health request must
+carry a registry-listed `User-Agent` prefix + valid
+`x-primebrick-client-shield-key` before the route handler runs. |
+| identityExemptPaths | `RegExp[]` | URL paths exempt from the client-identity gate — for services that
+expose a genuinely public surface (e.g. the webhook ingress, whose
+callers are external providers that cannot carry our identity headers).
+`/health` is always public and does not need listing. |
 
 ### `IConfigEntity`
 
@@ -1253,14 +1304,14 @@ by the consumer's entity class and adapter.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| key | string | Unique config key, e.g. "brevo_api_key". |
-| value | string \| null | Raw TEXT value. null means "not set yet". Type conversion at read time. |
-| type | ConfigType | Config value type — drives SDK coercion and FE widget selection. See ConfigType. |
-| type_config | string \| null | JSONB-text extra per-type configuration (e.g. badge inline values, select API URL). |
-| label_key | string | Optional i18n translation key for a short title (used by BE/FE for display). |
-| description_key | string | Optional i18n translation key for a longer description (used by BE/FE for display). |
-| reserved | boolean | If true, the row is system-critical: editable but not deletable. |
-| group_key | string \| null | Optional grouping key for UI display. null/empty = ungrouped (top of list). |
+| key | `string` | Unique config key, e.g. "brevo_api_key". |
+| value | `string \| null` | Raw TEXT value. null means "not set yet". Type conversion at read time. |
+| type | `ConfigType` | Config value type — drives SDK coercion and FE widget selection. See ConfigType. |
+| type_config | `string \| null` | JSONB-text extra per-type configuration (e.g. badge inline values, select API URL). |
+| label_key | `string` | Optional i18n translation key for a short title (used by BE/FE for display). |
+| description_key | `string` | Optional i18n translation key for a longer description (used by BE/FE for display). |
+| reserved | `boolean` | If true, the row is system-critical: editable but not deletable. |
+| group_key | `string \| null` | Optional grouping key for UI display. null/empty = ungrouped (top of list). |
 
 ### `IServiceRegistry`
 
@@ -1276,33 +1327,37 @@ and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| code | string |  |
-| base_url | string |  |
-| endpoints | Record<string, unknown> |  |
-| name | string |  |
-| description | string |  |
-| author | string |  |
-| github_repo_url | string |  |
-| service_version | string |  |
-| is_behind_scaler | boolean |  |
-| status | string |  |
-| last_health_check_at | Date |  |
-| is_enabled | boolean |  |
-| icon | string |  |
-| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
+| code | `string` |  |
+| base_url | `string` |  |
+| endpoints | `Record<string, unknown>` |  |
+| name | `string` |  |
+| description | `string` |  |
+| author | `string` |  |
+| github_repo_url | `string` |  |
+| service_version | `string` |  |
+| is_behind_scaler | `boolean` |  |
+| status | `string` |  |
+| last_health_check_at | `Date` |  |
+| is_enabled | `boolean` |  |
+| icon | `string` |  |
+| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
 
 ### `LogMeta`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| tags | string[] | Reserved key: textual tags rendered as `[tag1] [tag2]` right before the message, in amber — visually distinct from level colors, timestamp and the `[service#version]` tag. The message itself must carry ONLY the message; subsystem labels belong here. In `json` format they appear as a structured `tags` array. |
+| tags | `string[]` | Reserved key: textual tags rendered as `[tag1] [tag2]` right before the
+message, in amber — visually distinct from level colors, timestamp and
+the `[service#version]` tag. The message itself must carry ONLY the
+message; subsystem labels belong here. In `json` format they appear as
+a structured `tags` array. |
 
 ### `MappedDalError`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| status | number |  |
-| body | Rfc7807Body |  |
+| status | `number` |  |
+| body | `Rfc7807Body` |  |
 
 ### `MfaStepUpSpec`
 
@@ -1310,75 +1365,110 @@ Route declaration: which action/resource the token must authorize.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| action | string |  |
-| target_resource | string |  |
+| action | `string` |  |
+| target_resource | `string` |  |
 
 ### `MicroserviceContext`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| env | Record<string, string \| undefined> | Validated environment variables (from requireEnv). |
-| configLoader | ConfigLoader | ConfigLoader instance (config loaded from DB). |
-| natsClient | typeof NatsClient | NatsClient singleton (connected). |
-| registrar | ServiceRegistrar | ServiceRegistrar instance (registered + heartbeat started). |
-| healthCheck | HealthCheck | HealthCheck instance (wired with DB + custom checks). |
-| server | Server | HTTP server instance (listening on configured port). |
-| shutdown | GracefulShutdown | GracefulShutdown instance (cleanup handlers installed). |
-| authConfig | AuthConfig | Auth config (loaded from DB via AuthConfigPort). |
-| apiKeyPort | ApiKeyPort | API key port (if provided). |
-| serviceVersion | string | Service version (from package.json or option). |
-| baseUrl | string | Base URL (from `service_base_url` config key). |
+| env | `Record<string, string \| undefined>` | Validated environment variables (from requireEnv). |
+| configLoader | `ConfigLoader` | ConfigLoader instance (config loaded from DB). |
+| natsClient | `typeof NatsClient` | NatsClient singleton (connected). |
+| registrar | `ServiceRegistrar` | ServiceRegistrar instance (registered + heartbeat started). |
+| healthCheck | `HealthCheck` | HealthCheck instance (wired with DB + custom checks). |
+| server | `Server` | HTTP server instance (listening on configured port). |
+| shutdown | `GracefulShutdown` | GracefulShutdown instance (cleanup handlers installed). |
+| authConfig | `AuthConfig` | Auth config (loaded from DB via AuthConfigPort). |
+| apiKeyPort | `ApiKeyPort` | API key port (if provided). |
+| serviceVersion | `string` | Service version (from package.json or option). |
+| baseUrl | `string` | Base URL (from `service_base_url` config key). |
 
 ### `MicroserviceOptions`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| serviceName | string | Service name for logging and health endpoint (e.g. "emailsender"). |
-| serviceDisplayName | string | Human-readable name shown in service registry (e.g. "Email Sender"). |
-| serviceDescription | string | Service description for service registry. |
-| icon | string | Icon name for service registry (e.g. "mail"). |
-| iconType | "url" \| "svg" \| "base64" \| "icon" | Icon type for service registry. |
-| isBehindScaler | boolean | Whether the service is behind a scaler (default false). |
-| serviceVersion | string | Service version — if omitted, reads from package.json in CWD. |
-| envSchema | EnvSchema | Environment variable schema — validated via requireEnv. |
-| initDal | () => void | DAL init callback — called first, before everything else. The SDK is DB-agnostic so the consumer provides this. Typically reads DATABASE_URL / DB_SCHEMA from env and calls getDal(). |
-| dbBanner | () => Promise<{ name: string; version: string \| null; url: string }> | Optional DB startup banner — called right after `initDal`, rendered via `logModuleStartup` (`PostgreSQL 18.4 connected (url)`). Keeps the SDK DB-agnostic: the service supplies a probe, e.g. `dbBanner: () => pgServerBanner(getDal().getPool(), process.env.DATABASE_URL!)`. |
-| dalClose | () => Promise<void> | DAL close callback — called during graceful shutdown. The SDK is DB-agnostic so the consumer provides this. Typically `async () => { await getDal().close(); }`. |
-| configRepositoryAdapter | () => ConfigRepositoryPort | Factory for ConfigRepositoryPort — called after initDal. Reads config rows from the microservice's config table. |
-| authConfigPort | (configLoader: ConfigLoader) => AuthConfigPort | Factory for AuthConfigPort — called after ConfigLoader is created. Receives the ConfigLoader so it can read auth-related config keys. |
-| apiKeyPort | () => ApiKeyPort | Factory for ApiKeyPort — called after auth config is loaded. Optional — only needed if the microservice uses API key auth (e.g. webhooks). Standard wiring: `new CachingApiKeyPort(new NatsApiKeyPort(3000), () => getSdkCachePort())` — microservices NEVER read `public.api_keys` directly; resolution goes through the governed BE route `auth.apikey.byHash`. The factory runs before the SDK cache port is set, so pass `getSdkCachePort` lazily. |
-| healthCheckPort | () => HealthCheckPort | Factory for HealthCheckPort — called after initDal. Adapts the DB pool to the SDK's HealthCheckPort interface. |
-| routeHandler | (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> | Custom route handler — MUST be produced by an approved factory (`makeRpcRouter`, `makeOpenApiHandler`, `composeRouteHandlers`). Arbitrary handlers are rejected at startup: the middleware chain (auth → RBAC → validation → RFC 7807) is not optional. If omitted, only the /health endpoint is served. |
-| docsPackDir | string | Override the docs-pack dir served/declared by this service. Default: `<service cwd>/dist/docs-pack` — produced by `buildDocsPack` in the service's build script. |
-| identityExemptPaths | RegExp[] | Paths exempt from the client-identity gate — only for services with a genuinely public surface (e.g. the webhook ingress, whose callers are external providers). Everything else is gated by default. |
-| authDependencySetters | (cfg: AuthConfig, apiKeyPort: ApiKeyPort) => void[] | Auth dependency setters — called after auth config is loaded. Each setter receives (authConfig, apiKeyPort?) and typically wires auth dependencies into route handlers (e.g. setAuthDependencies(cfg, apiKeyPort)). |
-| endpoints | Record<string, string> | Service-specific endpoints (relative paths, e.g. { webhook: "/webhook" }). The health endpoint is added automatically. Full URLs are built as `${baseUrl}${path}` for the service registry. |
-| customHealthChecks | Record<string, () => Promise<HealthCheckResult>> | Custom health checks beyond DB — added to the HealthCheck constructor. NATS check is added automatically if not provided. |
-| dbPatches | DbMigrationBootOptions | Database migration boot step — runs immediately after `initDal`, before ConfigLoader and any other table read. When set, the service owns its schema patches (`db-meta/patches` + signed MANIFEST.json) and applies them before registration. A critical failure boots the service in DEGRADED mode: only `/health` + the db-migration admin routes answer, domain traffic gets 503, heartbeat reports `db_migration.ok=false`. |
-| onReady | (ctx: MicroserviceContext) => Promise<void> | Callback fired after everything is wired (NATS subscriptions, business logic init, etc.). Receives the full MicroserviceContext. SKIPPED entirely when the service booted degraded (migration failure). |
+| serviceName | `string` | Service name for logging and health endpoint (e.g. "emailsender"). |
+| serviceDisplayName | `string` | Human-readable name shown in service registry (e.g. "Email Sender"). |
+| serviceDescription | `string` | Service description for service registry. |
+| icon | `string` | Icon name for service registry (e.g. "mail"). |
+| iconType | `"url" \| "svg" \| "base64" \| "icon"` | Icon type for service registry. |
+| isBehindScaler | `boolean` | Whether the service is behind a scaler (default false). |
+| serviceVersion | `string` | Service version — if omitted, reads from package.json in CWD. |
+| envSchema | `EnvSchema` | Environment variable schema — validated via requireEnv. |
+| initDal | `() => void` | DAL init callback — called first, before everything else.
+The SDK is DB-agnostic so the consumer provides this.
+Typically reads DATABASE_URL / DB_SCHEMA from env and calls getDal(). |
+| dbBanner | `() => Promise<{ name: string; version: string \| null; url: string }>` | Optional DB startup banner — called right after `initDal`, rendered
+via `logModuleStartup` (`PostgreSQL 18.4 connected (url)`). Keeps the
+SDK DB-agnostic: the service supplies a probe, e.g.
+`dbBanner: () => pgServerBanner(getDal().getPool(), process.env.DATABASE_URL!)`. |
+| dalClose | `() => Promise<void>` | DAL close callback — called during graceful shutdown.
+The SDK is DB-agnostic so the consumer provides this.
+Typically `async () => { await getDal().close(); }`. |
+| configRepositoryAdapter | `() => ConfigRepositoryPort` | Factory for ConfigRepositoryPort — called after initDal.
+Reads config rows from the microservice's config table. |
+| authConfigPort | `(configLoader: ConfigLoader) => AuthConfigPort` | Factory for AuthConfigPort — called after ConfigLoader is created.
+Receives the ConfigLoader so it can read auth-related config keys. |
+| apiKeyPort | `() => ApiKeyPort` | Factory for ApiKeyPort — called after auth config is loaded.
+Optional — only needed if the microservice uses API key auth (e.g. webhooks).
+Standard wiring: `new CachingApiKeyPort(new NatsApiKeyPort(3000), () => getSdkCachePort())`
+— microservices NEVER read `public.api_keys` directly; resolution goes
+through the governed BE route `auth.apikey.byHash`. The factory runs
+before the SDK cache port is set, so pass `getSdkCachePort` lazily. |
+| healthCheckPort | `() => HealthCheckPort` | Factory for HealthCheckPort — called after initDal.
+Adapts the DB pool to the SDK's HealthCheckPort interface. |
+| routeHandler | `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>` | Custom route handler — MUST be produced by an approved factory
+(`makeRpcRouter`, `makeOpenApiHandler`, `composeRouteHandlers`).
+Arbitrary handlers are rejected at startup: the middleware chain
+(auth → RBAC → validation → RFC 7807) is not optional.
+If omitted, only the /health endpoint is served. |
+| docsPackDir | `string` | Override the docs-pack dir served/declared by this service.
+Default: `<service cwd>/dist/docs-pack` — produced by `buildDocsPack`
+in the service's build script. |
+| identityExemptPaths | `RegExp[]` | Paths exempt from the client-identity gate — only for services with a
+genuinely public surface (e.g. the webhook ingress, whose callers are
+external providers). Everything else is gated by default. |
+| authDependencySetters | `(cfg: AuthConfig, apiKeyPort: ApiKeyPort) => void[]` | Auth dependency setters — called after auth config is loaded.
+Each setter receives (authConfig, apiKeyPort?) and typically wires
+auth dependencies into route handlers (e.g. setAuthDependencies(cfg, apiKeyPort)). |
+| endpoints | `Record<string, string>` | Service-specific endpoints (relative paths, e.g. &#123; webhook: "/webhook" &#125;).
+The health endpoint is added automatically.
+Full URLs are built as `${baseUrl}${path}` for the service registry. |
+| customHealthChecks | `Record<string, () => Promise<HealthCheckResult>>` | Custom health checks beyond DB — added to the HealthCheck constructor.
+NATS check is added automatically if not provided. |
+| dbPatches | `DbMigrationBootOptions` | Database migration boot step — runs immediately after `initDal`, before
+ConfigLoader and any other table read. When set, the service owns its
+schema patches (`db-meta/patches` + signed MANIFEST.json) and applies
+them before registration. A critical failure boots the service in
+DEGRADED mode: only `/health` + the db-migration admin routes answer,
+domain traffic gets 503, heartbeat reports `db_migration.ok=false`. |
+| onReady | `(ctx: MicroserviceContext) => Promise<void>` | Callback fired after everything is wired (NATS subscriptions, business
+logic init, etc.). Receives the full MicroserviceContext.
+SKIPPED entirely when the service booted degraded (migration failure). |
 
 ### `MigrationBootState`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| result | MigrationRunResultLike \| null | null when migrations never ran (option not set). |
-| degraded | boolean | Boot-time mode actually used. |
-| lastError | string \| null | Monotonic flag the heartbeat/health surface reads live. |
-| appliedCount | number |  |
+| result | `MigrationRunResultLike \| null` | null when migrations never ran (option not set). |
+| degraded | `boolean` | Boot-time mode actually used. |
+| lastError | `string \| null` | Monotonic flag the heartbeat/health surface reads live. |
+| appliedCount | `number` |  |
 
 ### `MigrationEngineOptsLike`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| pool | any |  |
-| schema | string |  |
-| patchesDir | string |  |
-| dbMetaDir | string |  |
-| allowedTrust | typeOperator |  |
-| approvedReviews | typeOperator |  |
-| actor | string |  |
-| lockWaitMs | number |  |
-| logger | any |  |
+| pool | `any` |  |
+| schema | `string` |  |
+| patchesDir | `string` |  |
+| dbMetaDir | `string` |  |
+| allowedTrust | `typeOperator` |  |
+| approvedReviews | `typeOperator` |  |
+| actor | `string` |  |
+| lockWaitMs | `number` |  |
+| logger | `any` |  |
 
 ### `MigrationRunResultLike`
 
@@ -1386,54 +1476,64 @@ Structural mirror of dal-pg's MigrationRunResult — no dal import.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| mode | string |  |
-| degraded | boolean |  |
-| applied | string[] |  |
-| failed | { patch_name: string; error: string }[] |  |
-| pendingReview | string[] |  |
-| skipped | string[] |  |
-| securityEvents | string[] |  |
+| mode | `string` |  |
+| degraded | `boolean` |  |
+| applied | `string[]` |  |
+| failed | `{ patch_name: string; error: string }[]` |  |
+| pendingReview | `string[]` |  |
+| skipped | `string[]` |  |
+| securityEvents | `string[]` |  |
 
 ### `NatsRequestRoute`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| subject | string |  |
-| queue | string \| null |  |
-| permissions | typeOperator | RBAC permissions — MANDATORY unless `verify` is set. |
-| rbacMode | "any" \| "all" |  |
-| verify | NatsRouteVerify | Service-identity verification — see NatsRoute.verify. |
-| enrollment | boolean | Enrollment channel — see NatsRoute.enrollment. |
-| validate | (raw: unknown) => TReq |  |
-| handler | (ctx: NatsRouteContext<TReq>) => Promise<TRes> | Returns the reply payload — published to msg.reply. |
+| subject | `string` |  |
+| queue | `string \| null` |  |
+| permissions | `typeOperator` | RBAC permissions — MANDATORY unless `verify` is set. |
+| rbacMode | `"any" \| "all"` |  |
+| verify | `NatsRouteVerify` | Service-identity verification — see NatsRoute.verify. |
+| enrollment | `boolean` | Enrollment channel — see NatsRoute.enrollment. |
+| validate | `(raw: unknown) => TReq` |  |
+| handler | `(ctx: NatsRouteContext<TReq>) => Promise<TRes>` | Returns the reply payload — published to msg.reply. |
 
 ### `NatsRoute`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| subject | string | NATS subject, e.g. "emailsender.send". |
-| queue | string \| null | Queue group. Default: the service code (one copy round-robin across replicas). Pass `null` ONLY for broadcast listeners that must see every message — that intent stays visible in the declaration. |
-| permissions | typeOperator | RBAC permissions — MANDATORY unless `verify` is set. |
-| rbacMode | "any" \| "all" |  |
-| verify | NatsRouteVerify | Service-identity verification (e.g. BE client-shield check) instead of the default AuthUser+RBAC chain. Use for service-to-BE subjects where the caller is a service, not a user. |
-| enrollment | boolean | Enrollment channel — the route's `verify` REPLACES the global Layer-1 client-shield check entirely (it must do the equivalent check itself, typically with `allowNewPrefix`). Only legal on routes whose purpose is first-time client enrollment (service.register): everywhere else a skipped L1 is a security hole and the flag must never be set. |
-| validate | (raw: unknown) => TReq | Payload validator — throws on invalid shape (zod .parse or manual). |
-| handler | (ctx: NatsRouteContext<TReq>) => Promise<void> | The ONE service call. |
+| subject | `string` | NATS subject, e.g. "emailsender.send". |
+| queue | `string \| null` | Queue group. Default: the service code (one copy round-robin across
+replicas). Pass `null` ONLY for broadcast listeners that must see every
+message — that intent stays visible in the declaration. |
+| permissions | `typeOperator` | RBAC permissions — MANDATORY unless `verify` is set. |
+| rbacMode | `"any" \| "all"` |  |
+| verify | `NatsRouteVerify` | Service-identity verification (e.g. BE client-shield check) instead of
+the default AuthUser+RBAC chain. Use for service-to-BE subjects where
+the caller is a service, not a user. |
+| enrollment | `boolean` | Enrollment channel — the route's `verify` REPLACES the global Layer-1
+client-shield check entirely (it must do the equivalent check itself,
+typically with `allowNewPrefix`). Only legal on routes whose purpose
+is first-time client enrollment (service.register): everywhere else a
+skipped L1 is a security hole and the flag must never be set. |
+| validate | `(raw: unknown) => TReq` | Payload validator — throws on invalid shape (zod .parse or manual). |
+| handler | `(ctx: NatsRouteContext<TReq>) => Promise<void>` | The ONE service call. |
 
 ### `NatsRouteContext`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| user | AuthUser | Resolved caller (GATEWAY-RESOLVED headers). `undefined` for service-authenticated routes (`verify` shield check) — services have no AuthUser. |
-| request | TReq | Validated request payload. |
-| msg | Msg | Raw NATS message — headers, subject, reply. |
+| user | `AuthUser` | Resolved caller (GATEWAY-RESOLVED headers). `undefined` for
+service-authenticated routes (`verify` shield check) — services have
+no AuthUser. |
+| request | `TReq` | Validated request payload. |
+| msg | `Msg` | Raw NATS message — headers, subject, reply. |
 
 ### `NatsRouterDeps`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| serviceCode | string | Queue-group default — the registered service code. |
-| connection | NatsConnection | Injectable for tests — defaults to NatsClient.getConnection(). |
+| serviceCode | `string` | Queue-group default — the registered service code. |
+| connection | `NatsConnection` | Injectable for tests — defaults to NatsClient.getConnection(). |
 
 ### `NatsSseBridgeMapping`
 
@@ -1446,20 +1546,20 @@ Mapping from a NATS subject to an SSE event type.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| subject | string |  |
-| eventType | string |  |
-| transform | (payload: unknown) => { id: string; data: unknown } |  |
+| subject | `string` |  |
+| eventType | `string` |  |
+| transform | `(payload: unknown) => { id: string; data: unknown }` |  |
 
 ### `NormalizedIdpUser`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| idp_code | string | IDP subject (JWT `sub`). Stable per-user IDP identifier. |
-| email | string \| null |  |
-| name | string \| null |  |
-| roles | string[] |  |
-| idp_org | string \| null | IDP organization (from `owner` or `organization` claim) |
-| idp_username | string \| null | IDP username (from `name`, `username`, or `preferred_username` claim) |
+| idp_code | `string` | IDP subject (JWT `sub`). Stable per-user IDP identifier. |
+| email | `string \| null` |  |
+| name | `string \| null` |  |
+| roles | `string[]` |  |
+| idp_org | `string \| null` | IDP organization (from `owner` or `organization` claim) |
+| idp_username | `string \| null` | IDP username (from `name`, `username`, or `preferred_username` claim) |
 
 ### `OidcConfig`
 
@@ -1467,28 +1567,30 @@ OIDC configuration (STANDALONE mode only).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| issuer_url | string |  |
-| client_id | string |  |
-| client_secret | string |  |
-| audience | string |  |
-| idp_type | string |  |
+| issuer_url | `string` |  |
+| client_id | `string` |  |
+| client_secret | `string` |  |
+| audience | `string` |  |
+| idp_type | `string` |  |
 
 ### `OpenApiSpecInput`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| info | { title: string; version: string; description: string } |  |
-| serverUrl | string | Service base URL — emitted as `servers[0].url`. |
-| tags | { name: string; description: string }[] |  |
-| paths | Record<string, unknown> |  |
+| info | `{ title: string; version: string; description: string }` |  |
+| serverUrl | `string` | Service base URL — emitted as `servers[0].url`. |
+| tags | `{ name: string; description: string }[]` |  |
+| paths | `Record<string, unknown>` |  |
 
 ### `PackageIdentity`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| name | string |  |
-| version | string |  |
-| capabilities | string[] | Declared capabilities from package.json (`"capabilities": [...]`), snake_case lowercase. Sent in `service.register` → persisted in `service_registry.capabilities` — refreshed at every registration. |
+| name | `string` |  |
+| version | `string` |  |
+| capabilities | `string[]` | Declared capabilities from package.json (`"capabilities": [...]`),
+snake_case lowercase. Sent in `service.register` → persisted in
+`service_registry.capabilities` — refreshed at every registration. |
 
 ### `PresenceDelta`
 
@@ -1497,10 +1599,10 @@ Consumed by the BE SSE bridge and forwarded to connected FE clients.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| user_uuid | string | The user whose presence changed. |
-| action | PresenceAction | The action that triggered this delta. |
-| entry | PresenceEntry \| null | The updated entry (for READING/EDITING/HEARTBEAT), or null (for LEAVE). |
-| emitted_at | number | Epoch ms of the delta (for dedup / ordering on the FE). |
+| user_uuid | `string` | The user whose presence changed. |
+| action | `PresenceAction` | The action that triggered this delta. |
+| entry | `PresenceEntry \| null` | The updated entry (for READING/EDITING/HEARTBEAT), or null (for LEAVE). |
+| emitted_at | `number` | Epoch ms of the delta (for dedup / ordering on the FE). |
 
 ### `PresenceEntry`
 
@@ -1509,15 +1611,15 @@ One entry per (entity_type, entity_uuid, user_uuid).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| user_uuid | string |  |
-| user_name | string |  |
-| avatar_color | string \| null |  |
-| avatar_initials | string \| null |  |
-| status | PresenceStatus |  |
-| field | string | EDITING only — the field being edited. |
-| value | unknown | EDITING only — the current draft value of the field. |
-| last_seen_at | number | Epoch ms of the last signal/heartbeat from this user. |
-| tab_count | number | Number of open tabs for this user on this entity (deduped by session_id). |
+| user_uuid | `string` |  |
+| user_name | `string` |  |
+| avatar_color | `string \| null` |  |
+| avatar_initials | `string \| null` |  |
+| status | `PresenceStatus` |  |
+| field | `string` | EDITING only — the field being edited. |
+| value | `unknown` | EDITING only — the current draft value of the field. |
+| last_seen_at | `number` | Epoch ms of the last signal/heartbeat from this user. |
+| tab_count | `number` | Number of open tabs for this user on this entity (deduped by session_id). |
 
 ### `PresencePort`
 
@@ -1528,11 +1630,11 @@ Sent by the FE on open, on field focus, on field blur, on heartbeat, and on clos
 
 | Field | Type | Description |
 |-------|------|-------------|
-| action | PresenceAction |  |
-| field | string | EDITING only — the field name being edited. |
-| value | unknown | EDITING only — the current draft value of the field (full value). |
-| loaded_version | number | READING / HEARTBEAT — the `version` the client loaded (for staleness detection). |
-| session_id | string | Tab session id — deduplicates tabs for the same user. FE-generated (uuid). |
+| action | `PresenceAction` |  |
+| field | `string` | EDITING only — the field name being edited. |
+| value | `unknown` | EDITING only — the current draft value of the field (full value). |
+| loaded_version | `number` | READING / HEARTBEAT — the `version` the client loaded (for staleness detection). |
+| session_id | `string` | Tab session id — deduplicates tabs for the same user. FE-generated (uuid). |
 
 ### `PresenceSnapshot`
 
@@ -1541,17 +1643,17 @@ sent as the initial SSE `snapshot` event on connect.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| readers | PresenceEntry[] | Users in READING status (not editing). |
-| editors | PresenceEntry[] | Users in EDITING status. |
-| changed | EntityChangedMarker \| null | Most recent server-side change marker, or null if none in the TTL window. |
-| current_version | number | Current `version` of the entity (read from DB on snapshot build). |
+| readers | `PresenceEntry[]` | Users in READING status (not editing). |
+| editors | `PresenceEntry[]` | Users in EDITING status. |
+| changed | `EntityChangedMarker \| null` | Most recent server-side change marker, or null if none in the TTL window. |
+| current_version | `number` | Current `version` of the entity (read from DB on snapshot build). |
 
 ### `RbacResult`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| allowed | boolean |  |
-| missing | string[] | Missing permissions (only populated when not allowed) |
+| allowed | `boolean` |  |
+| missing | `string[]` | Missing permissions (only populated when not allowed) |
 
 ### `ResolveInput`
 
@@ -1563,11 +1665,11 @@ forwards the full AuthUser in headers.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| idp_code | string |  |
-| email | string \| null |  |
-| display_name | string \| null |  |
-| idp_org | string \| null |  |
-| idp_username | string \| null |  |
+| idp_code | `string` |  |
+| email | `string \| null` |  |
+| display_name | `string \| null` |  |
+| idp_org | `string \| null` |  |
+| idp_username | `string \| null` |  |
 
 ### `Rfc7807Body`
 
@@ -1583,14 +1685,14 @@ TS-originated DalError classes (ERR02/ERR06, object on `err.detail`).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| type | string |  |
-| title | string |  |
-| status | number |  |
-| detail | string |  |
-| instance | string |  |
-| internal_code | string |  |
-| severity | string |  |
-| extra | Record<string, unknown> | Structured extras — `issues` is the key the FE RfcErrorDialog renders. |
+| type | `string` |  |
+| title | `string` |  |
+| status | `number` |  |
+| detail | `string` |  |
+| instance | `string` |  |
+| internal_code | `string` |  |
+| severity | `string` |  |
+| extra | `Record<string, unknown>` | Structured extras — `issues` is the key the FE RfcErrorDialog renders. |
 
 ### `RoleMappingEntry`
 
@@ -1602,9 +1704,9 @@ forwards them in headers.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| permissions | string[] |  |
-| is_admin | boolean |  |
-| label_key | string |  |
+| permissions | `string[]` |  |
+| is_admin | `boolean` |  |
+| label_key | `string` |  |
 
 ### `RoleMappingPort`
 
@@ -1612,36 +1714,48 @@ forwards them in headers.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| scope | string | "global" or a service code — scopes the key namespace. |
-| name | string |  |
+| scope | `string` | "global" or a service code — scopes the key namespace. |
+| name | `string` |  |
 
 ### `RpcRoute`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| method | RpcMethod |  |
-| path | string | Absolute path, `:param` segments supported (e.g. "/api/v1/ai/conversations/:uuid"). |
-| permissions | typeOperator | RBAC permissions — MANDATORY for `auth: "user"`/`"api_key"` routes. Only `auth: "public"` routes may omit it. |
-| rbacMode | "any" \| "all" |  |
-| auth | RpcAuthKind | Auth kind. Default "user" (gateway-resolved). |
-| body | (raw: unknown) => TBody | Body validator — receives the raw parsed JSON (or the raw text when `rawBody` is set) and returns the parsed body. Throw anything to produce a 400 VALIDATION_ERROR (use zod's `.parse`, or a manual shape check). |
-| rawBody | boolean | Read the body as raw text instead of parsing JSON — for pass-through routes (e.g. webhook ingress) that must forward the payload verbatim. |
-| streaming | "sse" | "sse" = governed streaming route: handler gets `ctx.sse`, owns res. |
-| mfa | MfaStepUpSpec | MFA step-up — only legal on `auth: "user"` routes. The client must send a single-use action authorization token in `x-mfa-action-authorization` (minted by BE step-up endpoints); the router delegates the consume to the BE via `auth.mfa.consume`. Missing/invalid → 403 with `extra.mfa_step_up_required` so the FE shows the step-up dialog. |
-| openapi | RpcRouteOpenApi | OpenAPI metadata — consumed by `rpcSpec()`/`buildOpenApiSpec()` to emit this route in the service's auto-generated `/api/v1/openapi.json`. Routes without it are still documented (path+method+security derived), but `summary`/`description`/schemas make them first-class. |
-| handler | (ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown> | The ONE service call — business logic lives behind it, not here. |
+| method | `RpcMethod` |  |
+| path | `string` | Absolute path, `:param` segments supported (e.g. "/api/v1/ai/conversations/:uuid"). |
+| permissions | `typeOperator` | RBAC permissions — MANDATORY for `auth: "user"`/`"api_key"` routes.
+Only `auth: "public"` routes may omit it. |
+| rbacMode | `"any" \| "all"` |  |
+| auth | `RpcAuthKind` | Auth kind. Default "user" (gateway-resolved). |
+| body | `(raw: unknown) => TBody` | Body validator — receives the raw parsed JSON (or the raw text when
+`rawBody` is set) and returns the parsed body. Throw anything to
+produce a 400 VALIDATION_ERROR (use zod's `.parse`, or a manual
+shape check). |
+| rawBody | `boolean` | Read the body as raw text instead of parsing JSON — for pass-through
+routes (e.g. webhook ingress) that must forward the payload verbatim. |
+| streaming | `"sse"` | "sse" = governed streaming route: handler gets `ctx.sse`, owns res. |
+| mfa | `MfaStepUpSpec` | MFA step-up — only legal on `auth: "user"` routes. The client must send
+a single-use action authorization token in `x-mfa-action-authorization`
+(minted by BE step-up endpoints); the router delegates the consume to
+the BE via `auth.mfa.consume`. Missing/invalid → 403 with
+`extra.mfa_step_up_required` so the FE shows the step-up dialog. |
+| openapi | `RpcRouteOpenApi` | OpenAPI metadata — consumed by `rpcSpec()`/`buildOpenApiSpec()` to emit
+this route in the service's auto-generated `/api/v1/openapi.json`.
+Routes without it are still documented (path+method+security derived),
+but `summary`/`description`/schemas make them first-class. |
+| handler | `(ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>` | The ONE service call — business logic lives behind it, not here. |
 
 ### `RpcRouteContext`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| user | AuthUser | Resolved caller — undefined only for `auth: "public"` routes. |
-| params | TParams | Path params extracted from `:name` segments. |
-| query | URLSearchParams |  |
-| body | TBody | Parsed+validated body (output of the route's `body` validator). |
-| req | IncomingMessage |  |
-| res | ServerResponse |  |
-| sse | SseWriter | Present only when `streaming: "sse"` — handler owns the response. |
+| user | `AuthUser` | Resolved caller — undefined only for `auth: "public"` routes. |
+| params | `TParams` | Path params extracted from `:name` segments. |
+| query | `URLSearchParams` |  |
+| body | `TBody` | Parsed+validated body (output of the route's `body` validator). |
+| req | `IncomingMessage` |  |
+| res | `ServerResponse` |  |
+| sse | `SseWriter` | Present only when `streaming: "sse"` — handler owns the response. |
 
 ### `RpcRouteOpenApi`
 
@@ -1649,104 +1763,134 @@ OpenAPI metadata declared on a single RpcRoute.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| summary | string | Short human/LLM summary — REQUIRED when `openapi` is present. |
-| description | string |  |
-| tags | string[] |  |
-| requestSchema | JsonSchema | JSON schema of the request body (POST/PUT/PATCH). |
-| responseSchema | JsonSchema | JSON schema of the 200 response body. |
-| paramSchema | Record<string, JsonSchema> | Path params override (default: `:name` segments → required string). |
+| summary | `string` | Short human/LLM summary — REQUIRED when `openapi` is present. |
+| description | `string` |  |
+| tags | `string[]` |  |
+| requestSchema | `JsonSchema` | JSON schema of the request body (POST/PUT/PATCH). |
+| responseSchema | `JsonSchema` | JSON schema of the 200 response body. |
+| paramSchema | `Record<string, JsonSchema>` | Path params override (default: `:name` segments → required string). |
 
 ### `RpcRouterDeps`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| apiKeyPort | ApiKeyPort \| () => ApiKeyPort \| null \| undefined | Required only if any route uses `auth: "api_key"`. Either the port itself or a lazy getter resolved at request time (for ports wired after router construction, e.g. `authDependencySetters`). |
-| mfaConsume | MfaConsumeFn | Override for the MFA action-authorization consume — defaults to the governed `auth.mfa.consume` correlation call to the BE. Injectable for tests only. |
+| apiKeyPort | `ApiKeyPort \| () => ApiKeyPort \| null \| undefined` | Required only if any route uses `auth: "api_key"`. Either the port
+itself or a lazy getter resolved at request time (for ports wired
+after router construction, e.g. `authDependencySetters`). |
+| mfaConsume | `MfaConsumeFn` | Override for the MFA action-authorization consume — defaults to the
+governed `auth.mfa.consume` correlation call to the BE. Injectable for
+tests only. |
 
 ### `SecretGetRequest`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| scope | string | "global" or a service code — scopes the key namespace. |
-| name | string |  |
+| scope | `string` | "global" or a service code — scopes the key namespace. |
+| name | `string` |  |
 
 ### `SecretGetResponse`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| current | string |  |
-| previous | string \| null |  |
-| rotated_at | number | Epoch ms of the last rotation. |
+| current | `string` |  |
+| previous | `string \| null` |  |
+| rotated_at | `number` | Epoch ms of the last rotation. |
 
 ### `ServiceHealthCheck`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| ok | boolean |  |
-| error | string |  |
+| ok | `boolean` |  |
+| error | `string` |  |
 
 ### `ServiceHeartbeatPayload`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| code | string |  |
-| base_url | string |  |
-| service_version | string |  |
-| name | string |  |
-| description | string |  |
-| author | string |  |
-| github_repo_url | string |  |
-| is_behind_scaler | boolean |  |
-| http_healthy | boolean |  |
-| nats_connected | boolean |  |
-| checks | Record<string, ServiceHealthCheck> |  |
-| icon | string |  |
-| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
-| pkg_name | string | Package name from the service's package.json — with `service_version` it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in system.client_shield_registry, service_registry.pkg_name, log messages). |
+| code | `string` |  |
+| base_url | `string` |  |
+| service_version | `string` |  |
+| name | `string` |  |
+| description | `string` |  |
+| author | `string` |  |
+| github_repo_url | `string` |  |
+| is_behind_scaler | `boolean` |  |
+| http_healthy | `boolean` |  |
+| nats_connected | `boolean` |  |
+| checks | `Record<string, ServiceHealthCheck>` |  |
+| icon | `string` |  |
+| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| pkg_name | `string` | Package name from the service's package.json — with `service_version`
+it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
+system.client_registry, service_registry.pkg_name, log messages). |
 
 ### `ServiceRegisterPayload`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| code | string |  |
-| base_url | string |  |
-| service_version | string |  |
-| name | string |  |
-| description | string |  |
-| author | string |  |
-| github_repo_url | string |  |
-| is_behind_scaler | boolean |  |
-| http_healthy | boolean |  |
-| nats_connected | boolean |  |
-| checks | Record<string, ServiceHealthCheck> |  |
-| icon | string |  |
-| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
-| pkg_name | string | Package name from the service's package.json — with `service_version` it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in system.client_shield_registry, service_registry.pkg_name, log messages). |
-| endpoints | Record<string, unknown> |  |
-| client_key_hash | string | sha256 of the service's client shield key (module config `service_client_shield_key`). The raw key NEVER travels — the BE stores only this hash in client_shield_registry and verifies inbound `x-primebrick-client-shield-key` by hashing+comparing. |
-| capabilities | string[] | Capabilities declared in the service's package.json (`"capabilities": [...]`, snake_case lowercase) — e.g. `llm_orchestrator`, `vectorizing_engine`. Persisted by the BE in `service_registry.capabilities` and refreshed at every registration, so the registry always reflects the deployed artifact. |
-| schemas | string[] | PG schema ownership claim — the service's `DATABASE_SCHEMA` env list (validated by `assertDbEnv`). The first schema is the owned one. Persisted in `service_registry.schemas`: the BE rejects registration when a claimed schema is owned by a different code, or is one of the platform schemas (the BE's own `DATABASE_SCHEMA`, e.g. public/system/custom). The claim survives offline/stale rows and is released only by `service.unregister` or admin purge. |
+| code | `string` |  |
+| base_url | `string` |  |
+| service_version | `string` |  |
+| name | `string` |  |
+| description | `string` |  |
+| author | `string` |  |
+| github_repo_url | `string` |  |
+| is_behind_scaler | `boolean` |  |
+| http_healthy | `boolean` |  |
+| nats_connected | `boolean` |  |
+| checks | `Record<string, ServiceHealthCheck>` |  |
+| icon | `string` |  |
+| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| pkg_name | `string` | Package name from the service's package.json — with `service_version`
+it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
+system.client_registry, service_registry.pkg_name, log messages). |
+| endpoints | `Record<string, unknown>` |  |
+| client_key_hash | `string` | sha256 of the service's client shield key (module config
+`service_client_shield_key`). The raw key NEVER travels — the BE
+stores only this hash in client_registry and verifies inbound
+`x-primebrick-client-shield-key` by hashing+comparing. |
+| capabilities | `string[]` | Capabilities declared in the service's package.json
+(`"capabilities": [...]`, snake_case lowercase) — e.g.
+`llm_orchestrator`, `vectorizing_engine`. Persisted by the BE in
+`service_registry.capabilities` and refreshed at every registration,
+so the registry always reflects the deployed artifact. |
+| schemas | `string[]` | PG schema ownership claim — the service's `DATABASE_SCHEMA` env list
+(validated by `assertDbEnv`). The first schema is the owned one.
+Persisted in `service_registry.schemas`: the BE rejects registration
+when a claimed schema is owned by a different code, or is one of the
+platform schemas (the BE's own `DATABASE_SCHEMA`, e.g.
+public/system/custom). The claim survives offline/stale rows and is
+released only by `service.unregister` or admin purge. |
 
 ### `ServiceRegistrarConfig`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| serviceCode | string |  |
-| baseUrl | string |  |
-| endpoints | Record<string, unknown> |  |
-| heartbeatIntervalMs | number |  |
-| name | string |  |
-| description | string |  |
-| author | string |  |
-| github_repo_url | string |  |
-| service_version | string |  |
-| is_behind_scaler | boolean |  |
-| icon | string |  |
-| icon_type | "url" \| "svg" \| "base64" \| "icon" |  |
-| clientKey | string | This service's own client key (module config `service_client_shield_key`) — paired with the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent in `service.register`; the raw key never leaves the service. |
-| gatewayUrl | string | API gateway base URL (the BE, e.g. `http://localhost:3001`) — used only as a log tag on lifecycle messages so the target of registration and heartbeats is visible on the service's stdout. |
-| docsPackDir | string | Absolute path of the built docs pack (e.g. `dist/docs-pack`). When it contains a manifest.json, the `docs_pack` capability is added to the registration automatically — no package.json edit needed. |
-| schemas | string[] | PG schema ownership claim — the service's `DATABASE_SCHEMA` list (validated by `assertDbEnv`, first = owned schema). Sent in `service.register` → persisted in `service_registry.schemas` so the BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`). |
+| serviceCode | `string` |  |
+| baseUrl | `string` |  |
+| endpoints | `Record<string, unknown>` |  |
+| heartbeatIntervalMs | `number` |  |
+| name | `string` |  |
+| description | `string` |  |
+| author | `string` |  |
+| github_repo_url | `string` |  |
+| service_version | `string` |  |
+| is_behind_scaler | `boolean` |  |
+| icon | `string` |  |
+| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| clientKey | `string` | This service's own client key (module config `service_client_shield_key`) — paired with
+the UA prefix in `system.client_registry`. Only its sha256 hash is sent
+in `service.register`; the raw key never leaves the service. |
+| gatewayUrl | `string` | API gateway base URL (the BE, e.g. `http://localhost:3001`) — used only
+as a log tag on lifecycle messages so the target of registration and
+heartbeats is visible on the service's stdout. |
+| docsPackDir | `string` | Absolute path of the built docs pack (e.g. `dist/docs-pack`). When it
+contains a manifest.json, the `docs_pack` capability is added to the
+registration automatically — no package.json edit needed. |
+| schemas | `string[]` | PG schema ownership claim — the service's `DATABASE_SCHEMA` list
+(validated by `assertDbEnv`, first = owned schema). Sent in
+`service.register` → persisted in `service_registry.schemas` so the
+BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`). |
 
 ### `ServiceRegistryPort`
 
@@ -1768,21 +1912,21 @@ services in real time.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| code | string |  |
-| base_url | string |  |
-| is_behind_scaler | boolean |  |
-| status | string | Status the stale-detection job just assigned: 'stale' or 'offline'. |
-| last_health_check_at | string | ISO 8601 timestamp of the last heartbeat received. |
+| code | `string` |  |
+| base_url | `string` |  |
+| is_behind_scaler | `boolean` |  |
+| status | `string` | Status the stale-detection job just assigned: 'stale' or 'offline'. |
+| last_health_check_at | `string` | ISO 8601 timestamp of the last heartbeat received. |
 
 ### `ServiceUnregisterPayload`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| code | string |  |
-| base_url | string |  |
-| is_behind_scaler | boolean |  |
-| pkg_name | string |  |
-| service_version | string |  |
+| code | `string` |  |
+| base_url | `string` |  |
+| is_behind_scaler | `boolean` |  |
+| pkg_name | `string` |  |
+| service_version | `string` |  |
 
 ### `Session`
 
@@ -1793,14 +1937,20 @@ Kept intentionally minimal & immutable: callers should treat it as read-only.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| actor | string | Internal Primebrick UUID of the authenticated user. Used as the value stored in audit columns (`created_by`, `updated_by`, `deleted_by`, ...).  The literal string `"system"` is reserved for non-HTTP execution paths (database seeds, scheduled jobs, migrations, system API keys) and is only set via `runAsSystem()`. |
-| roles | typeOperator | Roles attached to the user / job, useful for low-level RBAC decisions inside services. May be empty for `"system"` callers. |
-| idpCode | string \| null | Original IDP `sub` for traceability. `null` for `"system"`. |
-| idpOrg | string \| null | IDP organization (from `owner` or `organization` claim). `null` for `"system"`. |
-| idpUsername | string \| null | IDP username (from `name`, `username`, or `preferred_username` claim). `null` for `"system"`. |
-| isVerified | boolean | Email verification status from IDP. `null` for `"system"`. |
-| emailVerified | boolean | Email verification status (email-specific). `null` for `"system"`. |
-| issuer | string | IDP issuer URL (from `iss` claim). `null` for `"system"`. |
+| actor | `string` | Internal Primebrick UUID of the authenticated user. Used as the value
+stored in audit columns (`created_by`, `updated_by`, `deleted_by`, ...).
+
+The literal string `"system"` is reserved for non-HTTP execution paths
+(database seeds, scheduled jobs, migrations, system API keys) and is only
+set via `runAsSystem()`. |
+| roles | `typeOperator` | Roles attached to the user / job, useful for low-level RBAC decisions
+inside services. May be empty for `"system"` callers. |
+| idpCode | `string \| null` | Original IDP `sub` for traceability. `null` for `"system"`. |
+| idpOrg | `string \| null` | IDP organization (from `owner` or `organization` claim). `null` for `"system"`. |
+| idpUsername | `string \| null` | IDP username (from `name`, `username`, or `preferred_username` claim). `null` for `"system"`. |
+| isVerified | `boolean` | Email verification status from IDP. `null` for `"system"`. |
+| emailVerified | `boolean` | Email verification status (email-specific). `null` for `"system"`. |
+| issuer | `string` | IDP issuer URL (from `iss` claim). `null` for `"system"`. |
 
 ### `SharedConfig`
 
@@ -1810,8 +1960,10 @@ All fields are optional: the BE only includes what it has configured.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| redis_url | string | Redis cache URL, e.g. `redis://localhost:6379`. Empty/undefined = cache disabled. |
-| telemetry | TelemetrySharedConfig | Telemetry/logging config — BE-owned (config_entries rows), shared with all microservices. Single point of configuration; changes are pushed via the `config.changed` broadcast subject. |
+| redis_url | `string` | Redis cache URL, e.g. `redis://localhost:6379`. Empty/undefined = cache disabled. |
+| telemetry | `TelemetrySharedConfig` | Telemetry/logging config — BE-owned (config_entries rows), shared with
+all microservices. Single point of configuration; changes are pushed
+via the `config.changed` broadcast subject. |
 
 ### `ShieldRegistryLike`
 
@@ -1819,7 +1971,7 @@ Structural view of the client registry needed for shield checks.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| allowedPrefixes | typeOperator |  |
+| allowedPrefixes | `typeOperator` |  |
 
 ### `SqlVersionProbe`
 
@@ -1842,9 +1994,9 @@ A single SSE event to be sent to a client.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| id | string |  |
-| event | string |  |
-| data | T |  |
+| id | `string` |  |
+| event | `string` |  |
+| data | `T` |  |
 
 ### `SseEventBus`
 
@@ -1869,17 +2021,17 @@ followed by a blank line. Comments are sent as `: <text>\n\n`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| closed | boolean | Whether the underlying connection has been closed. |
+| closed | `boolean` | Whether the underlying connection has been closed. |
 
 ### `TelemetryConfig`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| enabled | boolean | Master switch. false → no exporters, zero span overhead. |
-| otlp_endpoint | string | OTLP collector base URL, e.g. "http://collector:4318". |
-| otlp_headers | Record<string, string> | Extra headers for the collector (API keys etc.). |
-| sampler | "always_on" \| "always_off" \| "traceidratio" | Sampler: always_on \| always_off \| traceidratio (default always_on). |
-| sampler_arg | number | Ratio for traceidratio sampler (0..1). |
+| enabled | `boolean` | Master switch. false → no exporters, zero span overhead. |
+| otlp_endpoint | `string` | OTLP collector base URL, e.g. "http://collector:4318". |
+| otlp_headers | `Record<string, string>` | Extra headers for the collector (API keys etc.). |
+| sampler | `"always_on" \| "always_off" \| "traceidratio"` | Sampler: always_on | always_off | traceidratio (default always_on). |
+| sampler_arg | `number` | Ratio for traceidratio sampler (0..1). |
 
 ### `TelemetrySharedConfig`
 
@@ -1887,13 +2039,13 @@ Telemetry/logging block distributed via SharedConfig.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| enabled | boolean |  |
-| otlp_endpoint | string |  |
-| otlp_headers | Record<string, string> |  |
-| sampler | "always_on" \| "always_off" \| "traceidratio" |  |
-| sampler_arg | number |  |
-| log_format | "json" \| "pretty" |  |
-| log_level | "debug" \| "info" \| "warn" \| "error" |  |
+| enabled | `boolean` |  |
+| otlp_endpoint | `string` |  |
+| otlp_headers | `Record<string, string>` |  |
+| sampler | `"always_on" \| "always_off" \| "traceidratio"` |  |
+| sampler_arg | `number` |  |
+| log_format | `"json" \| "pretty"` |  |
+| log_level | `"debug" \| "info" \| "warn" \| "error"` |  |
 
 ### `TranslationRow`
 
@@ -1901,18 +2053,18 @@ Row shape returned by the DAL Repository for translation entities.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| id | string \| bigint |  |
-| uuid | string |  |
-| key | string |  |
-| language | string |  |
-| value | string |  |
-| created_at | string \| Date |  |
-| created_by | string |  |
-| updated_at | string \| Date |  |
-| updated_by | string |  |
-| version | number |  |
-| deleted_at | string \| Date \| null |  |
-| deleted_by | string \| null |  |
+| id | `string \| bigint` |  |
+| uuid | `string` |  |
+| key | `string` |  |
+| language | `string` |  |
+| value | `string` |  |
+| created_at | `string \| Date` |  |
+| created_by | `string` |  |
+| updated_at | `string \| Date` |  |
+| updated_by | `string` |  |
+| version | `number` |  |
+| deleted_at | `string \| Date \| null` |  |
+| deleted_by | `string \| null` |  |
 
 ### `TranslationsRepository`
 
@@ -1923,9 +2075,9 @@ TypeScript structural typing: if it has these methods, it's assignable.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| repository | TranslationsRepository |  |
-| queryable | Queryable |  |
-| cachePort | CachePort \| null |  |
+| repository | `TranslationsRepository` |  |
+| queryable | `Queryable` |  |
+| cachePort | `CachePort \| null` |  |
 
 ### `TypeCapabilities`
 
@@ -1933,8 +2085,8 @@ Full capability record for one ConfigType.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| validation | ValidationCapabilities |  |
-| widget | Partial<Record<WidgetCapability, true>> | Present widget-level type_config props for this type. |
+| validation | `ValidationCapabilities` |  |
+| widget | `Partial<Record<WidgetCapability, true>>` | Present widget-level type_config props for this type. |
 
 ### `UserResolverPort`
 
@@ -1944,46 +2096,48 @@ Validation-level capabilities (props under `type_config.validation`).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| required | boolean | `validation.required` toggle — shown for every type. |
-| unsigned | boolean | `validation.unsigned` — numeric types only. |
-| min | BoundsKind | `validation.rules.min` — 'length' for string-derived, 'value' for numeric, absent otherwise. |
-| max | BoundsKind | `validation.rules.max` — same semantics as `min`. |
-| regex | boolean | `validation.rules.regex` — string-derived types only. |
+| required | `boolean` | `validation.required` toggle — shown for every type. |
+| unsigned | `boolean` | `validation.unsigned` — numeric types only. |
+| min | `BoundsKind` | `validation.rules.min` — 'length' for string-derived, 'value' for numeric, absent otherwise. |
+| max | `BoundsKind` | `validation.rules.max` — same semantics as `min`. |
+| regex | `boolean` | `validation.rules.regex` — string-derived types only. |
 
 ### `ValidationRuleEmail`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| error_label_key | string |  |
+| error_label_key | `string` |  |
 
 ### `ValidationRuleMax`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| value | number \| bigint |  |
-| error_label_key | string |  |
+| value | `number \| bigint` |  |
+| error_label_key | `string` |  |
 
 ### `ValidationRuleMin`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| value | number \| bigint |  |
-| error_label_key | string |  |
+| value | `number \| bigint` |  |
+| error_label_key | `string` |  |
 
 ### `ValidationRuleRegex`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| pattern | string | Regex pattern string (parsed via new RegExp(pattern, flags)). |
-| flags | string | Regex flags passed as the second argument to `new RegExp(pattern, flags)`. Common values: "g" (global), "i" (ignore case), "m" (multiline). Empty string or undefined = no flags. Flags are NOT parsed from the pattern string. |
-| error_label_key | string |  |
+| pattern | `string` | Regex pattern string (parsed via new RegExp(pattern, flags)). |
+| flags | `string` | Regex flags passed as the second argument to `new RegExp(pattern, flags)`.
+Common values: "g" (global), "i" (ignore case), "m" (multiline).
+Empty string or undefined = no flags. Flags are NOT parsed from the pattern string. |
+| error_label_key | `string` |  |
 
 ### `ValidationRuleUrl`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| protocols | string[] | Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. |
-| error_label_key | string |  |
+| protocols | `string[]` | Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. |
+| error_label_key | `string` |  |
 
 ## Types & Enums
 
@@ -2201,7 +2355,7 @@ Persistent status derived from the latest non-heartbeat signal.
 
 ### `Queryable`
 
-Queryable — same type the DAL Repository uses (Pick<Pool, "query">).
+Queryable — same type the DAL Repository uses (Pick&#60;Pool, "query"&#62;).
 
 ### `RedisInfo`
 
@@ -2282,12 +2436,12 @@ HTTP header names used by the Primebrick cache protocol.
 
 ### `CLIENT_REGISTRY_SUBJECTS`
 
-**Type:** `{ GET: "system.clientShieldRegistry.get"; CHANGED: "system.client_shield_registry.changed" }`
+**Type:** `{ GET: "system.clientRegistry.get"; CHANGED: "system.client_registry.changed" }`
 
 | Field | Value |
 |-------|-------|
-| GET | "system.clientShieldRegistry.get" |
-| CHANGED | "system.client_shield_registry.changed" |
+| GET | "system.clientRegistry.get" |
+| CHANGED | "system.client_registry.changed" |
 
 ### `CLIENT_SHIELD_KEY_HEADER`
 
@@ -2329,7 +2483,7 @@ Pack layout on disk (`dist/docs-pack/`):
   openapi.json       — optional service OpenAPI spec
 
 Wire format (`GET /api/v1/system/docs/pack`):
-  { manifest: DocsPackManifest, files: [{ path, content }] }
+  &#123; manifest: DocsPackManifest, files: [&#123; path, content &#125;] &#125;
 
 Text is always the source of truth — no precomputed vectors in the
 contract (embeddings are model-bound; the consumer re-embeds).
@@ -2397,7 +2551,7 @@ Canonical JOBS stream capture set — schedule/due/result/cancel lanes only.
 
 ### `natsCarrier`
 
-TextMapCarrier over NATS MsgHdrs (Map<string, string[]> wrapper).
+TextMapCarrier over NATS MsgHdrs (Map&#60;string, string[]&#62; wrapper).
 
 **Type:** `{ get: ; set: ; keys:  }`
 
@@ -2558,7 +2712,7 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
 
 ### `recordCarrier`
 
-TextMapCarrier over plain Record<string,string> (e.g. fetch headers).
+TextMapCarrier over plain Record&#60;string,string&#62; (e.g. fetch headers).
 
 **Type:** `{ get: ; set: ; keys:  }`
 
@@ -2666,7 +2820,7 @@ immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| hash | string |  |
+| hash | `string` |  |
 
 ### `assertDbEnv(cwd): DbEnv`
 
@@ -2675,7 +2829,7 @@ Throws with the full violation list on any failure — services MUST crash.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| cwd | string |  |
+| cwd | `string` |  |
 
 ### `assertMfaStepUp(req, spec, user, consume): Promise<void>`
 
@@ -2685,16 +2839,16 @@ dialog) or MfaConsumeUnavailableError (transport failure → 503).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| req | IncomingMessage |  |
-| spec | MfaStepUpSpec |  |
-| user | AuthUser \| undefined |  |
-| consume | MfaConsumeFn |  |
+| req | `IncomingMessage` |  |
+| spec | `MfaStepUpSpec` |  |
+| user | `AuthUser \| undefined` |  |
+| consume | `MfaConsumeFn` |  |
 
 ### `brandRouteHandler(h): RouteHandler`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| h | RouteHandler |  |
+| h | `RouteHandler` |  |
 
 ### `bridgeNatsToSse(nats, bus, mappings): Promise<() => void>`
 
@@ -2705,9 +2859,9 @@ Call it on graceful shutdown or when the bridge is no longer needed.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nats | typeof NatsClient |  |
-| bus | SseEventBus |  |
-| mappings | NatsSseBridgeMapping[] |  |
+| nats | `typeof NatsClient` |  |
+| bus | `SseEventBus` |  |
+| mappings | `NatsSseBridgeMapping[]` |  |
 
 ### `buildAuthUser(internalUuid, normalized, permissions, isAdmin): AuthUser`
 
@@ -2720,16 +2874,16 @@ the IDP `sub`. The mapping is performed by the UserResolverPort.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| internalUuid | string |  |
-| normalized | NormalizedIdpUser |  |
-| permissions | Set<string> |  |
-| isAdmin | boolean |  |
+| internalUuid | `string` |  |
+| normalized | `NormalizedIdpUser` |  |
+| permissions | `Set<string>` |  |
+| isAdmin | `boolean` |  |
 
 ### `buildDocsPack(opts): Promise<DocsPackManifest>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | BuildDocsPackOptions |  |
+| opts | `BuildDocsPackOptions` |  |
 
 ### `buildNatsAuthHeaders(user, config): Record<string, string>`
 
@@ -2738,14 +2892,14 @@ Wraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| user | AuthUser |  |
-| config | AuthConfig |  |
+| user | `AuthUser` |  |
+| config | `AuthConfig` |  |
 
 ### `buildOpenApiSpec(input): Record<string, unknown>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| input | OpenApiSpecInput |  |
+| input | `OpenApiSpecInput` |  |
 
 ### `buildUserAgent(identity, capabilities): string`
 
@@ -2756,8 +2910,8 @@ stable; it is what the allowlist prefix matches against along with name.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| identity | PackageIdentity |  |
-| capabilities | string |  |
+| identity | `PackageIdentity` |  |
+| capabilities | `string` |  |
 
 ### `Cached(ttl): ClassDecorator`
 
@@ -2767,7 +2921,11 @@ cache is unavailable, the Repository's real methods are called directly.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ttl | number | Time-to-live in milliseconds. **Omit for no expiry** — use this ONLY for   genuinely immutable data (the cached value can never change). For mutable data, pick a   TTL that bounds the staleness window if Redis is intermittently unavailable during   invalidation. Recommended starting point for mutable data: `300_000` (5 minutes).   There is NO implicit default — `@Cached()` with no arg means "no TTL, immutable". |
+| ttl | `number` | Time-to-live in milliseconds. **Omit for no expiry** — use this ONLY for
+  genuinely immutable data (the cached value can never change). For mutable data, pick a
+  TTL that bounds the staleness window if Redis is intermittently unavailable during
+  invalidation. Recommended starting point for mutable data: `300_000` (5 minutes).
+  There is NO implicit default — `@Cached()` with no arg means "no TTL, immutable". |
 
 ### `CacheKey(): PropertyDecorator`
 
@@ -2789,9 +2947,9 @@ uses `buildNatsAuthHeaders` to forward the resolved user).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| subject | string |  |
-| data | unknown |  |
-| opts | { timeoutMs: number; headers: Record<string, string>; connection: NatsConnection; natsClient: typeof NatsClient } |  |
+| subject | `string` |  |
+| data | `unknown` |  |
+| opts | `{ timeoutMs: number; headers: Record<string, string>; connection: NatsConnection; natsClient: typeof NatsClient }` |  |
 
 ### `cancelJobSchedule(scheduleSubject, cancelSubject): Promise<bigint>`
 
@@ -2801,8 +2959,8 @@ just replace the declaration).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| scheduleSubject | string |  |
-| cancelSubject | string |  |
+| scheduleSubject | `string` |  |
+| cancelSubject | `string` |  |
 
 ### `checkRbac(user, requiredPermissions, mode): RbacResult`
 
@@ -2810,19 +2968,19 @@ Evaluate RBAC for a user against a list of required permissions.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| user | AuthUser | The authenticated AuthUser |
-| requiredPermissions | typeOperator | List of accepted permissions for this endpoint |
-| mode | "any" \| "all" | "any" (OR, default) or "all" (AND) |
+| user | `AuthUser` | The authenticated AuthUser |
+| requiredPermissions | `typeOperator` | List of accepted permissions for this endpoint |
+| mode | `"any" \| "all"` | "any" (OR, default) or "all" (AND) |
 
 ### `clientKeyHash(key): string`
 
 sha256 hex of a client key — the only form that ever leaves the service
-(sent in `service.register` → stored in system.client_shield_registry) and the
+(sent in `service.register` → stored in system.client_registry) and the
 only form compared at verification time.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
+| key | `string` |  |
 
 ### `closeRedisClient(): Promise<void>`
 
@@ -2840,9 +2998,9 @@ Returns the typed value for BE→FE response shaping.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | ConfigType |  |
-| value | string \| null |  |
-| type_config | string \| null |  |
+| type | `ConfigType` |  |
+| value | `string \| null` |  |
+| type_config | `string \| null` |  |
 
 ### `coerceRoles(raw): string[]`
 
@@ -2854,7 +3012,7 @@ Coerce any role payload shape into a clean array of strings.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| raw | unknown |  |
+| raw | `unknown` |  |
 
 ### `composeRouteHandlers(handlers): RouteHandler`
 
@@ -2864,7 +3022,7 @@ composition is an extension of the closed set, not a smuggling hatch.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| handlers | RouteHandler[] |  |
+| handlers | `RouteHandler[]` |  |
 
 ### `computeETag(value): string`
 
@@ -2875,7 +3033,7 @@ BigInt values are serialized correctly via `extJsonStringify`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| value | unknown |  |
+| value | `unknown` |  |
 
 ### `computeVersionETag(version): string`
 
@@ -2884,7 +3042,7 @@ Faster than hashing — use when the entity has `version: number`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| version | string \| number |  |
+| version | `string \| number` |  |
 
 ### `configureInternalClient(p): void`
 
@@ -2895,7 +3053,7 @@ Register the identity provider once at boot:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| p | InternalIdentityProvider |  |
+| p | `InternalIdentityProvider` |  |
 
 ### `createHttpServer(options): Promise<Server<typeof IncomingMessage, typeof ServerResponse>>`
 
@@ -2905,7 +3063,7 @@ as RFC 7807 Problem Details JSON — same format as the BE error handler.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| options | HttpServerOptions |  |
+| options | `HttpServerOptions` |  |
 
 ### `createMicroservice(options): Promise<MicroserviceContext>`
 
@@ -2919,7 +3077,7 @@ to use in service-specific logic (NATS subscriptions, custom endpoints, etc.).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| options | MicroserviceOptions |  |
+| options | `MicroserviceOptions` |  |
 
 ### `createRedisClient(url): Promise<RedisClientType>`
 
@@ -2928,7 +3086,7 @@ different URL return the existing client (the URL is only used on first call).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| url | string | Redis URL, e.g. `redis://localhost:6379` or `rediss://host:6380` (TLS). |
+| url | `string` | Redis URL, e.g. `redis://localhost:6379` or `rediss://host:6380` (TLS). |
 
 ### `createRedisHealthCheck(getCachePort, getVersion): () => Promise<HealthCheckResult>`
 
@@ -2936,8 +3094,12 @@ Create a Redis health check function from a CachePort getter.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| getCachePort | () => CachePort \| null | A function that returns the current CachePort (or null).   Using a getter instead of a direct reference allows the health check to   pick up a cache port that is initialized after the health check is created   (e.g. during startup retry). |
-| getVersion | () => string \| undefined | Optional function that returns the cached Redis version   (avoids re-querying INFO on every health probe). |
+| getCachePort | `() => CachePort \| null` | A function that returns the current CachePort (or null).
+  Using a getter instead of a direct reference allows the health check to
+  pick up a cache port that is initialized after the health check is created
+  (e.g. during startup retry). |
+| getVersion | `() => string \| undefined` | Optional function that returns the cached Redis version
+  (avoids re-querying INFO on every health probe). |
 
 ### `createSseEventBus(): SseEventBus`
 
@@ -2959,7 +3121,7 @@ for sending an initial `snapshot` event and setting up keep-alive + cleanup.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| res | ServerResponse |  |
+| res | `ServerResponse` |  |
 
 ### `currencyDecimals(code): number`
 
@@ -2967,7 +3129,7 @@ Get the number of decimal places for a currency code (e.g. "EUR" → 2, "JPY" �
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| code | string |  |
+| code | `string` |  |
 
 ### `currencySymbol(code): string`
 
@@ -2975,7 +3137,7 @@ Get the currency symbol for a currency code (e.g. "EUR" → "€"). Falls back t
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| code | string |  |
+| code | `string` |  |
 
 ### `currentClientShieldSecret(fallback): string \| undefined`
 
@@ -2983,7 +3145,7 @@ The value a publisher must stamp on outbound calls.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| fallback | string |  |
+| fallback | `string` |  |
 
 ### `defaultCurrencyForLang(lang): string`
 
@@ -2993,7 +3155,7 @@ Falls back to "EUR" for unknown locales.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| lang | string |  |
+| lang | `string` |  |
 
 ### `deserializeAuthUserFromHeaders(headers, config): AuthUser`
 
@@ -3002,20 +3164,21 @@ The gateway secret is verified separately by verifyAuthGatewayResolved().
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| headers | HeaderProvider |  |
-| config | AuthConfig |  |
+| headers | `HeaderProvider` |  |
+| config | `AuthConfig` |  |
 
 ### `detectPackageIdentity(startDir): PackageIdentity`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| startDir | string |  |
+| startDir | `string` |  |
 
 ### `docsPackRouteHandler(packDir): RouteHandler`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| packDir | string | absolute path of the built pack (e.g. "dist/docs-pack").   Must contain manifest.json + docs/. |
+| packDir | `string` | absolute path of the built pack (e.g. "dist/docs-pack").
+  Must contain manifest.json + docs/. |
 
 ### `dueLaneVerify(lane, permissions): (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>`
 
@@ -3032,8 +3195,8 @@ Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| lane | "system" \| "user" |  |
-| permissions | typeOperator |  |
+| lane | `"system" \| "user"` |  |
+| permissions | `typeOperator` |  |
 
 ### `enforceHttpRbac(user, requiredPermissions, mode): void`
 
@@ -3041,9 +3204,9 @@ Enforce RBAC for an HTTP request. Throws RbacDeniedError on denial.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| user | AuthUser | The authenticated AuthUser |
-| requiredPermissions | typeOperator | List of accepted permissions for this endpoint |
-| mode | "any" \| "all" | "any" (OR, default) or "all" (AND) |
+| user | `AuthUser` | The authenticated AuthUser |
+| requiredPermissions | `typeOperator` | List of accepted permissions for this endpoint |
+| mode | `"any" \| "all"` | "any" (OR, default) or "all" (AND) |
 
 ### `enforceNatsRbac(user, requiredPermissions, mode): void`
 
@@ -3052,9 +3215,9 @@ Same logic as enforceHttpRbac — separated for semantic clarity.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| user | AuthUser |  |
-| requiredPermissions | typeOperator |  |
-| mode | "any" \| "all" |  |
+| user | `AuthUser` |  |
+| requiredPermissions | `typeOperator` |  |
+| mode | `"any" \| "all"` |  |
 
 ### `ensureJobSchedule(opts): Promise<bigint>`
 
@@ -3069,7 +3232,7 @@ calls (and is also usable by tests/tooling).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | EnsureJobScheduleOpts |  |
+| opts | `EnsureJobScheduleOpts` |  |
 
 ### `entityChangedSubject(entityType, entityUuid): string`
 
@@ -3078,8 +3241,8 @@ Format: `entity.{entityType}.{entityUuid}.changed`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
 
 ### `entityCrudSpec(entity, opts): Record<string, unknown>`
 
@@ -3090,8 +3253,8 @@ convention used by existing specs) and secured with bearerAuth+apiKey.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entity | string |  |
-| opts | { ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema } |  |
+| entity | `string` |  |
+| opts | `{ ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema }` |  |
 
 ### `etagMatches(requestETag, cachedETag): boolean`
 
@@ -3102,8 +3265,8 @@ a strong ETag with the same hash (per RFC 7232 weak comparison).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| requestETag | string \| null |  |
-| cachedETag | string |  |
+| requestETag | `string \| null` |  |
+| cachedETag | `string` |  |
 
 ### `expandPermissions(roles, getRoleMappingFn): Promise<{ patterns: string[]; isAdmin: boolean }>`
 
@@ -3113,8 +3276,8 @@ Roles marked with `is_admin=true` bypass all permission checks.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| roles | typeOperator | Role names from the IDP (as extracted from JWT via roles_path) |
-| getRoleMappingFn | (role: string) => Promise<{ permissions: string[]; is_admin: boolean } \| null> | Function that returns the mapping for a specific role |
+| roles | `typeOperator` | Role names from the IDP (as extracted from JWT via roles_path) |
+| getRoleMappingFn | `(role: string) => Promise<{ permissions: string[]; is_admin: boolean } \| null>` | Function that returns the mapping for a specific role |
 
 ### `extJsonBodyParser(opts): (req: Request, _res: Response, next: NextFunction) => Promise<void>`
 
@@ -3129,7 +3292,7 @@ Install once in the Express app, BEFORE routes, typically replacing or
 alongside `express.json()`. Only parses requests with `Content-Type: application/json`.
 
 Example:
-  app.use(express.json({ limit: "1mb" })); // fallback for non-JSON content types
+  app.use(express.json(&#123; limit: "1mb" &#125;)); // fallback for non-JSON content types
   app.use(extJsonBodyParser());             // ext-json for application/json
 
 Or as a per-route middleware for only the routes that need BigInt:
@@ -3139,7 +3302,7 @@ Wire format: standard JSON with numbers (not strings) for bigint values.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | { limit: string \| number } |  |
+| opts | `{ limit: string \| number }` |  |
 
 ### `extJsonMiddleware(): (req: Request, res: Response, next: NextFunction) => void`
 
@@ -3165,7 +3328,7 @@ is always `number`. No `number | bigint` ambiguity.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| text | string |  |
+| text | `string` |  |
 
 ### `extJsonStringify(data): string`
 
@@ -3175,7 +3338,7 @@ Floats are serialized as JSON numbers (e.g. 3.14 → "3.14").
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| data | unknown |  |
+| data | `unknown` |  |
 
 ### `extractNatsContext(hdrs): Context`
 
@@ -3183,7 +3346,7 @@ Extract parent context from NATS message headers.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| hdrs | MsgHdrs \| undefined |  |
+| hdrs | `MsgHdrs \| undefined` |  |
 
 ### `extractTraceContext(hdrs): Context`
 
@@ -3191,13 +3354,13 @@ Extract parent context from a plain header record (HTTP inbound).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| hdrs | Record<string, string \| string[] \| undefined> |  |
+| hdrs | `Record<string, string \| string[] \| undefined>` |  |
 
 ### `fetchDocsPack(serviceBaseUrl): Promise<DocsPackPayload>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| serviceBaseUrl | string |  |
+| serviceBaseUrl | `string` |  |
 
 ### `fetchSharedConfig(nats): Promise<SharedConfig>`
 
@@ -3209,7 +3372,7 @@ assuming the whole object is populated.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nats | typeof NatsClient | The NatsClient class (uses the singleton connection) |
+| nats | `typeof NatsClient` | The NatsClient class (uses the singleton connection) |
 
 ### `fetchTraced(input, init): Promise<Response>`
 
@@ -3220,8 +3383,8 @@ harmless (same trace context).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| input | string \| URL \| Request |  |
-| init | RequestInit |  |
+| input | `string \| URL \| Request` |  |
+| init | `RequestInit` |  |
 
 ### `flushLogsSync(): void`
 
@@ -3235,9 +3398,9 @@ Returns empty string for null/undefined values.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| amount | number \| null \| undefined |  |
-| lang | string |  |
-| currency | string |  |
+| amount | `number \| null \| undefined` |  |
+| lang | `string` |  |
+| currency | `string` |  |
 
 ### `forwardAuthHeaders(msg): Record<string, string>`
 
@@ -3248,7 +3411,7 @@ header names configured on this service's AuthConfig are copied.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| msg | { headers: MsgHdrs } |  |
+| msg | `{ headers: MsgHdrs }` |  |
 
 ### `generateApiKey(): { key: string; prefix: string }`
 
@@ -3271,7 +3434,7 @@ Used by `CacheKeyBuilder.forRowFromMeta` as the first resolution step.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ctor | (args: any[]) => any |  |
+| ctor | `(args: any[]) => any` |  |
 
 ### `getClientShieldSecretSlot(): ClientShieldSecretSlot \| null`
 
@@ -3281,7 +3444,7 @@ Get ISO 4217 metadata for a currency code. Returns null for unknown codes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| code | string |  |
+| code | `string` |  |
 
 ### `getEntityCacheTtl(ctor): number \| undefined`
 
@@ -3290,7 +3453,7 @@ Returns `undefined` for entities not marked with `@Cached()`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ctor | (args: any[]) => any |  |
+| ctor | `(args: any[]) => any` |  |
 
 ### `getLogOptions(): Readonly<LoggerState>`
 
@@ -3314,7 +3477,7 @@ redis_git_sha1:00000000\r\n
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| redis | RedisClientType |  |
+| redis | `RedisClientType` |  |
 
 ### `getSdkCachePort(): CachePort \| null`
 
@@ -3341,7 +3504,7 @@ Returns a hex-encoded string.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| key | string |  |
+| key | `string` |  |
 
 ### `humanizeMs(ms): string`
 
@@ -3349,7 +3512,7 @@ Returns a hex-encoded string.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ms | number |  |
+| ms | `number` |  |
 
 ### `i18nCacheKey(schema, language): string`
 
@@ -3357,20 +3520,20 @@ Cache key format: `translations:i18n:{schema}:{language}`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| schema | string |  |
-| language | string |  |
+| schema | `string` |  |
+| language | `string` |  |
 
 ### `identityHeaders(identity, capabilities, clientKey): Record<string, string>`
 
 Identity headers to attach to every outbound internal call.
 `clientKey` comes from the service's own config (env/config entry) —
-it is the secret paired with the UA in `system.client_shield_registry`.
+it is the secret paired with the UA in `system.client_registry`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| identity | PackageIdentity |  |
-| capabilities | string |  |
-| clientKey | string |  |
+| identity | `PackageIdentity` |  |
+| capabilities | `string` |  |
+| clientKey | `string` |  |
 
 ### `initAuthConfig(p): void`
 
@@ -3379,7 +3542,7 @@ Called once at application startup.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| p | AuthConfigPort |  |
+| p | `AuthConfigPort` |  |
 
 ### `initCacheFromSharedConfig(nats, logger, prefetched): Promise<CacheBootstrapResult>`
 
@@ -3390,9 +3553,9 @@ Must be called AFTER `NatsClient.getConnection()` has succeeded.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nats | typeof NatsClient | The NatsClient class (uses the singleton connection) |
-| logger | CacheLogger | Console or custom logger with info/warn methods |
-| prefetched | SharedConfig |  |
+| nats | `typeof NatsClient` | The NatsClient class (uses the singleton connection) |
+| logger | `CacheLogger` | Console or custom logger with info/warn methods |
+| prefetched | `SharedConfig` |  |
 
 ### `initTelemetry(cfg, serviceName, serviceVersion): Promise<void>`
 
@@ -3402,9 +3565,9 @@ process — subsequent config changes go through `restartTelemetry`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| cfg | TelemetryConfig |  |
-| serviceName | string |  |
-| serviceVersion | string |  |
+| cfg | `TelemetryConfig` |  |
+| serviceName | `string` |  |
+| serviceVersion | `string` |  |
 
 ### `injectTraceHeaders(hdrs): Record<string, string>`
 
@@ -3412,7 +3575,7 @@ Inject W3C traceparent/tracestate into a plain header record.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| hdrs | Record<string, string> |  |
+| hdrs | `Record<string, string>` |  |
 
 ### `installConsoleBridge(): void`
 
@@ -3425,8 +3588,8 @@ Idempotent. Skipped under vitest (VITEST env) so test output is unaffected.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| url | string \| URL |  |
-| init | RequestInit |  |
+| url | `string \| URL` |  |
+| init | `RequestInit` |  |
 
 ### `invalidateAuthConfig(): void`
 
@@ -3438,7 +3601,7 @@ Returns `true` if the entity class is marked with `@Cached()`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ctor | (args: any[]) => any |  |
+| ctor | `(args: any[]) => any` |  |
 
 ### `isFactoryRouteHandler(h): h is RouteHandler`
 
@@ -3448,7 +3611,7 @@ refuses to mount anything else at startup.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| h | unknown |  |
+| h | `unknown` |  |
 
 ### `isPermissionGranted(userPermissions, requiredPermission): boolean`
 
@@ -3457,8 +3620,8 @@ Supports wildcard patterns in user permissions.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| userPermissions | Set<string> | Set of permissions granted to user (may contain wildcards) |
-| requiredPermission | string | Permission required by the endpoint |
+| userPermissions | `Set<string>` | Set of permissions granted to user (may contain wildcards) |
+| requiredPermission | `string` | Permission required by the endpoint |
 
 ### `isPermissionSentinel(p): boolean`
 
@@ -3468,7 +3631,7 @@ role expansion.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| p | string |  |
+| p | `string` |  |
 
 ### `listNonSentinelPermissions(): string[]`
 
@@ -3488,9 +3651,9 @@ Log a successful infrastructure module connection.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| name | string | Module name (e.g. "PostgreSQL", "Redis", "NATS", "Casdoor") |
-| version | string \| null \| undefined | Server version (e.g. "18.0", "8.8.0"), or "unknown" if not available |
-| url | string | Connection URL or address (e.g. "127.0.0.1:5432") |
+| name | `string` | Module name (e.g. "PostgreSQL", "Redis", "NATS", "Casdoor") |
+| version | `string \| null \| undefined` | Server version (e.g. "18.0", "8.8.0"), or "unknown" if not available |
+| url | `string` | Connection URL or address (e.g. "127.0.0.1:5432") |
 
 ### `logServiceStartup(url): void`
 
@@ -3499,20 +3662,20 @@ logger's mandatory [service#version] tag, so only the URL is needed.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| url | string | Base URL the service is listening on |
+| url | `string` | Base URL the service is listening on |
 
 ### `makeDbMigrationRouteHandler(boot, state): RouteHandler`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| boot | DbMigrationBootOptions |  |
-| state | MigrationBootState |  |
+| boot | `DbMigrationBootOptions` |  |
+| state | `MigrationBootState` |  |
 
 ### `makeEntityRouter(config): RouteHandler`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| config | EntityRouterConfig<TEntity> |  |
+| config | `EntityRouterConfig<TEntity>` |  |
 
 ### `makeNatsRequestRoute(routes, deps): Promise<Subscription[]>`
 
@@ -3523,8 +3686,8 @@ denials/failures reply with `{ error: { code, message } }`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| routes | NatsRequestRoute<TReq, TRes>[] |  |
-| deps | NatsRouterDeps |  |
+| routes | `NatsRequestRoute<TReq, TRes>[]` |  |
+| deps | `NatsRouterDeps` |  |
 
 ### `makeNatsRoutes(routes, deps): Promise<Subscription[]>`
 
@@ -3533,8 +3696,8 @@ into the message loop — fire-and-forget has no caller to answer to.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| routes | NatsRoute<unknown>[] |  |
-| deps | NatsRouterDeps |  |
+| routes | `NatsRoute<unknown>[]` |  |
+| deps | `NatsRouterDeps` |  |
 
 ### `makeOpenApiHandler(spec): RouteHandler`
 
@@ -3542,7 +3705,7 @@ RouteHandler serving `GET /api/v1/openapi.json` with the given spec.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| spec | Record<string, unknown> |  |
+| spec | `Record<string, unknown>` |  |
 
 ### `makeRpcRouter(routes, deps): RouteHandler`
 
@@ -3556,8 +3719,8 @@ without permissions that isn't explicitly `auth: "public"` never exists.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| routes | RpcRoute<unknown, Record<string, string>>[] |  |
-| deps | RpcRouterDeps |  |
+| routes | `RpcRoute<unknown, Record<string, string>>[]` |  |
+| deps | `RpcRouterDeps` |  |
 
 ### `mapDalError(err, instance): MappedDalError \| null`
 
@@ -3567,8 +3730,8 @@ own error path — ApiError, database-unavailable, generic 500…).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| err | unknown |  |
-| instance | string |  |
+| err | `unknown` |  |
+| instance | `string` |  |
 
 ### `matchesWildcard(pattern, permission): boolean`
 
@@ -3576,8 +3739,8 @@ Check if a permission string matches a pattern (supports * wildcard).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| pattern | string | Pattern with optional * wildcard (e.g., "customer.read.*") |
-| permission | string | Permission string to match (e.g., "customer.read.single") |
+| pattern | `string` | Pattern with optional * wildcard (e.g., "customer.read.*") |
+| permission | `string` | Permission string to match (e.g., "customer.read.single") |
 
 ### `msgHeader(hdrs, name): string \| null`
 
@@ -3587,8 +3750,8 @@ Tries the name as given first, then the canonical MIME form
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| hdrs | MsgHdrs \| undefined |  |
-| name | string |  |
+| hdrs | `MsgHdrs \| undefined` |  |
+| name | `string` |  |
 
 ### `normalizeIdpToken(payload, rolesPath): NormalizedIdpUser`
 
@@ -3597,8 +3760,8 @@ roles path. Throws on empty payload or missing `sub` claim.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| payload | JwtClaims \| null \| undefined |  |
-| rolesPath | string |  |
+| payload | `JwtClaims \| null \| undefined` |  |
+| rolesPath | `string` |  |
 
 ### `operationIdFor(method, path): string`
 
@@ -3609,20 +3772,20 @@ operationId from method + path, snake_case:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| method | string |  |
-| path | string |  |
+| method | `string` |  |
+| path | `string` |  |
 
 ### `parseBracketQuery(params): Record<string, unknown>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| params | URLSearchParams |  |
+| params | `URLSearchParams` |  |
 
 ### `parseDocsPackPayload(raw): DocsPackPayload`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| raw | unknown |  |
+| raw | `unknown` |  |
 
 ### `pgServerBanner(probe, databaseUrl): Promise<{ name: string; version: string \| null; url: string }>`
 
@@ -3633,8 +3796,8 @@ The connection URL is printed with the password stripped.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| probe | SqlVersionProbe |  |
-| databaseUrl | string |  |
+| probe | `SqlVersionProbe` |  |
+| databaseUrl | `string` |  |
 
 ### `presenceSubject(entityType, entityUuid): string`
 
@@ -3643,8 +3806,8 @@ Format: `presence.{entityType}.{entityUuid}`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| entityType | string |  |
-| entityUuid | string |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
 
 ### `publishEntityChanged(nc, marker): Promise<void>`
 
@@ -3656,8 +3819,8 @@ The BE calls this from the audit-port-adapter hook after a successful save.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nc | typeof NatsClient |  |
-| marker | EntityChangedMarker |  |
+| nc | `typeof NatsClient` |  |
+| marker | `EntityChangedMarker` |  |
 
 ### `publishPresence(nc, entityType, entityUuid, delta): Promise<void>`
 
@@ -3669,10 +3832,10 @@ itself: `publishPresence(NatsClient, entityType, entityUuid, delta)`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nc | typeof NatsClient |  |
-| entityType | string |  |
-| entityUuid | string |  |
-| delta | PresenceDelta |  |
+| nc | `typeof NatsClient` |  |
+| entityType | `string` |  |
+| entityUuid | `string` |  |
+| delta | `PresenceDelta` |  |
 
 ### `readServiceVersion(): string`
 
@@ -3692,7 +3855,7 @@ Validate env vars and throw if any required ones are missing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| schema | EnvSchema |  |
+| schema | `EnvSchema` |  |
 
 ### `resetInternalClient(): void`
 
@@ -3715,9 +3878,9 @@ the OLD endpoint) before the delegate swap.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| cfg | TelemetryConfig |  |
-| serviceName | string |  |
-| serviceVersion | string |  |
+| cfg | `TelemetryConfig` |  |
+| serviceName | `string` |  |
+| serviceVersion | `string` |  |
 
 ### `rpcSpec(routes): Record<string, unknown>`
 
@@ -3727,7 +3890,7 @@ Convert declared routes into an OpenAPI `paths` fragment. Routes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| routes | OpenApiRouteDoc[] |  |
+| routes | `OpenApiRouteDoc[]` |  |
 
 ### `runAsSystem(fn): T`
 
@@ -3739,13 +3902,13 @@ Do NOT use this from inside an HTTP handler to bypass auth.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| fn | () => T |  |
+| fn | `() => T` |  |
 
 ### `runDbMigrationStep(opts): Promise<MigrationBootState>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | DbMigrationBootOptions |  |
+| opts | `DbMigrationBootOptions` |  |
 
 ### `runWithSession(session, fn): T`
 
@@ -3756,8 +3919,8 @@ this directly, unless you are writing infrastructure code.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| session | Session |  |
-| fn | () => T |  |
+| session | `Session` |  |
+| fn | `() => T` |  |
 
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
@@ -3767,8 +3930,8 @@ header for anti-spoofing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| user | AuthUser |  |
-| config | AuthConfig |  |
+| user | `AuthUser` |  |
+| config | `AuthConfig` |  |
 
 ### `serializeConfigValue(type, value): string`
 
@@ -3779,8 +3942,8 @@ Serialize a typed value back to string for DB storage.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | ConfigType |  |
-| value | string \| number \| bigint |  |
+| type | `ConfigType` |  |
+| value | `string \| number \| bigint` |  |
 
 ### `serviceShieldVerify(msg): Promise<null \| undefined>`
 
@@ -3789,13 +3952,13 @@ NatsRouteVerify adapter — use as `verify` on service-identity routes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| msg | Msg |  |
+| msg | `Msg` |  |
 
 ### `setClientShieldSecretSlot(s): void`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| s | ClientShieldSecretSlot \| null |  |
+| s | `ClientShieldSecretSlot \| null` |  |
 
 ### `setLogOptions(opts): void`
 
@@ -3803,19 +3966,19 @@ Hot-swap logging options (from config reload / `config.changed`).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | { level: LogLevel; format: LogFormat; service: string; version: string } |  |
+| opts | `{ level: LogLevel; format: LogFormat; service: string; version: string }` |  |
 
 ### `setNatsShieldRegistry(r): void`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| r | ShieldRegistryLike \| null |  |
+| r | `ShieldRegistryLike \| null` |  |
 
 ### `setOtelLogSink(sink): void`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| sink | LogSink \| null |  |
+| sink | `LogSink \| null` |  |
 
 ### `setSdkCachePort(port, info): void`
 
@@ -3823,14 +3986,14 @@ Store the cache port and Redis info (called once after Redis connects).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| port | CachePort \| null |  |
-| info | RedisInfo \| null |  |
+| port | `CachePort \| null` |  |
+| info | `RedisInfo \| null` |  |
 
 ### `setSharedConfig(config): void`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| config | SharedConfig |  |
+| config | `SharedConfig` |  |
 
 ### `shutdownTelemetry(): Promise<void>`
 
@@ -3844,7 +4007,7 @@ are up, then `provider.get(ref)` for each consumed secret.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| provider | SecretProvider |  |
+| provider | `SecretProvider` |  |
 
 ### `subscribeConfigChanged(nats, handler): Promise<void>`
 
@@ -3854,8 +4017,8 @@ config and apply changes (telemetry restart, logger options, etc.).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nats | typeof NatsClient |  |
-| handler | (payload: { keys: string[] }) => Promise<void> |  |
+| nats | `typeof NatsClient` |  |
+| handler | `(payload: { keys: string[] }) => Promise<void>` |  |
 
 ### `subscribeSharedConfig(nats, getConfig, verify): Promise<void>`
 
@@ -3866,9 +4029,15 @@ reads from its auth config (already loaded in memory via `getAuthConfig()`).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| nats | typeof NatsClient | The NatsClient class (uses the singleton connection) |
-| getConfig | () => SharedConfig | Function that returns the current SharedConfig  Example:   await subscribeSharedConfig(NatsClient, () => {     const cfg = getAuthConfig();     return { redis_url: cfg.redis_url };   }); |
-| verify | NatsRouteVerify |  |
+| nats | `typeof NatsClient` | The NatsClient class (uses the singleton connection) |
+| getConfig | `() => SharedConfig` | Function that returns the current SharedConfig
+
+Example:
+  await subscribeSharedConfig(NatsClient, () =&#62; &#123;
+    const cfg = getAuthConfig();
+    return &#123; redis_url: cfg.redis_url &#125;;
+  &#125;); |
+| verify | `NatsRouteVerify` |  |
 
 ### `subscribeShielded(subject, handler, opts): Promise<void>`
 
@@ -3879,9 +4048,9 @@ never raw NatsClient.subscribe — for subjects published by other services.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| subject | string |  |
-| handler | (payload: T, msg: Msg) => Promise<unknown> |  |
-| opts | { queue: string } |  |
+| subject | `string` |  |
+| handler | `(payload: T, msg: Msg) => Promise<unknown>` |  |
+| opts | `{ queue: string }` |  |
 
 ### `systemAuthUser(initiator): AuthUser`
 
@@ -3897,7 +4066,7 @@ one exists, else the service code) — it is audit metadata, not identity.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| initiator | string |  |
+| initiator | `string` |  |
 
 ### `typeCapabilities(type): TypeCapabilities`
 
@@ -3905,7 +4074,7 @@ Accessor — returns the capability record for a type.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | ConfigType |  |
+| type | `ConfigType` |  |
 
 ### `validateConfigValue(type, type_config, value, config_key): void`
 
@@ -3913,10 +4082,10 @@ Validate a config value against its type and type_config.validation rules.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| type | ConfigType | ConfigType of the row (string, integer, url, secret, etc.) |
-| type_config | string \| null \| undefined | Raw type_config JSON string from the DB row |
-| value | string | The raw string value to validate |
-| config_key | string | The config key (for error context) |
+| type | `ConfigType` | ConfigType of the row (string, integer, url, secret, etc.) |
+| type_config | `string \| null \| undefined` | Raw type_config JSON string from the DB row |
+| value | `string` | The raw string value to validate |
+| config_key | `string` | The config key (for error context) |
 
 ### `validateEnv(schema): EnvValidationResult`
 
@@ -3928,7 +4097,7 @@ Pure process.env — no DB dependency.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| schema | EnvSchema |  |
+| schema | `EnvSchema` |  |
 
 ### `validClientShieldSecrets(graceMs, fallback): string[]`
 
@@ -3936,8 +4105,8 @@ All values a subscriber may accept right now (current + in-grace previous).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| graceMs | number |  |
-| fallback | string |  |
+| graceMs | `number` |  |
+| fallback | `string` |  |
 
 ### `verifyAccessToken(token, oidc): Promise<JwtClaims>`
 
@@ -3953,8 +4122,8 @@ Throws on any failure. Callers should catch and translate to 401.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| token | string | The raw JWT access token string |
-| oidc | OidcConfig | OIDC configuration (issuer_url, audience, etc.) |
+| token | `string` | The raw JWT access token string |
+| oidc | `OidcConfig` | OIDC configuration (issuer_url, audience, etc.) |
 
 ### `verifyApiKey(headers, apiKeyPort): Promise<AuthUser>`
 
@@ -3966,8 +4135,8 @@ Accepts two header formats:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| headers | HeaderProvider | Header provider (HTTP or NATS) |
-| apiKeyPort | ApiKeyPort | Port for looking up API keys by hash |
+| headers | `HeaderProvider` | Header provider (HTTP or NATS) |
+| apiKeyPort | `ApiKeyPort` | Port for looking up API keys by hash |
 
 ### `verifyAuth(headers, config, ports): Promise<AuthUser>`
 
@@ -3976,9 +4145,9 @@ Needs AuthPorts (UserResolverPort + RoleMappingPort).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| headers | HeaderProvider |  |
-| config | AuthConfig |  |
-| ports | AuthPorts |  |
+| headers | `HeaderProvider` |  |
+| config | `AuthConfig` |  |
+| ports | `AuthPorts` |  |
 
 ### `verifyAuthGatewayResolved(headers, config): Promise<AuthUser>`
 
@@ -3987,8 +4156,8 @@ NO ports needed. Just verifies gateway secret + deserializes AuthUser from heade
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| headers | HeaderProvider |  |
-| config | AuthConfig |  |
+| headers | `HeaderProvider` |  |
+| config | `AuthConfig` |  |
 
 ### `verifyClientIdentity(req, opts): Promise<ClientIdentityResult>`
 
@@ -3998,15 +4167,15 @@ Verify an inbound internal call's identity headers.
 - `ua` not starting with an allowed prefix → 403 UNKNOWN_CLIENT
 - `verifyKey(key)` false      → 401 INVALID_CLIENT_SHIELD_KEY
 
-`allowedPrefixes` is loaded from `system.client_shield_registry` (cached by the
-caller and refreshed on `system.client_shield_registry.changed` events).
+`allowedPrefixes` is loaded from `system.client_registry` (cached by the
+caller and refreshed on `system.client_registry.changed` events).
 `verifyKey` compares the presented key against the registry entry for the
 matched prefix (hash comparison — inject the hasher).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| req | { headers: { get:  } } |  |
-| opts | { allowedPrefixes: typeOperator; verifyKey: (uaPrefix: string, presentedKey: string) => boolean \| Promise<boolean> } |  |
+| req | `{ headers: { get:  } }` |  |
+| opts | `{ allowedPrefixes: typeOperator; verifyKey: (uaPrefix: string, presentedKey: string) => boolean \| Promise<boolean> }` |  |
 
 ### `verifyHttpRequest(req, config, ports): Promise<AuthUser>`
 
@@ -4014,9 +4183,9 @@ Verify auth from an HTTP request.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| req | IncomingMessage | Raw Node.js IncomingMessage (or Express Request which extends it) |
-| config | AuthConfig | Auth configuration |
-| ports | AuthPorts | Auth ports (UserResolverPort + RoleMappingPort). Required for STANDALONE mode (BE). Omit for GATEWAY-RESOLVED mode (microservices). |
+| req | `IncomingMessage` | Raw Node.js IncomingMessage (or Express Request which extends it) |
+| config | `AuthConfig` | Auth configuration |
+| ports | `AuthPorts` | Auth ports (UserResolverPort + RoleMappingPort). Required for STANDALONE mode (BE). Omit for GATEWAY-RESOLVED mode (microservices). |
 
 ### `verifyNatsMessage(msg, config): Promise<AuthUser>`
 
@@ -4025,8 +4194,8 @@ GATEWAY-RESOLVED mode — no ports needed.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| msg | Msg |  |
-| config | AuthConfig |  |
+| msg | `Msg` |  |
+| config | `AuthConfig` |  |
 
 ### `verifyNatsPublisher(msg): Promise<boolean>`
 
@@ -4036,7 +4205,7 @@ contexts only). Denials are logged with the presented UA.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| msg | { subject: string; headers: MsgHdrs } |  |
+| msg | `{ subject: string; headers: MsgHdrs }` |  |
 
 ### `withCache(repo, port, logger): R`
 
@@ -4050,9 +4219,9 @@ Only entities marked `@Cached()` are cached. Other entities pass through untouch
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| repo | R | A DAL Repository (or any object structurally compatible with `CacheableRepository`) |
-| port | CachePort | CachePort implementation (e.g. `RedisCachePort`) |
-| logger | CacheLogger | Optional logger — if absent, warnings are swallowed |
+| repo | `R` | A DAL Repository (or any object structurally compatible with `CacheableRepository`) |
+| port | `CachePort` | CachePort implementation (e.g. `RedisCachePort`) |
+| logger | `CacheLogger` | Optional logger — if absent, warnings are swallowed |
 
 ### `wrapCacheEntry(data, etag): CacheEntry<T>`
 
@@ -4061,7 +4230,7 @@ If `etag` is omitted, it is computed via `computeETag`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| data | T |  |
-| etag | string |  |
+| data | `T` |  |
+| etag | `string` |  |
 
 <!-- END -->

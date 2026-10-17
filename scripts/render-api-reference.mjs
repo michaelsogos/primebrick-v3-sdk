@@ -92,6 +92,18 @@ function esc(s) {
   return String(s).replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
 
+// Type expressions are always emitted inside backticks so MDX can't parse
+// `{`, `}`, `<`, `>` as JSX/expressions (and so they render as code).
+const code = (t) => (t ? `\`${t}\`` : '');
+
+// MDX-safe prose: escape MDX metacharacters outside inline-code spans so
+// `{`, `}`, `<`, `>` in doc comments can never be parsed as JSX/expressions.
+function mdxSafe(s) {
+  return String(s).replace(/(`[^`]*`)|[{}<>]/g, (m, codeSpan) =>
+    codeSpan ? m : `&#${m.charCodeAt(0)};`,
+  );
+}
+
 function renderFunction(sym) {
   const sig = sym.signatures && sym.signatures[0];
   if (!sig) return '';
@@ -99,15 +111,15 @@ function renderFunction(sym) {
   const params = (sig.parameters || []).map(p => ({
     name: p.name,
     type: esc(typeToString(p.type)),
-    desc: esc(paramDescription(p)),
+    desc: mdxSafe(paramDescription(p)),
   }));
   const ret = esc(typeToString(sig.type));
   let md = `### \`${sym.name}(${params.map(p => p.name).join(', ')}): ${ret}\`\n\n`;
-  if (summary) md += `${summary}\n\n`;
+  if (summary) md += `${mdxSafe(summary)}\n\n`;
   if (params.length) {
     md += `| Parameter | Type | Description |\n|-----------|------|-------------|\n`;
     for (const p of params) {
-      md += `| ${esc(p.name)} | ${p.type} | ${p.desc} |\n`;
+      md += `| ${esc(p.name)} | ${code(p.type)} | ${p.desc} |\n`;
     }
     md += '\n';
   }
@@ -123,7 +135,7 @@ function isOwnSource(child) {
 function renderClass(sym) {
   let md = `### \`${sym.name}\`\n\n`;
   const summary = summaryText(sym.comment);
-  if (summary) md += `${summary}\n\n`;
+  if (summary) md += `${mdxSafe(summary)}\n\n`;
   // Only include members declared in the SDK's own src/ (not inherited from Error, etc.)
   const ownChildren = (sym.children || []).filter(isOwnSource);
   // Class methods (kind 2048), constructors (kind 512), properties (kind 1024)
@@ -133,7 +145,7 @@ function renderClass(sym) {
   if (props.length) {
     md += `| Property | Type | Description |\n|----------|------|-------------|\n`;
     for (const p of props) {
-      md += `| ${esc(p.name)} | ${esc(typeToString(p.type))} | ${esc(summaryText(p.comment))} |\n`;
+      md += `| ${esc(p.name)} | ${code(esc(typeToString(p.type)))} | ${mdxSafe(summaryText(p.comment))} |\n`;
     }
     md += '\n';
   }
@@ -144,14 +156,14 @@ function renderClass(sym) {
     const params = (sig.parameters || []).map(p => ({
       name: p.name,
       type: esc(typeToString(p.type)),
-      desc: esc(paramDescription(p)),
+      desc: mdxSafe(paramDescription(p)),
     }));
     md += `#### \`${sym.name}(${params.map(p => p.name).join(', ')})\`\n\n`;
-    if (cs) md += `${cs}\n\n`;
+    if (cs) md += `${mdxSafe(cs)}\n\n`;
     if (params.length) {
       md += `| Parameter | Type | Description |\n|-----------|------|-------------|\n`;
       for (const p of params) {
-        md += `| ${esc(p.name)} | ${p.type} | ${p.desc} |\n`;
+        md += `| ${esc(p.name)} | ${code(p.type)} | ${p.desc} |\n`;
       }
       md += '\n';
     }
@@ -164,15 +176,15 @@ function renderClass(sym) {
       const params = (sig.parameters || []).map(p => ({
         name: p.name,
         type: esc(typeToString(p.type)),
-        desc: esc(paramDescription(p)),
+        desc: mdxSafe(paramDescription(p)),
       }));
       const ret = esc(typeToString(sig.type));
       md += `#### \`${sym.name}.${m.name}(${params.map(p => p.name).join(', ')})${ret && ret !== 'void' ? `: ${ret}` : ''}\`\n\n`;
-      if (ms) md += `${ms}\n\n`;
+      if (ms) md += `${mdxSafe(ms)}\n\n`;
       if (params.length) {
         md += `| Parameter | Type | Description |\n|-----------|------|-------------|\n`;
         for (const p of params) {
-          md += `| ${esc(p.name)} | ${p.type} | ${p.desc} |\n`;
+          md += `| ${esc(p.name)} | ${code(p.type)} | ${p.desc} |\n`;
         }
         md += '\n';
       }
@@ -184,12 +196,12 @@ function renderClass(sym) {
 function renderInterface(sym) {
   let md = `### \`${sym.name}\`\n\n`;
   const summary = summaryText(sym.comment);
-  if (summary) md += `${summary}\n\n`;
+  if (summary) md += `${mdxSafe(summary)}\n\n`;
   const fields = (sym.children || []).filter(c => c.kind === 1024);
   if (fields.length) {
     md += `| Field | Type | Description |\n|-------|------|-------------|\n`;
     for (const f of fields) {
-      md += `| ${esc(f.name)} | ${esc(typeToString(f.type))} | ${esc(summaryText(f.comment))} |\n`;
+      md += `| ${esc(f.name)} | ${code(esc(typeToString(f.type)))} | ${mdxSafe(summaryText(f.comment))} |\n`;
     }
     md += '\n';
   }
@@ -199,7 +211,7 @@ function renderInterface(sym) {
 function renderTypeAlias(sym) {
   let md = `### \`${sym.name}\`\n\n`;
   const summary = summaryText(sym.comment);
-  if (summary) md += `${summary}\n\n`;
+  if (summary) md += `${mdxSafe(summary)}\n\n`;
   if (sym.type) {
     md += `**Type:** \`${esc(typeToString(sym.type))}\`\n\n`;
   }
@@ -209,7 +221,7 @@ function renderTypeAlias(sym) {
 function renderEnum(sym) {
   let md = `### \`${sym.name}\`\n\n`;
   const summary = summaryText(sym.comment);
-  if (summary) md += `${summary}\n\n`;
+  if (summary) md += `${mdxSafe(summary)}\n\n`;
   const members = (sym.children || []).filter(c => c.kind === 16);
   if (members.length) {
     md += `| Member | Value |\n|--------|-------|\n`;
@@ -225,7 +237,7 @@ function renderEnum(sym) {
 function renderVariable(sym) {
   let md = `### \`${sym.name}\`\n\n`;
   const summary = summaryText(sym.comment);
-  if (summary) md += `${summary}\n\n`;
+  if (summary) md += `${mdxSafe(summary)}\n\n`;
   if (sym.type) {
     md += `**Type:** \`${esc(typeToString(sym.type))}\`\n\n`;
   }
