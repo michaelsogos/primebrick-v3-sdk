@@ -3,12 +3,18 @@
  * bundle, built at build time and pulled by the AI service on registration.
  *
  * Pack layout on disk (`dist/docs-pack/`):
- *   manifest.json      — this schema
- *   docs/...           — raw .mdx/.md files + _order.json (verbatim source)
- *   openapi.json       — optional service OpenAPI spec
+ *
+ * ```
+ * manifest.json      — this schema
+ * docs/...           — raw .mdx/.md files + _order.json (verbatim source)
+ * openapi.json       — optional service OpenAPI spec
+ * ```
  *
  * Wire format (`GET /api/v1/system/docs/pack`):
- *   { manifest: DocsPackManifest, files: [{ path, content }] }
+ *
+ * ```ts
+ * { manifest: DocsPackManifest, files: [{ path, content }] }
+ * ```
  *
  * Text is always the source of truth — no precomputed vectors in the
  * contract (embeddings are model-bound; the consumer re-embeds).
