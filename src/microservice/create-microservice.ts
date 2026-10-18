@@ -100,6 +100,7 @@ import {
   configureInternalClient,
   detectPackageIdentity,
   buildUserAgent,
+  deriveClientKey,
   logModuleStartup,
   CLIENT_SHIELD_KEY_HEADER,
   isFactoryRouteHandler,
@@ -427,12 +428,32 @@ export async function createMicroservice(
   const baseUrl = configLoader.require("service_base_url");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
   const clientKey = configLoader.get("service_client_shield_key");
+  const keyDerivationSecret = configLoader.get("service_key_derivation_secret");
   const selfIdentity = detectPackageIdentity();
-  configureInternalClient(() => ({
-    "User-Agent": buildUserAgent(selfIdentity, serviceCode),
-    ...(clientKey ? { [CLIENT_SHIELD_KEY_HEADER]: clientKey } : {}),
-  }));
-  if (clientKey) {
+  const uaPrefix = `${selfIdentity.name}/${serviceVersion}`;
+  /**
+   * Shared acked-generation slot (B14): the registrar writes the generation
+   * of each successful register; the header closure keeps deriving it until
+   * the post-rotation handshake lands — during a rotation the old
+   * (grace-windowed) key keeps outbound calls alive while the new one is
+   * being enrolled. Zero-gap.
+   */
+  const generationSlot: { value?: number } = {};
+  const outboundClientKey = (): string | null => {
+    if (keyDerivationSecret) {
+      const generation = generationSlot.value ?? clientShieldRegistry.generationFor(uaPrefix);
+      return deriveClientKey(keyDerivationSecret, uaPrefix, generation);
+    }
+    return clientKey;
+  };
+  configureInternalClient(() => {
+    const key = outboundClientKey();
+    return {
+      "User-Agent": buildUserAgent(selfIdentity, serviceCode),
+      ...(key ? { [CLIENT_SHIELD_KEY_HEADER]: key } : {}),
+    };
+  });
+  if (clientKey || keyDerivationSecret) {
     logger.done(`The service ${selfIdentity.name}/${selfIdentity.version ?? "?"} shield key enrolled`, { tags: ["core"] });
   }
 
@@ -610,6 +631,12 @@ export async function createMicroservice(
       icon_type: options.iconType,
       // Per-service client key from module config (never env).
       clientKey: configLoader.get("service_client_shield_key") ?? undefined,
+      // Derived-key mode (B14): `service_key_derivation_secret` — the service
+      // derives its key as HMAC(secret, ua_prefix:generation); a BE rotate
+      // bumps the generation and this registrar re-enrolls automatically.
+      keyDerivationSecret: keyDerivationSecret ?? undefined,
+      registryGeneration: () => clientShieldRegistry.generationFor(uaPrefix),
+      generationSlot,
       // API gateway endpoint — shown as a log tag on register/heartbeat.
       // Required module config: it is also the identity of the only public
       // ingress this service talks to; a missing value is a misconfigured
@@ -623,6 +650,14 @@ export async function createMicroservice(
       schemas: dbEnv.schemas,
     },
     registrarHealthCheckFn,
+  );
+
+  // Derived-key rotation (B14): when the BE bumps this service's
+  // key_generation (rotate endpoint), the registry reload notifies the
+  // registrar → re-register with the newly derived key. Until the ack
+  // lands, outbound calls keep using the acked (grace-windowed) key.
+  clientShieldRegistry.addChangeListener(() =>
+    registrar.onRegistryChanged(clientShieldRegistry.generationFor(uaPrefix)),
   );
 
   // 8. HTTP server + HealthCheck

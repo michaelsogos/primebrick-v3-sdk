@@ -18,7 +18,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { extJsonParse } from "../json/ext-json.js";
 
 export const CLIENT_SHIELD_KEY_HEADER = "x-primebrick-client-shield-key";
@@ -30,6 +30,43 @@ export const CLIENT_SHIELD_KEY_HEADER = "x-primebrick-client-shield-key";
  */
 export function clientKeyHash(key: string): string {
   return createHash("sha256").update(key).digest("hex");
+}
+
+/**
+ * Deterministic per-service client key (B14): `HMAC-SHA256(secret, uaPrefix:generation)`
+ * rendered base64url. Services configured with `service_key_derivation_secret`
+ * never store a key — they re-derive it from the derivation secret (provisioned
+ * by the installer/secret engine) plus the generation the BE registry row
+ * currently advertises. Rotating a key = bumping the generation on the BE.
+ */
+export function deriveClientKey(derivationSecret: string, uaPrefix: string, generation: number): string {
+  return createHmac("sha256", derivationSecret).update(`${uaPrefix}:${generation}`).digest("base64url");
+}
+
+/**
+ * Row-shaped key material for verification (subset of
+ * `system.client_shield_registry` used by both the SDK consumer cache and the
+ * BE publisher-identity verifier).
+ */
+export interface ClientKeyMaterial {
+  client_key_hash: string;
+  previous_key_hash?: string | null;
+  previous_valid_until?: string | Date | null;
+}
+
+/**
+ * Verify a presented key against a registry row: current hash always wins;
+ * during the post-rotation grace window (`previous_valid_until` in the future)
+ * the previous hash is still accepted so in-flight callers are not cut off
+ * mid-rotation.
+ */
+export function verifyRowKey(row: ClientKeyMaterial | undefined, presentedKey: string): boolean {
+  if (!row) return false;
+  const h = clientKeyHash(presentedKey);
+  if (h === row.client_key_hash) return true;
+  if (!row.previous_key_hash || h !== row.previous_key_hash) return false;
+  const until = row.previous_valid_until ? new Date(row.previous_valid_until).getTime() : 0;
+  return until > Date.now();
 }
 
 export interface PackageIdentity {

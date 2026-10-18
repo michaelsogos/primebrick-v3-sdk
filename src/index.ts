@@ -67,12 +67,15 @@ export { ServiceRegistrar, type ServiceRegistrarConfig, type HealthCheckFn } fro
 export {
   CLIENT_SHIELD_KEY_HEADER,
   clientKeyHash,
+  deriveClientKey,
+  verifyRowKey,
   detectPackageIdentity,
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,
   type PackageIdentity,
   type ClientIdentityResult,
+  type ClientKeyMaterial,
 } from "./service/service-identity.js";
 export { ClientShieldRegistry, CLIENT_SHIELD_REGISTRY_SUBJECTS, type ClientShieldRegistryRow } from "./service/client-shield-registry.js";
 export {

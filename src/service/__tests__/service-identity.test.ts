@@ -7,6 +7,9 @@ import {
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,
+  deriveClientKey,
+  clientKeyHash,
+  verifyRowKey,
   CLIENT_SHIELD_KEY_HEADER,
 } from "../service-identity.js";
 
@@ -88,5 +91,74 @@ describe("verifyClientIdentity", () => {
       opts
     );
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("deriveClientKey (B14)", () => {
+  const secret = "test-derivation-secret";
+  const prefix = "primebrick-ai/3.1.0";
+
+  it("is deterministic for the same (secret, prefix, generation)", () => {
+    expect(deriveClientKey(secret, prefix, 3)).toBe(deriveClientKey(secret, prefix, 3));
+  });
+
+  it("changes with generation — a rotation produces a different key", () => {
+    expect(deriveClientKey(secret, prefix, 3)).not.toBe(deriveClientKey(secret, prefix, 4));
+  });
+
+  it("changes with prefix — per-service key material", () => {
+    expect(deriveClientKey(secret, prefix, 0)).not.toBe(deriveClientKey(secret, "primebrick-other/1.0.0", 0));
+  });
+
+  it("changes with secret — knowledge of the secret is required", () => {
+    expect(deriveClientKey(secret, prefix, 0)).not.toBe(deriveClientKey("other-secret", prefix, 0));
+  });
+
+  it("produces base64url without padding-unsafe characters", () => {
+    expect(deriveClientKey(secret, prefix, 1)).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+});
+
+describe("verifyRowKey (B14 grace window)", () => {
+  const current = clientKeyHash("key-v2");
+  const previous = clientKeyHash("key-v1");
+  const future = new Date(Date.now() + 60_000);
+  const past = new Date(Date.now() - 1_000);
+
+  it("accepts the current hash", () => {
+    expect(verifyRowKey({ client_key_hash: current }, "key-v2")).toBe(true);
+  });
+
+  it("rejects an unknown key", () => {
+    expect(verifyRowKey({ client_key_hash: current }, "key-v3")).toBe(false);
+  });
+
+  it("accepts the previous hash inside the grace window", () => {
+    expect(
+      verifyRowKey({ client_key_hash: current, previous_key_hash: previous, previous_valid_until: future }, "key-v1"),
+    ).toBe(true);
+  });
+
+  it("rejects the previous hash after the grace window", () => {
+    expect(
+      verifyRowKey({ client_key_hash: current, previous_key_hash: previous, previous_valid_until: past }, "key-v1"),
+    ).toBe(false);
+  });
+
+  it("rejects the previous hash when no grace deadline is set", () => {
+    expect(verifyRowKey({ client_key_hash: current, previous_key_hash: previous }, "key-v1")).toBe(false);
+  });
+
+  it("accepts ISO-string grace deadlines (wire shape)", () => {
+    expect(
+      verifyRowKey(
+        { client_key_hash: current, previous_key_hash: previous, previous_valid_until: future.toISOString() },
+        "key-v1",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects on a missing row", () => {
+    expect(verifyRowKey(undefined, "key-v2")).toBe(false);
   });
 });
