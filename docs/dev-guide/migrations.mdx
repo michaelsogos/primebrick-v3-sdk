@@ -1,66 +1,55 @@
 ---
 title: Database Migrations
-description: "applyPatches — the sha256-enforced SQL patch runner: registry semantics, immutable-patch rules, naming helpers, and the fire-and-forget convention."
+description: "Boot-time migration wiring — the dal-pg engine (runMigrations) inside createMicroservice: ordering, degraded mode, and the reload invariant."
 ---
 
 # Database migrations
 
-`migrations/apply-patches.ts` applies SQL patch files with **content-hash
-immutability**. It is DB-agnostic — it speaks to a `DatabasePort` adapter,
-never to a driver directly.
+The SDK does **not** ship its own migration runner — the old
+`applyPatches()`/`DatabasePort` helpers were deleted. Database migrations
+are owned by the **dal-pg engine** (`runMigrations` +
+`primebrick-db` CLI), documented in the **dal-pg dev-guide → Database
+migrations** page.
 
-## How a patch is applied
+This page covers what the SDK does around that engine: the boot wiring
+inside `createMicroservice`.
 
-Files are read from `patchesDir` in **filename-sorted order** and each is
-checked against the registry table
-`public.primebrick_database_patches` (patch_id + content_sha256):
+## Boot ordering
 
-| Situation | Behavior |
-|---|---|
-| same patch_id, same SHA | **skip** — already applied |
-| same patch_id, different SHA | **fail** — an applied patch was modified in place (immutable by design) |
-| patch_id absent, same SHA recorded | **register without re-executing** — the body was applied by a different filename |
-| otherwise | `BEGIN` → run SQL → `INSERT` registry row → `COMMIT` |
+`createMicroservice` accepts a `dbPatches` option. When present, the
+engine runs **before any domain traffic is served** — HTTP routes,
+NATS subscriptions and the registry heartbeat only come up after the
+migration step completes. The script `scripts/database-patch-apply.ts`
+in each microservice invokes the same `runMigrations` code path for
+manual runs (`pnpm db:migrate`).
 
-Returns `{ appliedOrRegistered, skipped }`. A missing or empty directory
-is a no-op, not an error.
-
-## The rules that make it safe
-
-- **Never edit an applied patch.** The sha mismatch fails loudly instead
-  of silently drifting — to change a shipped patch, ship a *new* one.
-- **Filename = patch id** (`patchIdFromFilename`) — ordering and identity
-  come from the name, so use the timestamp prefix helpers:
-  `utcTimestampForFilename()`, `slugifyPatchSegment()`.
-- **Each patch is transactional** — a failure rolls back its own
-  statements but leaves earlier patches committed (they're idempotent,
-  re-running is safe).
-
-## Fire-and-forget patches
-
-Alongside `db-meta/patches/` (the ordered, registered kind), services use
-`db-meta/fire-and-forget/` for one-off operational SQL (seeds, backfills,
-fix-ups applied manually per environment). They are **not** tracked in the
-registry — idempotency is the author's responsibility; write them so a
-second execution is harmless (`INSERT ... ON CONFLICT`, `IF EXISTS`,
-existence guards).
-
-## Usage
+The migration step needs a raw `pg.Pool` handle — this is the one
+sanctioned `getPool()` seam in service code:
 
 ```ts
-import { applyPatches } from "@primebrick/sdk";
-
-const result = await applyPatches(
-  join(process.cwd(), "db-meta", "patches"),
-  myDatabasePortAdapter,   // wraps the consumer's driver
-);
-// → { appliedOrRegistered: 3, skipped: 12 }
+// index.ts — the only standards-exempt getPool() call site
+dbPatches: { pool: () => getDal().getPool(), /* … */ }
 ```
 
-Each service wires this into its `pnpm db:migrate` script with its own
-schema's adapter (see `scripts/database-patch-apply.ts` in any US).
+## Degraded mode
 
-> For new services the current model is the dal-pg migration engine
-> (`runMigrations` + signed `MANIFEST.json` + `primebrick-db` CLI —
-> per-schema registry, mandatory ordered patches, review workflow). See the
-> **dal-pg dev-guide → Database migrations** page.
+`runMigrations` returns `{ mode, degraded, applied[], failed[],
+pendingReview[], skipped[], securityEvents[] }`. A failed patch does
+**not** stop the service from booting — the boot continues degraded and
+**domain routes return 503** until an admin remediates through the FE
+`/system/migrations` page (retry / approve / resolve). Later patches in
+the module are not executed after a failure (ordering is mandatory).
+
+## The reload invariant
+
+**The migration engine is the only component allowed to read DB state
+before itself — and whatever it reads, it re-reads after applying ≥1
+patch.** Concretely today: the engine re-reads `db_migration.mode` from
+`<schema>.config_entries` post-apply (a patch may have changed it) and
+logs the effective next-run mode. Everything else (ConfigLoader, shield
+registries, translations) runs after the step and sees fresh state by
+construction.
+
+Any future boot-stage read added *before* the migration step must
+implement the same reload — otherwise it can observe pre-patch schema
+or config.
