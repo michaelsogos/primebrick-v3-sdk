@@ -13,7 +13,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { makeRpcRouter, type RouteHandler } from "../http/rpc-router.js";
-import { extJsonParse } from "../json/ext-json.js";
+
 import { parseDocsPackPayload, type DocsPackPayload } from "./manifest.js";
 
 export const DOCS_PACK_ROUTE = "/api/v1/system/docs/pack";
@@ -50,7 +50,10 @@ export function docsPackRouteHandler(packDir: string): RouteHandler {
         if (!existsSync(manifestPath)) {
           throw new Error(`docs pack not built at ${packDir} — run buildDocsPack first`);
         }
-        const manifest = extJsonParse(readFileSync(manifestPath, "utf-8"));
+        // parseDocsPackPayload strict-checks schema/bytes as numbers —
+        // extJsonParse bigint-ifies them and would reject a valid pack.
+        // standards-exempt: ext-json — pack manifest is a schema-validated wire payload, must stay plain JSON
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
         // docs/ may be absent on openapi-only packs (dev-only services
         // ship no user docs) — the manifest already reports files: [].
         const files = existsSync(docsDir)
