@@ -107,6 +107,7 @@ import {
   brandRouteHandler,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
+import type { ModuleNavDeclaration } from "@primebrick/core";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
 import {
   runDbMigrationStep,
@@ -222,6 +223,21 @@ export interface MicroserviceOptions {
    * Full URLs are built as `${baseUrl}${path}` for the service registry.
    */
   endpoints?: Record<string, string>;
+
+  /**
+   * Module navigation self-declaration — the wiring that lets THIS module
+   * own its FE pages. Persisted verbatim in `service_registry.endpoints.nav`
+   * via `service.register`; the BE merges it into `/modules/:code/meta`,
+   * `/modules` (route_prefixes/icon) and the routes census. Declaring pages
+   * inside another module's static nav registry is the anti-pattern this
+   * replaces: each module presents its own nav.
+   *
+   * `route_prefixes` resolve the active module (longest match wins — a
+   * page under a shared prefix like `/system/jobs` belongs to THIS module,
+   * not to the module owning `/system`). `component_url` route fields are
+   * self-described by the service (e.g. `/ws/<code>/api/v1/module-assets/…`).
+   */
+  nav?: ModuleNavDeclaration;
 
   /**
    * Custom health checks beyond DB — added to the HealthCheck constructor.
@@ -589,6 +605,11 @@ export async function createMicroservice(
     for (const [key, path] of Object.entries(options.endpoints)) {
       registrarEndpoints[key] = `${baseUrl}${path}`;
     }
+  }
+  // Module nav self-declaration — verbatim object (not a URL path): the BE
+  // merges endpoints.nav into module meta + routes census.
+  if (options.nav) {
+    registrarEndpoints.nav = options.nav;
   }
 
   // Docs pack dir — shared between the registrar (capability) and the
