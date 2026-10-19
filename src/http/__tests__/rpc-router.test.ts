@@ -90,6 +90,8 @@ describe("makeRpcRouter — request pipeline", () => {
     { method: "POST", path: "/echo", permissions: ["test.write"], body: (b) => b, handler: async ({ body }) => body },
     { method: "POST", path: "/strict", permissions: ["test.write"], body: () => { throw new Error("bad body"); }, handler: okHandler },
     { method: "GET", path: "/items/:uuid", permissions: ["test.read"], handler: async ({ params }) => ({ uuid: params["uuid"] }) },
+    { method: "PUT", path: "/items/:uuid", permissions: ["test.write"], handler: async ({ params }) => ({ updated: params["uuid"] }) },
+    { method: "DELETE", path: "/items/:uuid", permissions: ["test.write"], handler: async ({ params }) => ({ deleted: params["uuid"] }) },
     { method: "GET", path: "/open", auth: "public", handler: okHandler },
   ]);
 
@@ -101,6 +103,20 @@ describe("makeRpcRouter — request pipeline", () => {
 
   it("405 on wrong method", async () => {
     const res = await call("/secure", { method: "POST" });
+    expect(res.status).toBe(405);
+  });
+
+  it("dispatches by method+path — PUT/DELETE on a path shared with GET", async () => {
+    const put = await call("/items/abc", { method: "PUT", headers: userHeaders(["test.write"]) });
+    expect(put.status).toBe(200);
+    expect(await put.json()).toEqual({ updated: "abc" });
+    const del = await call("/items/abc", { method: "DELETE", headers: userHeaders(["test.write"]) });
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ deleted: "abc" });
+  });
+
+  it("405 only when NO route has the method — path exists for other methods", async () => {
+    const res = await call("/items/abc", { method: "PATCH" });
     expect(res.status).toBe(405);
   });
 

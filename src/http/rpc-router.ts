@@ -281,22 +281,24 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
 
   return brandRouteHandler(async (req, res, url) => {
     const path = url.pathname;
-    const match = compiled.find((c) => c.regex.test(path));
-    if (!match) return false;
+    // Method is part of the match — a path shared by GET/PUT/DELETE must
+    // resolve the route for THIS method. Only when no route matches
+    // method+path but some route matches the path do we answer 405.
+    const match = compiled.find((c) => c.regex.test(path) && c.route.method === req.method);
+    if (!match) {
+      if (!compiled.some((c) => c.regex.test(path))) return false;
+      sendRfcError(res, 405, "Method Not Allowed", `${req.method} not allowed on ${path}`, {
+        internal_code: "METHOD_NOT_ALLOWED",
+        instance: path,
+        severity: "LOW",
+      });
+      return true;
+    }
 
     const { route, regex, paramNames } = match;
     const auth = route.auth ?? "user";
 
     try {
-      // Method not allowed for a matched path — still "handled".
-      if (req.method !== route.method) {
-        sendRfcError(res, 405, "Method Not Allowed", `${req.method} not allowed on ${path}`, {
-          internal_code: "METHOD_NOT_ALLOWED",
-          instance: path,
-          severity: "LOW",
-        });
-        return true;
-      }
 
       // ── Mandatory middleware chain ──
       let user: AuthUser | undefined;

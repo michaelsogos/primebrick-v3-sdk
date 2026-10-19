@@ -43462,9 +43462,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/rpc-router.ts",
-					"line": 446,
+					"line": 448,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/rpc-router.ts#L446"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/rpc-router.ts#L448"
 				}
 			],
 			"signatures": [
@@ -43485,9 +43485,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/rpc-router.ts",
-							"line": 446,
+							"line": 448,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/rpc-router.ts#L446"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/rpc-router.ts#L448"
 						}
 					],
 					"parameters": [
