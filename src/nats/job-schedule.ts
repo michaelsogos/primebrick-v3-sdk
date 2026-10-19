@@ -48,7 +48,7 @@ export const JOB_STREAM_SUBJECTS = [
 /** Control-plane route for schedule declarations (primebrick-job). */
 export const JOB_SCHEDULE_REQUEST_SUBJECT = "jobs.ctl.schedule.request";
 
-import type { MsgHdrs } from "nats";
+import type { MsgHdrs } from "@nats-io/transport-node";
 import { NatsClient } from "./nats-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";

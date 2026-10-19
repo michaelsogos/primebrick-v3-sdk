@@ -9414,12 +9414,12 @@
 									"type": {
 										"type": "reference",
 										"target": {
-											"packageName": "nats",
-											"packagePath": "lib/nats-base-client/core.d.ts",
+											"packageName": "@nats-io/nats-core",
+											"packagePath": "lib/core.d.ts",
 											"qualifiedName": "Msg"
 										},
 										"name": "Msg",
-										"package": "nats"
+										"package": "@nats-io/nats-core"
 									}
 								}
 							],
@@ -17494,11 +17494,11 @@
 								"types": [
 									{
 										"type": "literal",
-										"value": "any"
+										"value": "all"
 									},
 									{
 										"type": "literal",
-										"value": "all"
+										"value": "any"
 									}
 								]
 							}
@@ -17593,11 +17593,11 @@
 								"types": [
 									{
 										"type": "literal",
-										"value": "any"
+										"value": "all"
 									},
 									{
 										"type": "literal",
-										"value": "all"
+										"value": "any"
 									}
 								]
 							}
@@ -17791,11 +17791,11 @@
 								"types": [
 									{
 										"type": "literal",
-										"value": "any"
+										"value": "all"
 									},
 									{
 										"type": "literal",
-										"value": "all"
+										"value": "any"
 									}
 								]
 							},
@@ -21232,12 +21232,12 @@
 							"type": {
 								"type": "reference",
 								"target": {
-									"packageName": "nats",
-									"packagePath": "lib/nats-base-client/core.d.ts",
+									"packageName": "@nats-io/nats-core",
+									"packagePath": "lib/core.d.ts",
 									"qualifiedName": "Msg"
 								},
 								"name": "Msg",
-								"package": "nats"
+								"package": "@nats-io/nats-core"
 							}
 						},
 						{
@@ -41819,11 +41819,11 @@
 						"types": [
 							{
 								"type": "literal",
-								"value": "any"
+								"value": "all"
 							},
 							{
 								"type": "literal",
-								"value": "all"
+								"value": "any"
 							}
 						]
 					}
@@ -49830,7 +49830,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ".\r\nOne schedule per subject; republishing replaces it atomically."
+								"text": ".\nOne schedule per subject; republishing replaces it atomically."
 							}
 						]
 					},
@@ -49896,7 +49896,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Subject the stored message is republished to at fire time —\r\n "
+								"text": "Subject the stored message is republished to at fire time —\n "
 							},
 							{
 								"kind": "code",
@@ -49912,7 +49912,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ". Must be covered by the same\r\n stream's subjects."
+								"text": ". Must be covered by the same\n stream's subjects."
 							}
 						]
 					},
@@ -49941,7 +49941,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Payload stored on the schedule message — fired verbatim unless\r\n "
+								"text": "Payload stored on the schedule message — fired verbatim unless\n "
 							},
 							{
 								"kind": "code",
@@ -49978,7 +49978,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Fire-time indirection (ADR-51): at fire time the scheduler reads the\r\n LATEST message on this subject and fires THAT as the payload — the\r\n schedule declaration never holds business state."
+								"text": "Fire-time indirection (ADR-51): at fire time the scheduler reads the\n LATEST message on this subject and fires THAT as the payload — the\n schedule declaration never holds business state."
 							}
 						]
 					},
@@ -50040,7 +50040,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Extra headers stamped on the declaration and forwarded VERBATIM to the\r\nfired message. For "
+								"text": "Extra headers stamped on the declaration and forwarded VERBATIM to the\nfired message. For "
 							},
 							{
 								"kind": "code",
@@ -50048,7 +50048,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " targets pass the triggering\r\nmessage's auth headers via "
+								"text": " targets pass the triggering\nmessage's auth headers via "
 							},
 							{
 								"kind": "code",
@@ -50056,7 +50056,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " so the executor can\r\nrun the full L2+RBAC chain on the ORIGINATING user."
+								"text": " so the executor can\nrun the full L2+RBAC chain on the ORIGINATING user."
 							}
 						]
 					},
@@ -50138,7 +50138,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Arm a JetStream schedule. Publishes the declaration message — the NATS\r\nserver itself republishes "
+								"text": "Arm a JetStream schedule. Publishes the declaration message — the NATS\nserver itself republishes "
 							},
 							{
 								"kind": "code",
@@ -50170,7 +50170,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ".\r\n\r\nCallers do NOT publish on "
+								"text": ".\n\nCallers do NOT publish on "
 							},
 							{
 								"kind": "code",
@@ -50178,7 +50178,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " directly in production:\r\nthe governed entry point is the "
+								"text": " directly in production:\nthe governed entry point is the "
 							},
 							{
 								"kind": "code",
@@ -50186,7 +50186,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " route on\r\nprimebrick-job, which validates the caller's namespace and records the\r\ndeclaration in "
+								"text": " route on\nprimebrick-job, which validates the caller's namespace and records the\ndeclaration in "
 							},
 							{
 								"kind": "code",
@@ -50194,7 +50194,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ". This helper is what THAT service\r\ncalls (and is also usable by tests/tooling)."
+								"text": ". This helper is what THAT service\ncalls (and is also usable by tests/tooling)."
 							}
 						]
 					},
@@ -50265,7 +50265,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Disarm a previously armed schedule. The cancellation MUST go to a\r\ndifferent subject than "
+								"text": "Disarm a previously armed schedule. The cancellation MUST go to a\ndifferent subject than "
 							},
 							{
 								"kind": "code",
@@ -50273,7 +50273,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (a same-subject publish would\r\njust replace the declaration)."
+								"text": " (a same-subject publish would\njust replace the declaration)."
 							}
 						]
 					},
@@ -50377,7 +50377,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ".\r\n\r\n  - \"system\" lane → L1 client shield only (verifyNatsPublisher). The fired\r\n    message carries the DECLARING service's static identity — verified\r\n    verbatim. No user context exists by design; the handler receives no\r\n    authUser.\r\n  - \"user\" lane → L1 + full L2 chain: gateway-secret + serialized AuthUser\r\n    + RBAC "
+								"text": ".\n\n  - \"system\" lane → L1 client shield only (verifyNatsPublisher). The fired\n    message carries the DECLARING service's static identity — verified\n    verbatim. No user context exists by design; the handler receives no\n    authUser.\n  - \"user\" lane → L1 + full L2 chain: gateway-secret + serialized AuthUser\n    + RBAC "
 							},
 							{
 								"kind": "code",
@@ -50385,7 +50385,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ". An expired rotating secret or missing permission\r\n    returns null → the consumer "
+								"text": ". An expired rotating secret or missing permission\n    returns null → the consumer "
 							},
 							{
 								"kind": "code",
@@ -50393,7 +50393,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "s the message (terminal denial —\r\n    recorded as a failed run by the result tap)."
+								"text": "s the message (terminal denial —\n    recorded as a failed run by the result tap)."
 							}
 						]
 					},
@@ -50417,11 +50417,11 @@
 								"types": [
 									{
 										"type": "literal",
-										"value": "system"
+										"value": "user"
 									},
 									{
 										"type": "literal",
-										"value": "user"
+										"value": "system"
 									}
 								]
 							}
@@ -50518,12 +50518,12 @@
 															"type": {
 																"type": "reference",
 																"target": {
-																	"packageName": "nats",
-																	"packagePath": "lib/nats-base-client/core.d.ts",
+																	"packageName": "@nats-io/nats-core",
+																	"packagePath": "lib/core.d.ts",
 																	"qualifiedName": "MsgHdrs"
 																},
 																"name": "MsgHdrs",
-																"package": "nats"
+																"package": "@nats-io/nats-core"
 															}
 														}
 													],
@@ -50603,7 +50603,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Copy the auth headers off an inbound message for verbatim forwarding —\r\nused when a service re-publishes a trigger event (or arms a schedule)\r\nand the originating user's context must ride along. Only the auth\r\nheader names configured on this service's AuthConfig are copied."
+								"text": "Copy the auth headers off an inbound message for verbatim forwarding —\nused when a service re-publishes a trigger event (or arms a schedule)\nand the originating user's context must ride along. Only the auth\nheader names configured on this service's AuthConfig are copied."
 							}
 						]
 					},
@@ -50650,12 +50650,12 @@
 											"type": {
 												"type": "reference",
 												"target": {
-													"packageName": "nats",
-													"packagePath": "lib/nats-base-client/core.d.ts",
+													"packageName": "@nats-io/nats-core",
+													"packagePath": "lib/core.d.ts",
 													"qualifiedName": "MsgHdrs"
 												},
 												"name": "MsgHdrs",
-												"package": "nats"
+												"package": "@nats-io/nats-core"
 											}
 										}
 									],
@@ -50719,7 +50719,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Case-insensitive lookup over a case-sensitive MsgHdrs.\r\nTries the name as given first, then the canonical MIME form\r\n(each dash segment capitalized). Returns null when absent."
+								"text": "Case-insensitive lookup over a case-sensitive MsgHdrs.\nTries the name as given first, then the canonical MIME form\n(each dash segment capitalized). Returns null when absent."
 							}
 						]
 					},
@@ -50744,12 +50744,12 @@
 									{
 										"type": "reference",
 										"target": {
-											"packageName": "nats",
-											"packagePath": "lib/nats-base-client/core.d.ts",
+											"packageName": "@nats-io/nats-core",
+											"packagePath": "lib/core.d.ts",
 											"qualifiedName": "MsgHdrs"
 										},
 										"name": "MsgHdrs",
-										"package": "nats"
+										"package": "@nats-io/nats-core"
 									},
 									{
 										"type": "intrinsic",
@@ -50836,9 +50836,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 69,
+							"line": 72,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L69"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L72"
 						}
 					],
 					"signatures": [
@@ -50851,9 +50851,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 69,
+									"line": 72,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L69"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L72"
 								}
 							],
 							"parameters": [
@@ -50882,12 +50882,12 @@
 									{
 										"type": "reference",
 										"target": {
-											"packageName": "nats",
-											"packagePath": "lib/nats-base-client/core.d.ts",
+											"packageName": "@nats-io/nats-core",
+											"packagePath": "lib/core.d.ts",
 											"qualifiedName": "NatsConnection"
 										},
 										"name": "NatsConnection",
-										"package": "nats"
+										"package": "@nats-io/nats-core"
 									}
 								],
 								"name": "Promise",
@@ -50907,9 +50907,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 83,
+							"line": 86,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L83"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L86"
 						}
 					],
 					"signatures": [
@@ -50922,20 +50922,20 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 83,
+									"line": 86,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L83"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L86"
 								}
 							],
 							"type": {
 								"type": "reference",
 								"target": {
-									"packageName": "nats",
-									"packagePath": "lib/jetstream/types.d.ts",
+									"packageName": "@nats-io/jetstream",
+									"packagePath": "lib/types.d.ts",
 									"qualifiedName": "JetStreamClient"
 								},
 								"name": "JetStreamClient",
-								"package": "nats"
+								"package": "@nats-io/jetstream"
 							}
 						}
 					]
@@ -50951,9 +50951,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 94,
+							"line": 97,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L94"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L97"
 						}
 					],
 					"signatures": [
@@ -50974,9 +50974,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 94,
+									"line": 97,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L94"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L97"
 								}
 							],
 							"type": {
@@ -50997,9 +50997,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 102,
+							"line": 105,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L102"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L105"
 						}
 					],
 					"signatures": [
@@ -51020,9 +51020,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 102,
+									"line": 105,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L102"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L105"
 								}
 							],
 							"type": {
@@ -51052,9 +51052,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 110,
+							"line": 113,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L110"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L113"
 						}
 					],
 					"signatures": [
@@ -51075,9 +51075,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 110,
+									"line": 113,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L110"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L113"
 								}
 							],
 							"type": {
@@ -51107,9 +51107,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 114,
+							"line": 117,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L114"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L117"
 						}
 					],
 					"signatures": [
@@ -51122,9 +51122,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 114,
+									"line": 117,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L114"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L117"
 								}
 							],
 							"type": {
@@ -51157,9 +51157,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 140,
+							"line": 143,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L140"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L143"
 						}
 					],
 					"signatures": [
@@ -51180,9 +51180,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 140,
+									"line": 143,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L140"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L143"
 								}
 							],
 							"parameters": [
@@ -51284,9 +51284,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 172,
+							"line": 175,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L172"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L175"
 						}
 					],
 					"signatures": [
@@ -51326,9 +51326,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 172,
+									"line": 175,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L172"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L175"
 								}
 							],
 							"typeParameters": [
@@ -51417,12 +51417,12 @@
 															"type": {
 																"type": "reference",
 																"target": {
-																	"packageName": "nats",
-																	"packagePath": "lib/nats-base-client/core.d.ts",
+																	"packageName": "@nats-io/nats-core",
+																	"packagePath": "lib/core.d.ts",
 																	"qualifiedName": "Msg"
 																},
 																"name": "Msg",
-																"package": "nats"
+																"package": "@nats-io/nats-core"
 															}
 														}
 													],
@@ -51475,9 +51475,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 175,
+															"line": 178,
 															"character": 13,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L175"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L178"
 														}
 													],
 													"type": {
@@ -51509,12 +51509,12 @@
 									{
 										"type": "reference",
 										"target": {
-											"packageName": "nats",
-											"packagePath": "lib/nats-base-client/core.d.ts",
+											"packageName": "@nats-io/nats-core",
+											"packagePath": "lib/core.d.ts",
 											"qualifiedName": "Subscription"
 										},
 										"name": "Subscription",
-										"package": "nats"
+										"package": "@nats-io/nats-core"
 									}
 								],
 								"name": "Promise",
@@ -51534,9 +51534,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 243,
+							"line": 246,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L243"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L246"
 						}
 					],
 					"signatures": [
@@ -51573,9 +51573,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 243,
+									"line": 246,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L243"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L246"
 								}
 							],
 							"parameters": [
@@ -51664,9 +51664,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 246,
+															"line": 249,
 															"character": 13,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L246"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L249"
 														}
 													],
 													"type": {
@@ -51701,9 +51701,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 246,
+															"line": 249,
 															"character": 42,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L246"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L249"
 														}
 													],
 													"type": {
@@ -51755,9 +51755,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 292,
+							"line": 294,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L292"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L294"
 						}
 					],
 					"signatures": [
@@ -51797,9 +51797,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 292,
+									"line": 294,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L292"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L294"
 								}
 							],
 							"parameters": [
@@ -51885,9 +51885,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 331,
+							"line": 333,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L331"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L333"
 						}
 					],
 					"signatures": [
@@ -52039,9 +52039,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 331,
+									"line": 333,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L331"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L333"
 								}
 							],
 							"typeParameters": [
@@ -52082,9 +52082,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 332,
+															"line": 334,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L332"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L334"
 														}
 													],
 													"type": {
@@ -52101,9 +52101,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 333,
+															"line": 335,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L333"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L335"
 														}
 													],
 													"type": {
@@ -52120,9 +52120,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 334,
+															"line": 336,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L334"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L336"
 														}
 													],
 													"type": {
@@ -52141,9 +52141,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 335,
+															"line": 337,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L335"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L337"
 														}
 													],
 													"type": {
@@ -52166,48 +52166,6 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																			"line": 336,
-																			"character": 6,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L336"
-																		}
-																	],
-																	"type": {
-																		"type": "intrinsic",
-																		"name": "number"
-																	}
-																},
-																{
-																	"id": 748,
-																	"name": "fetchExpiresMs",
-																	"variant": "declaration",
-																	"kind": 1024,
-																	"flags": {
-																		"isOptional": true
-																	},
-																	"sources": [
-																		{
-																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																			"line": 337,
-																			"character": 6,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L337"
-																		}
-																	],
-																	"type": {
-																		"type": "intrinsic",
-																		"name": "number"
-																	}
-																},
-																{
-																	"id": 749,
-																	"name": "ackWaitMs",
-																	"variant": "declaration",
-																	"kind": 1024,
-																	"flags": {
-																		"isOptional": true
-																	},
-																	"sources": [
-																		{
-																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
 																			"line": 338,
 																			"character": 6,
 																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L338"
@@ -52219,8 +52177,8 @@
 																	}
 																},
 																{
-																	"id": 750,
-																	"name": "maxDeliver",
+																	"id": 748,
+																	"name": "fetchExpiresMs",
 																	"variant": "declaration",
 																	"kind": 1024,
 																	"flags": {
@@ -52240,8 +52198,8 @@
 																	}
 																},
 																{
-																	"id": 751,
-																	"name": "maxAckPending",
+																	"id": 749,
+																	"name": "ackWaitMs",
 																	"variant": "declaration",
 																	"kind": 1024,
 																	"flags": {
@@ -52253,6 +52211,48 @@
 																			"line": 340,
 																			"character": 6,
 																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L340"
+																		}
+																	],
+																	"type": {
+																		"type": "intrinsic",
+																		"name": "number"
+																	}
+																},
+																{
+																	"id": 750,
+																	"name": "maxDeliver",
+																	"variant": "declaration",
+																	"kind": 1024,
+																	"flags": {
+																		"isOptional": true
+																	},
+																	"sources": [
+																		{
+																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
+																			"line": 341,
+																			"character": 6,
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L341"
+																		}
+																	],
+																	"type": {
+																		"type": "intrinsic",
+																		"name": "number"
+																	}
+																},
+																{
+																	"id": 751,
+																	"name": "maxAckPending",
+																	"variant": "declaration",
+																	"kind": 1024,
+																	"flags": {
+																		"isOptional": true
+																	},
+																	"sources": [
+																		{
+																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
+																			"line": 342,
+																			"character": 6,
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L342"
 																		}
 																	],
 																	"type": {
@@ -52287,9 +52287,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 342,
+															"line": 344,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L342"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L344"
 														}
 													],
 													"type": {
@@ -52334,9 +52334,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 343,
+																									"line": 345,
 																									"character": 6,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L343"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L345"
 																								}
 																							],
 																							"type": {
@@ -52355,20 +52355,20 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 344,
+																									"line": 346,
 																									"character": 6,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L344"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L346"
 																								}
 																							],
 																							"type": {
 																								"type": "reference",
 																								"target": {
-																									"packageName": "nats",
-																									"packagePath": "lib/nats-base-client/core.d.ts",
+																									"packageName": "@nats-io/nats-core",
+																									"packagePath": "lib/core.d.ts",
 																									"qualifiedName": "MsgHdrs"
 																								},
 																								"name": "MsgHdrs",
-																								"package": "nats"
+																								"package": "@nats-io/nats-core"
 																							}
 																						}
 																					],
@@ -52430,9 +52430,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 346,
+															"line": 348,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L346"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L348"
 														}
 													],
 													"type": {
@@ -52489,9 +52489,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 349,
+																									"line": 351,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L349"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L351"
 																								}
 																							],
 																							"type": {
@@ -52510,20 +52510,20 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 350,
+																									"line": 352,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L350"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L352"
 																								}
 																							],
 																							"type": {
 																								"type": "reference",
 																								"target": {
-																									"packageName": "nats",
-																									"packagePath": "lib/nats-base-client/core.d.ts",
+																									"packageName": "@nats-io/nats-core",
+																									"packagePath": "lib/core.d.ts",
 																									"qualifiedName": "MsgHdrs"
 																								},
 																								"name": "MsgHdrs",
-																								"package": "nats"
+																								"package": "@nats-io/nats-core"
 																							}
 																						},
 																						{
@@ -52535,9 +52535,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 351,
+																									"line": 353,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L351"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L353"
 																								}
 																							],
 																							"type": {
@@ -52558,9 +52558,9 @@
 																											"sources": [
 																												{
 																													"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																													"line": 351,
+																													"line": 353,
 																													"character": 16,
-																													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L351"
+																													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L353"
 																												}
 																											],
 																											"type": {
@@ -52591,9 +52591,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 352,
+																									"line": 354,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L352"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L354"
 																								}
 																							],
 																							"type": {
@@ -52684,9 +52684,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 355,
+															"line": 357,
 															"character": 16,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L355"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L357"
 														}
 													],
 													"signatures": [
@@ -52699,9 +52699,9 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																	"line": 355,
+																	"line": 357,
 																	"character": 16,
-																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L355"
+																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L357"
 																}
 															],
 															"type": {
@@ -52791,9 +52791,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-					"line": 62,
+					"line": 65,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L62"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L65"
 				}
 			]
 		},
@@ -52824,7 +52824,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " for\r\nservice-authenticated routes ("
+								"text": " for\nservice-authenticated routes ("
 							},
 							{
 								"kind": "code",
@@ -52832,7 +52832,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " shield check) — services have\r\nno AuthUser."
+								"text": " shield check) — services have\nno AuthUser."
 							}
 						]
 					},
@@ -52907,12 +52907,12 @@
 					"type": {
 						"type": "reference",
 						"target": {
-							"packageName": "nats",
-							"packagePath": "lib/nats-base-client/core.d.ts",
+							"packageName": "@nats-io/nats-core",
+							"packagePath": "lib/core.d.ts",
 							"qualifiedName": "Msg"
 						},
 						"name": "Msg",
-						"package": "nats"
+						"package": "@nats-io/nats-core"
 					}
 				}
 			],
@@ -52958,7 +52958,7 @@
 				"summary": [
 					{
 						"kind": "text",
-						"text": "Custom caller verification. Replaces the default\r\nverifyNatsMessage+enforceNatsRbac chain. Return:\r\n  - "
+						"text": "Custom caller verification. Replaces the default\nverifyNatsMessage+enforceNatsRbac chain. Return:\n  - "
 					},
 					{
 						"kind": "code",
@@ -52966,7 +52966,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "  → caller verified (user available in ctx.user)\r\n  - "
+						"text": "  → caller verified (user available in ctx.user)\n  - "
 					},
 					{
 						"kind": "code",
@@ -52974,7 +52974,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " → caller verified, no user (service-to-BE shield identity)\r\n  - "
+						"text": " → caller verified, no user (service-to-BE shield identity)\n  - "
 					},
 					{
 						"kind": "code",
@@ -53019,12 +53019,12 @@
 									"type": {
 										"type": "reference",
 										"target": {
-											"packageName": "nats",
-											"packagePath": "lib/nats-base-client/core.d.ts",
+											"packageName": "@nats-io/nats-core",
+											"packagePath": "lib/core.d.ts",
 											"qualifiedName": "Msg"
 										},
 										"name": "Msg",
-										"package": "nats"
+										"package": "@nats-io/nats-core"
 									}
 								}
 							],
@@ -53110,7 +53110,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Queue group. Default: the service code (one copy round-robin across\r\nreplicas). Pass "
+								"text": "Queue group. Default: the service code (one copy round-robin across\nreplicas). Pass "
 							},
 							{
 								"kind": "code",
@@ -53118,7 +53118,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " ONLY for broadcast listeners that must see every\r\nmessage — that intent stays visible in the declaration."
+								"text": " ONLY for broadcast listeners that must see every\nmessage — that intent stays visible in the declaration."
 							}
 						]
 					},
@@ -53207,11 +53207,11 @@
 						"types": [
 							{
 								"type": "literal",
-								"value": "any"
+								"value": "all"
 							},
 							{
 								"type": "literal",
-								"value": "all"
+								"value": "any"
 							}
 						]
 					}
@@ -53228,7 +53228,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Service-identity verification (e.g. BE client-shield check) instead of\r\nthe default AuthUser+RBAC chain. Use for service-to-BE subjects where\r\nthe caller is a service, not a user."
+								"text": "Service-identity verification (e.g. BE client-shield check) instead of\nthe default AuthUser+RBAC chain. Use for service-to-BE subjects where\nthe caller is a service, not a user."
 							}
 						]
 					},
@@ -53267,7 +53267,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " REPLACES the global Layer-1\r\nclient-shield check entirely (it must do the equivalent check itself,\r\ntypically with "
+								"text": " REPLACES the global Layer-1\nclient-shield check entirely (it must do the equivalent check itself,\ntypically with "
 							},
 							{
 								"kind": "code",
@@ -53275,7 +53275,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "). Only legal on routes whose purpose\r\nis first-time client enrollment (service.register): everywhere else a\r\nskipped L1 is a security hole and the flag must never be set."
+								"text": "). Only legal on routes whose purpose\nis first-time client enrollment (service.register): everywhere else a\nskipped L1 is a security hole and the flag must never be set."
 							}
 						]
 					},
@@ -53597,11 +53597,11 @@
 						"types": [
 							{
 								"type": "literal",
-								"value": "any"
+								"value": "all"
 							},
 							{
 								"type": "literal",
-								"value": "all"
+								"value": "any"
 							}
 						]
 					}
@@ -53920,12 +53920,12 @@
 					"type": {
 						"type": "reference",
 						"target": {
-							"packageName": "nats",
-							"packagePath": "lib/nats-base-client/core.d.ts",
+							"packageName": "@nats-io/nats-core",
+							"packagePath": "lib/core.d.ts",
 							"qualifiedName": "NatsConnection"
 						},
 						"name": "NatsConnection",
-						"package": "nats"
+						"package": "@nats-io/nats-core"
 					}
 				}
 			],
@@ -53972,7 +53972,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Register governed pub/sub subscribers. Errors are logged, never thrown\r\ninto the message loop — fire-and-forget has no caller to answer to."
+								"text": "Register governed pub/sub subscribers. Errors are logged, never thrown\ninto the message loop — fire-and-forget has no caller to answer to."
 							}
 						]
 					},
@@ -54034,12 +54034,12 @@
 								"elementType": {
 									"type": "reference",
 									"target": {
-										"packageName": "nats",
-										"packagePath": "lib/nats-base-client/core.d.ts",
+										"packageName": "@nats-io/nats-core",
+										"packagePath": "lib/core.d.ts",
 										"qualifiedName": "Subscription"
 									},
 									"name": "Subscription",
-									"package": "nats"
+									"package": "@nats-io/nats-core"
 								}
 							}
 						],
@@ -54074,7 +54074,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Register a governed request/reply-style endpoint over pure pub/sub:\r\nthe caller publishes with "
+								"text": "Register a governed request/reply-style endpoint over pure pub/sub:\nthe caller publishes with "
 							},
 							{
 								"kind": "code",
@@ -54082,7 +54082,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "; the response is\r\npublished back there. Auth + RBAC enforced exactly like makeNatsRoutes;\r\ndenials/failures reply with "
+								"text": "; the response is\npublished back there. Auth + RBAC enforced exactly like makeNatsRoutes;\ndenials/failures reply with "
 							},
 							{
 								"kind": "code",
@@ -54186,12 +54186,12 @@
 								"elementType": {
 									"type": "reference",
 									"target": {
-										"packageName": "nats",
-										"packagePath": "lib/nats-base-client/core.d.ts",
+										"packageName": "@nats-io/nats-core",
+										"packagePath": "lib/core.d.ts",
 										"qualifiedName": "Subscription"
 									},
 									"name": "Subscription",
-									"package": "nats"
+									"package": "@nats-io/nats-core"
 								}
 							}
 						],
@@ -54226,7 +54226,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Caller side of the correlation-reply pattern — the governed replacement\r\nfor "
+								"text": "Caller side of the correlation-reply pattern — the governed replacement\nfor "
 							},
 							{
 								"kind": "code",
@@ -54242,7 +54242,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " with a private reply\r\ninbox and resolves with the responder's payload (or rejects on\r\n"
+								"text": " with a private reply\ninbox and resolves with the responder's payload (or rejects on\n"
 							},
 							{
 								"kind": "code",
@@ -54250,7 +54250,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "/timeout). Auth headers are the caller's responsibility (BE\r\nuses "
+								"text": "/timeout). Auth headers are the caller's responsibility (BE\nuses "
 							},
 							{
 								"kind": "code",
@@ -54398,12 +54398,12 @@
 											"type": {
 												"type": "reference",
 												"target": {
-													"packageName": "nats",
-													"packagePath": "lib/nats-base-client/core.d.ts",
+													"packageName": "@nats-io/nats-core",
+													"packagePath": "lib/core.d.ts",
 													"qualifiedName": "NatsConnection"
 												},
 												"name": "NatsConnection",
-												"package": "nats"
+												"package": "@nats-io/nats-core"
 											}
 										},
 										{
@@ -54789,7 +54789,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Verify the publisher's client-shield identity. Returns true when the\r\ncaller is a registered client (or the registry is not configured — test\r\ncontexts only). Denials are logged with the presented UA."
+								"text": "Verify the publisher's client-shield identity. Returns true when the\ncaller is a registered client (or the registry is not configured — test\ncontexts only). Denials are logged with the presented UA."
 							}
 						]
 					},
@@ -54857,12 +54857,12 @@
 											"type": {
 												"type": "reference",
 												"target": {
-													"packageName": "nats",
-													"packagePath": "lib/nats-base-client/core.d.ts",
+													"packageName": "@nats-io/nats-core",
+													"packagePath": "lib/core.d.ts",
 													"qualifiedName": "MsgHdrs"
 												},
 												"name": "MsgHdrs",
-												"package": "nats"
+												"package": "@nats-io/nats-core"
 											}
 										}
 									],
@@ -54931,7 +54931,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " on service-identity routes\r\n(no AuthUser): "
+								"text": " on service-identity routes\n(no AuthUser): "
 							},
 							{
 								"kind": "code",
@@ -54961,12 +54961,12 @@
 							"type": {
 								"type": "reference",
 								"target": {
-									"packageName": "nats",
-									"packagePath": "lib/nats-base-client/core.d.ts",
+									"packageName": "@nats-io/nats-core",
+									"packagePath": "lib/core.d.ts",
 									"qualifiedName": "Msg"
 								},
 								"name": "Msg",
-								"package": "nats"
+								"package": "@nats-io/nats-core"
 							}
 						}
 					],
@@ -55023,7 +55023,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Shield-gated fire-and-forget subscription for broadcast subjects\r\n(config.changed, service.gateway_online, lifecycle events): the handler\r\nruns only after the publisher's client identity is verified. Use this —\r\nnever raw NatsClient.subscribe — for subjects published by other services."
+								"text": "Shield-gated fire-and-forget subscription for broadcast subjects\n(config.changed, service.gateway_online, lifecycle events): the handler\nruns only after the publisher's client identity is verified. Use this —\nnever raw NatsClient.subscribe — for subjects published by other services."
 							}
 						]
 					},
@@ -55105,12 +55105,12 @@
 													"type": {
 														"type": "reference",
 														"target": {
-															"packageName": "nats",
-															"packagePath": "lib/nats-base-client/core.d.ts",
+															"packageName": "@nats-io/nats-core",
+															"packagePath": "lib/core.d.ts",
 															"qualifiedName": "Msg"
 														},
 														"name": "Msg",
-														"package": "nats"
+														"package": "@nats-io/nats-core"
 													}
 												}
 											],
@@ -65840,7 +65840,7 @@
 				"summary": [
 					{
 						"kind": "text",
-						"text": "Mapping from a NATS subject to an SSE event type.\r\n\r\n- "
+						"text": "Mapping from a NATS subject to an SSE event type.\n\n- "
 					},
 					{
 						"kind": "code",
@@ -65856,7 +65856,7 @@
 					},
 					{
 						"kind": "text",
-						"text": ").\r\n- "
+						"text": ").\n- "
 					},
 					{
 						"kind": "code",
@@ -65880,7 +65880,7 @@
 					},
 					{
 						"kind": "text",
-						"text": ").\r\n- "
+						"text": ").\n- "
 					},
 					{
 						"kind": "code",
@@ -65896,7 +65896,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " pair for\r\n  the SSE event. The "
+						"text": " pair for\n  the SSE event. The "
 					},
 					{
 						"kind": "code",
@@ -66098,7 +66098,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Subscribe to NATS subjects and bridge their messages to an SSE event bus.\r\n\r\nReturns a cleanup function that unsubscribes all NATS subscriptions.\r\nCall it on graceful shutdown or when the bridge is no longer needed."
+								"text": "Subscribe to NATS subjects and bridge their messages to an SSE event bus.\n\nReturns a cleanup function that unsubscribes all NATS subscriptions.\nCall it on graceful shutdown or when the bridge is no longer needed."
 							}
 						],
 						"blockTags": [
@@ -66107,7 +66107,7 @@
 								"content": [
 									{
 										"kind": "code",
-										"text": "```typescript\r\nconst cleanup = await bridgeNatsToSse(NatsClient, serviceEventsBus, [\r\n  {\r\n    subject: SERVICE_SUBJECTS.HEARTBEAT,\r\n    eventType: \"service.heartbeat\",\r\n    transform: (p) => ({ id: `hb:${p.code}:${Date.now()}`, data: p }),\r\n  },\r\n]);\r\n// On shutdown:\r\ncleanup();\r\n```"
+										"text": "```typescript\nconst cleanup = await bridgeNatsToSse(NatsClient, serviceEventsBus, [\n  {\n    subject: SERVICE_SUBJECTS.HEARTBEAT,\n    eventType: \"service.heartbeat\",\n    transform: (p) => ({ id: `hb:${p.code}:${Date.now()}`, data: p }),\n  },\n]);\n// On shutdown:\ncleanup();\n```"
 									}
 								]
 							}
@@ -67472,7 +67472,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Initialize telemetry. Registers globals once, builds the pipeline if\r\nenabled, registers Node auto-instrumentations. Safe to call once per\r\nprocess — subsequent config changes go through "
+								"text": "Initialize telemetry. Registers globals once, builds the pipeline if\nenabled, registers Node auto-instrumentations. Safe to call once per\nprocess — subsequent config changes go through "
 							},
 							{
 								"kind": "code",
@@ -67573,7 +67573,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Rebuild the telemetry pipeline with new config — no process restart.\r\nSerialized through a promise queue: concurrent restarts collapse into\r\nsequential apply. Old processors shut down (flushing pending batches to\r\nthe OLD endpoint) before the delegate swap."
+								"text": "Rebuild the telemetry pipeline with new config — no process restart.\nSerialized through a promise queue: concurrent restarts collapse into\nsequential apply. Old processors shut down (flushing pending batches to\nthe OLD endpoint) before the delegate swap."
 							}
 						]
 					},
@@ -67807,12 +67807,12 @@
 											"type": {
 												"type": "reference",
 												"target": {
-													"packageName": "nats",
-													"packagePath": "lib/nats-base-client/core.d.ts",
+													"packageName": "@nats-io/nats-core",
+													"packagePath": "lib/core.d.ts",
 													"qualifiedName": "MsgHdrs"
 												},
 												"name": "MsgHdrs",
-												"package": "nats"
+												"package": "@nats-io/nats-core"
 											}
 										},
 										{
@@ -67882,12 +67882,12 @@
 											"type": {
 												"type": "reference",
 												"target": {
-													"packageName": "nats",
-													"packagePath": "lib/nats-base-client/core.d.ts",
+													"packageName": "@nats-io/nats-core",
+													"packagePath": "lib/core.d.ts",
 													"qualifiedName": "MsgHdrs"
 												},
 												"name": "MsgHdrs",
-												"package": "nats"
+												"package": "@nats-io/nats-core"
 											}
 										},
 										{
@@ -67959,12 +67959,12 @@
 											"type": {
 												"type": "reference",
 												"target": {
-													"packageName": "nats",
-													"packagePath": "lib/nats-base-client/core.d.ts",
+													"packageName": "@nats-io/nats-core",
+													"packagePath": "lib/core.d.ts",
 													"qualifiedName": "MsgHdrs"
 												},
 												"name": "MsgHdrs",
-												"package": "nats"
+												"package": "@nats-io/nats-core"
 											}
 										}
 									],
@@ -68516,12 +68516,12 @@
 									{
 										"type": "reference",
 										"target": {
-											"packageName": "nats",
-											"packagePath": "lib/nats-base-client/core.d.ts",
+											"packageName": "@nats-io/nats-core",
+											"packagePath": "lib/core.d.ts",
 											"qualifiedName": "MsgHdrs"
 										},
 										"name": "MsgHdrs",
-										"package": "nats"
+										"package": "@nats-io/nats-core"
 									},
 									{
 										"type": "intrinsic",
@@ -68573,7 +68573,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " with automatic W3C traceparent injection — for service-to-service\r\nHTTP calls under runtimes where undici instrumentation is unavailable\r\n(Bun). On Node, auto-instrumentation already injects; injecting again is\r\nharmless (same trace context)."
+								"text": " with automatic W3C traceparent injection — for service-to-service\nHTTP calls under runtimes where undici instrumentation is unavailable\n(Bun). On Node, auto-instrumentation already injects; injecting again is\nharmless (same trace context)."
 							}
 						]
 					},

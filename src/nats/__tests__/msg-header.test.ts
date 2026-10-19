@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { headers } from "nats"; // REAL nats.js headers — not a mock
+import { headers } from "@nats-io/transport-node"; // REAL nats.js headers — not a mock
 import { msgHeader } from "../msg-headers.js";
 
 describe("msgHeader", () => {

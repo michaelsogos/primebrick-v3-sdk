@@ -34,7 +34,7 @@ import {
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { LoggerProvider, BatchLogRecordProcessor } from "@opentelemetry/sdk-logs";
-import type { MsgHdrs } from "nats";
+import type { MsgHdrs } from "@nats-io/transport-node";
 import { logger, setOtelLogSink, type LogLevel } from "../lifecycle/logger.js";
 
 // ─── Config shape (stored in BE config_entries, shared via SharedConfig) ────

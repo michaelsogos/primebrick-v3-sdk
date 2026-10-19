@@ -7,7 +7,7 @@
  */
 
 import type { IncomingMessage } from "node:http";
-import type { Msg } from "nats";
+import type { Msg } from "@nats-io/transport-node";
 import { msgHeader } from "../nats/msg-headers.js";
 
 export interface HeaderProvider {

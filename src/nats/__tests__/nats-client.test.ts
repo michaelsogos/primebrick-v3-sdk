@@ -11,8 +11,6 @@ const mocks = vi.hoisted(() => {
   const mockRequest = vi.fn(async () => ({ data: new Uint8Array(0) }));
   const nc = {
     close: mockClose,
-    jetstream: mockJetstream,
-    jetstreamManager: mockJetstreamManager,
     publish: mockPublish,
     subscribe: mockSubscribe,
     request: mockRequest,
@@ -21,10 +19,8 @@ const mocks = vi.hoisted(() => {
   return { mockPublish, mockSubscribe, mockClose, mockJetstream, mockJetstreamManager, mockRequest, mockConnect, nc };
 });
 
-vi.mock("nats", () => ({
+vi.mock("@nats-io/transport-node", () => ({
   connect: mocks.mockConnect,
-  NatsConnection: {},
-  JetStreamClient: {},
   // MsgHdrs stand-in faithful to real nats.js: CASE-SENSITIVE verbatim
   // get/set. A previous version normalized keys to lowercase, masking the
   // real library's behaviour — that is the exact bug this must not hide.
@@ -40,8 +36,19 @@ vi.mock("nats", () => ({
   },
 }));
 
+// Keep the real module for AckPolicy/JetStreamApiError; only the two
+// client factories are faked (v3: standalone functions, not nc methods).
+vi.mock("@nats-io/jetstream", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@nats-io/jetstream")>();
+  return {
+    ...actual,
+    jetstream: mocks.mockJetstream,
+    jetstreamManager: mocks.mockJetstreamManager,
+  };
+});
+
 import { NatsClient } from "../nats-client.js";
-import { connect as natsConnect } from "nats";
+import { connect as natsConnect } from "@nats-io/transport-node";
 import { extJsonParse, extJsonStringify } from "../../json/ext-json.js";
 
 describe("NatsClient", () => {
@@ -174,4 +181,4 @@ describe("NatsClient.subscribe", () => {
     expect(handler.mock.calls[0][0]).toBeNull();
   });
 });
-
+
