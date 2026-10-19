@@ -2,7 +2,8 @@
  * @primebrick/sdk — Shared microservice infrastructure for Primebrick v3.
  *
  * DB-agnostic via port interfaces (dependency inversion).
- * ZERO dependencies on any Primebrick library or DB driver.
+ * Depends only on @primebrick/core (env-neutral shared contracts), which it
+ * re-exports so consumers get the canonical types through this package.
  *
  * Modules:
  * - ports: ConfigRepositoryPort, ServiceRegistryPort, HealthCheckPort
@@ -15,6 +16,10 @@
  * - env: validateEnv, requireEnv
  * - sse: createSseWriter, createSseEventBus, bridgeNatsToSse
  */
+
+// Canonical shared contracts — re-exported so consumers (BE/US/…) get
+// entity-meta types, list query types, and decimal through this package.
+export * from "@primebrick/core";
 
 // Ports (dependency inversion — consumer implements these)
 export { type ConfigRepositoryPort } from "./ports/config-repository-port.js";
