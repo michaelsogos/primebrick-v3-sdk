@@ -99,6 +99,7 @@ import {
   setSdkCachePort,
   configureInternalClient,
   detectPackageIdentity,
+  resolveServiceCode,
   buildUserAgent,
   deriveClientKey,
   logModuleStartup,
@@ -440,12 +441,16 @@ export async function createMicroservice(
   // Resolve service coordinates EARLY — the identity closure below captures
   // serviceCode; every callNats (client_shield_registry.get, secret.get, register)
   // invokes it, so these must be initialized before the first NATS call.
-  const serviceCode = configLoader.require("service_code");
+  // serviceCode is STATIC identity: package.json "service_code" or the
+  // `primebrick-<code>` name derivation — never runtime-editable config.
+  // A `service_code` config row survives only as a drift tripwire: when it
+  // disagrees with the static identity, boot fails loudly.
+  const selfIdentity = detectPackageIdentity();
+  const serviceCode = resolveServiceCode(selfIdentity, configLoader.get("service_code"));
   const baseUrl = configLoader.require("service_base_url");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
   const clientKey = configLoader.get("service_client_shield_key");
   const keyDerivationSecret = configLoader.get("service_key_derivation_secret");
-  const selfIdentity = detectPackageIdentity();
   const uaPrefix = `${selfIdentity.name}/${serviceVersion}`;
   /**
    * Shared acked-generation slot (B14): the registrar writes the generation
@@ -669,6 +674,9 @@ export async function createMicroservice(
       // Schema ownership claim — the validated DATABASE_SCHEMA list from
       // the env contract (step 2). The BE enforces one-module-one-schema.
       schemas: dbEnv.schemas,
+      // Static code provenance — the BE re-derives `derived` codes and
+      // rejects mismatches; `override` = explicit package.json service_code.
+      codeSource: selfIdentity.service_code ? "override" : "derived",
     },
     registrarHealthCheckFn,
   );

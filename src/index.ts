@@ -41,7 +41,7 @@ export {
   type ValidationRuleEmail,
   type ValidationRuleRegex,
 } from "./config/iconfig-entity.js";
-export { ConfigLoader } from "./config/config-loader.js";
+export { ConfigLoader, STATIC_SERVICE_CONFIG_KEYS, assertWritableConfigKey } from "./config/config-loader.js";
 export {
   validateConfigValue,
   ConfigValidationError,
@@ -75,6 +75,7 @@ export {
   deriveClientKey,
   verifyRowKey,
   detectPackageIdentity,
+  resolveServiceCode,
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,

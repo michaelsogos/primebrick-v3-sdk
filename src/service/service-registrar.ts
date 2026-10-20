@@ -73,6 +73,13 @@ export interface ServiceRegistrarConfig {
    * BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`).
    */
   schemas?: string[];
+  /**
+   * How `serviceCode` was resolved: `"override"` when package.json
+   * declares an explicit `service_code`, else `"derived"` (package name
+   * minus `primebrick-`). Wired by create-microservice — the BE
+   * re-derives `derived` codes and rejects mismatches.
+   */
+  codeSource?: "derived" | "override";
 }
 
 /**
@@ -208,6 +215,7 @@ export class ServiceRegistrar {
       key_mode: generation !== undefined ? "derived" : "static",
       capabilities: this.capabilities,
       schemas: this.config.schemas ?? [],
+      code_source: this.config.codeSource,
     };
     const ref = `${this.pkgName}/${this.config.service_version ?? "?"}`;
     const gwTag = this.config.gatewayUrl;

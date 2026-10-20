@@ -92,6 +92,16 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    * released only by `service.unregister` or admin purge.
    */
   schemas?: string[];
+  /**
+   * How `code` was resolved (B3 — static service identity):
+   * `derived`   — `code === pkg_name` minus the `primebrick-` prefix;
+   *               the BE re-derives and rejects on mismatch.
+   * `override`  — explicit `"service_code"` declared in the service's
+   *               package.json; the BE accepts any valid code.
+   * Absent (legacy payloads) is treated as `derived` — a code that does
+   * not match its package name must be declared in the artifact.
+   */
+  code_source?: "derived" | "override";
 }
 
 export interface ServiceUnregisterPayload {
