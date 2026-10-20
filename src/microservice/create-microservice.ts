@@ -241,6 +241,16 @@ export interface MicroserviceOptions {
   nav?: ModuleNavDeclaration;
 
   /**
+   * ROOT LEVEL this module is part of (`service_registry.part_of`) —
+   * 'system' for platform services, 'crm' for the CRM domain, … Combined
+   * with the service code it derives the module's FE route prefix
+   * `/{part_of}/{code}`; the BE rejects registration whose declared
+   * route_prefixes/nav/routes live outside it. No default — a module
+   * states its level explicitly.
+   */
+  partOf: string;
+
+  /**
    * Custom health checks beyond DB — added to the HealthCheck constructor.
    * NATS check is added automatically if not provided.
    */
@@ -649,6 +659,7 @@ export async function createMicroservice(
       serviceCode,
       baseUrl,
       endpoints: registrarEndpoints,
+      partOf: options.partOf,
       service_version: serviceVersion,
       name: options.serviceDisplayName,
       description: options.serviceDescription,

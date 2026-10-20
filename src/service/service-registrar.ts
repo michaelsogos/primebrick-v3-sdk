@@ -18,6 +18,12 @@ export interface ServiceRegistrarConfig {
   serviceCode: string;
   baseUrl: string;
   endpoints: Record<string, unknown>;
+  /**
+   * Root level this module is part of (e.g. 'system', 'crm') — sent as
+   * `part_of` in service.register; the module's FE routes must live under
+   * `/{part_of}/{serviceCode}`.
+   */
+  partOf: string;
   heartbeatIntervalMs?: number;
   name?: string;
   description?: string;
@@ -198,6 +204,7 @@ export class ServiceRegistrar {
       code: this.config.serviceCode,
       base_url: this.config.baseUrl,
       endpoints: this.config.endpoints,
+      part_of: this.config.partOf,
       service_version: this.config.service_version,
       name: this.config.name,
       description: this.config.description,

@@ -59,6 +59,15 @@ export interface ServiceHeartbeatPayload {
 export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
   endpoints: Record<string, unknown>;
   /**
+   * ROOT LEVEL the module belongs to (`part of`) — e.g. 'system' for
+   * platform services, 'crm' for the CRM domain. Persisted in
+   * `service_registry.part_of`; combined with `code` it derives the
+   * module's FE route prefix `/{part_of}/{code}` — every declared
+   * route_prefixes entry, nav href and routes entry must live under it
+   * (enforced by the BE at registration).
+   */
+  part_of: string;
+  /**
    * sha256 of the service's client shield key (module config
    * `service_client_shield_key`). The raw key NEVER travels — the BE
    * stores only this hash in client_shield_registry and verifies inbound
