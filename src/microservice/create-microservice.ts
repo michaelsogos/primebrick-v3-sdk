@@ -229,7 +229,7 @@ export interface MicroserviceOptions {
    * Module navigation self-declaration — the wiring that lets THIS module
    * own its FE pages. Persisted verbatim in `service_registry.endpoints.nav`
    * via `service.register`; the BE merges it into `/modules/:code/meta`,
-   * `/modules` (route_prefixes/icon) and the routes census. Declaring pages
+   * `/modules` (route_prefixes) and the routes census. Declaring pages
    * inside another module's static nav registry is the anti-pattern this
    * replaces: each module presents its own nav.
    *
