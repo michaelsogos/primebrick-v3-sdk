@@ -78,7 +78,9 @@ type RuleId =
   | "pool-ping"
   | "entity-nullable-explicit"
   | "dal-access"
-  | "layer-repo-import";
+  | "layer-repo-import"
+  | "i18n-key-ns"
+  | "i18n-sql-ns";
 
 interface Rule {
   id: RuleId;
@@ -113,6 +115,20 @@ const GATED_LINE_RULES: Rule[] = [
 
 interface StandardsConfig {
   rules?: Record<string, { allowPaths?: string[]; appliesTo?: string[] } | true>;
+  /**
+   * Allowed first-segment i18n namespaces for `*_key` literals
+   * (`label_key: "job.jobs.nav"` → `job`). Presence activates the
+   * `i18n-key-ns` rule. Per the namespace contract: a module declares
+   * `{own-code, app, system}` — meta may REFERENCE core labels but never
+   * foreign non-core namespaces.
+   */
+  i18n_namespaces?: string[];
+  /**
+   * db-meta/patches filenames exempt from `i18n-sql-ns` — shipped patches
+   * that predate the namespace boundary can never be edited, so they are
+   * grandfathered by name. New patches must comply.
+   */
+  i18n_sql_exempt?: string[];
 }
 
 function escapeRe(s: string): string {
@@ -284,7 +300,7 @@ function isTestFile(p: string): boolean {
   );
 }
 
-function checkFile(file: string, srcDir: string, rules: Set<RuleId>): Violation[] {
+function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespaces?: ReadonlySet<string>): Violation[] {
   const out: Violation[] = [];
   const lines = readFileSync(file, "utf8").split("\n");
   const rel = relative(srcDir, file).replace(/\\/g, "/");
@@ -345,12 +361,85 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>): Violation[
         }
       }
     }
+
+    if (i18nNamespaces) {
+      I18N_KEY_LITERAL.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = I18N_KEY_LITERAL.exec(line))) {
+        if (!i18nNamespaces.has(m[1])) {
+          out.push({
+            file: rel,
+            line: i + 1,
+            rule: "i18n-key-ns" as RuleId,
+            text: line.trim(),
+            hint: `i18n key namespace '${m[1]}' is outside this repo's allowlist {${[...i18nNamespaces].join(", ")}} — declarations may reference own + CORE (app/system) namespaces only`,
+          });
+        }
+      }
+    }
   }
 
   if (rules.has("entity-nullable-explicit")) {
     const exemptAt = (i: number) =>
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     out.push(...checkEntityNullableExplicit(lines, rel, isExempted, exemptAt));
+  }
+  return out;
+}
+
+// i18n-key-ns — captures `*_key:` string literals (`label_key`, `title_key`,
+// `tooltip_key`, …) whose value is namespaced (`"ns.rest"`). The first
+// segment must be in the repo's configured `i18n_namespaces` allowlist.
+// Single-segment values (`sort_key: "key"` — a field name, not i18n) are
+// skipped by requiring a dot in the literal.
+const I18N_KEY_LITERAL = /\b(?:\w*_key|tooltip|tooltip_title)\s*:\s*["'`]([a-z][a-z0-9_]*)\.[a-z0-9_.]*["'`]/g;
+
+// i18n-sql-ns — db-meta seed boundary: a patch may insert translation keys
+// only inside the namespace owned by the target schema. Canonical rule
+// (mirrors @primebrick/core `translationKeyNamespace` — this tool is
+// zero-dep by design): `public` → `app`, else the schema name itself.
+const SQL_INSERT_TRANSLATIONS = /INSERT\s+INTO\s+"?(\w+)"?\.translations/i;
+const SQL_TUPLE_KEY = /\(\s*'([a-z][a-z0-9_]*)\./g;
+
+function sqlKeyNamespace(schema: string): string {
+  return schema === "public" ? "app" : schema;
+}
+
+/** Scan db-meta/patches/*.sql for translation seeds violating the schema→namespace boundary. */
+function checkTranslationSeedPatches(repoRoot: string, exemptFiles: ReadonlySet<string>): Violation[] {
+  const out: Violation[] = [];
+  const dir = join(repoRoot, "db-meta", "patches");
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".sql") && !exemptFiles.has(f));
+  } catch {
+    return out; // no db-meta/patches in this repo — rule does not apply
+  }
+  for (const f of files) {
+    const lines = readFileSync(join(dir, f), "utf8").split("\n");
+    let targetSchema: string | null = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const ins = line.match(SQL_INSERT_TRANSLATIONS);
+      if (ins) targetSchema = ins[1].toLowerCase();
+      if (targetSchema) {
+        SQL_TUPLE_KEY.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = SQL_TUPLE_KEY.exec(line))) {
+          const expected = sqlKeyNamespace(targetSchema);
+          if (m[1] !== expected) {
+            out.push({
+              file: `db-meta/patches/${f}`,
+              line: i + 1,
+              rule: "i18n-sql-ns" as RuleId,
+              text: line.trim(),
+              hint: `keys seeded into ${targetSchema}.translations must start with '${expected}.' — a schema owns only its own namespace`,
+            });
+          }
+        }
+        if (/;\s*(?:--.*)?$/.test(line) && !/INSERT\s+INTO/i.test(line)) targetSchema = null;
+      }
+    }
   }
   return out;
 }
@@ -386,10 +475,18 @@ for (const [id, opts] of Object.entries(cfg.rules ?? {})) {
 }
 
 const violations: Violation[] = [];
+// i18n-key-ns — activated by `i18n_namespaces` in .devin/check-standards.json.
+const i18nNamespaces = cfg.i18n_namespaces?.length ? new Set(cfg.i18n_namespaces) : undefined;
+
 for (const file of walk(dir)) {
   if (!includeTests && isTestFile(file)) continue;
-  violations.push(...checkFile(file, dir, rules));
+  violations.push(...checkFile(file, dir, rules, i18nNamespaces));
 }
+
+// i18n-sql-ns — repo-level scan of db-meta/patches (outside srcDir);
+// always-on — the schema→namespace seed boundary is a repo invariant.
+// `i18n_sql_exempt` grandfathers shipped pre-boundary patches by filename.
+violations.push(...checkTranslationSeedPatches(process.cwd(), new Set(cfg.i18n_sql_exempt ?? [])));
 
 for (const v of violations) {
   console.log(`${v.file}:${v.line}  [${v.rule}] ${v.text.slice(0, 140)}  → ${v.hint}`);
