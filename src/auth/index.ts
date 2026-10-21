@@ -20,6 +20,9 @@ export { verifyAccessToken, resetOidcRuntimeForTest } from "./oidc-verifier.js";
 // Permissions
 export { Permission, isPermissionSentinel, listNonSentinelPermissions, matchesWildcard, isPermissionGranted, expandPermissions, type Permission as PermissionType } from "./permissions.js";
 
+// Access axis (app/module/page visibility — separate vocabulary, same pipeline)
+export { isAccessGranted, isAccessKey, ADMIN_INHERITED_ACCESS } from "./access.js";
+
 // Session context
 export { runWithSession, getSession, requireActor, runAsSystem, systemAuthUser, SYSTEM_ACTOR, type Session } from "./session-context.js";
 

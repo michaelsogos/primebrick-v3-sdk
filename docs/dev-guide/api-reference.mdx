@@ -102,18 +102,38 @@ Find an API key by its SHA-256 hash. Returns null if not found.
 |-----------|------|-------------|
 | hash | `string` |  |
 
-### `ClientRegistry`
+### `ClientShieldRegistry`
 
-#### `ClientRegistry.start(): Promise<void>`
+#### `ClientShieldRegistry.start(): Promise<void>`
 
 Subscribe to invalidation events first, then keep retrying the snapshot
 until the BE answers — the BE may be down at boot (same stateless-retry
 model as service.register). Non-blocking: until the first snapshot lands
 the allowlist is empty and every internal call is rejected (fail-closed).
 
-#### `ClientRegistry.verifyKey(uaPrefix, presentedKey): boolean`
+#### `ClientShieldRegistry.addChangeListener(cb)`
 
-Constant-time-ish hash comparison for the matched UA prefix.
+Register a callback fired after a reload that actually changed row
+material — the service registrar hooks this to re-register when its own
+`key_generation` was bumped by a BE rotation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| cb | `() => void` |  |
+
+#### `ClientShieldRegistry.generationFor(uaPrefix): number`
+
+The generation the BE issued for `uaPrefix` — a derived-mode service
+re-derives its key as `HMAC(secret, prefix:generation)`. Returns 0 for
+unknown/static rows (matches the DB default).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| uaPrefix | `string` |  |
+
+#### `ClientShieldRegistry.verifyKey(uaPrefix, presentedKey): boolean`
+
+Current-hash or grace-windowed previous-hash comparison for the matched prefix.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -208,6 +228,12 @@ passes it to the FE, which translates it using the current locale.
 | rule | `string` |  |
 | config_key | `string` |  |
 | message | `string` |  |
+
+### `Decimal`
+
+### `DecimalError`
+
+Errors raised by @primebrick/decimal.
 
 ### `GracefulShutdown`
 
@@ -720,10 +746,16 @@ health status (HTTP + NATS + custom checks).
 
 #### `ServiceRegistrar.register(): Promise<void>`
 
-Register with the BE via NATS request/reply (`service.register` is a
-correlation-reply endpoint). Stateless by design: retries every 5s until
-the BE acknowledges — a service that never registers does not exist to
-the system, so this method only resolves on ack.
+#### `ServiceRegistrar.onRegistryChanged(currentGeneration)`
+
+Derived-key mode (B14): invoked by the client-shield registry after a
+reload that changed row material. `currentGeneration` is the generation
+the BE snapshot now advertises for this service — when the BE bumped it
+(rotate endpoint), re-register with the newly derived key.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| currentGeneration | `number` |  |
 
 #### `ServiceRegistrar.sendHeartbeat(): Promise<void>`
 
@@ -848,6 +880,17 @@ Cache-first; falls back to DB on miss.
 
 ## Interfaces
 
+### `AdvancedFilter`
+
+One advanced-filter entry (filters sheet / `filters[i][...]` URL params).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | `string` |  |
+| field | `string` |  |
+| operator | `FilterOperator` |  |
+| value | `unknown` |  |
+
 ### `ApiKeyPort`
 
 ### `ApiKeyRecord`
@@ -856,7 +899,7 @@ Port for looking up API keys by hash.
 
 Used by verifyApiKey() to verify machine-to-machine credentials.
 The `api_keys` table lives in the BE-owned `public` schema — only the BE
-may read it directly (`BeApiKeyPort`); microservices resolve through the
+may read it directly (`DomainApiKeyPort`); microservices resolve through the
 governed `auth.apikey.byHash` NATS route (`NatsApiKeyPort`). Both are
 wrapped by `CachingApiKeyPort` for the shared Redis/in-memory cache.
 
@@ -963,13 +1006,30 @@ HTTP response metadata for cached endpoints.
 | etag | `string` |  |
 | cached | `boolean` | True if the data came from Redis cache (vs fresh DB read). |
 
-### `ClientRegistryRow`
+### `ClientKeyMaterial`
+
+Row-shaped key material for verification (subset of
+`system.client_shield_registry` used by both the SDK consumer cache and the
+BE publisher-identity verifier).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| client_key_hash | `string` |  |
+| previous_key_hash | `string \| null` |  |
+| previous_valid_until | `string \| Date \| null` |  |
+
+### `ClientShieldRegistryRow`
 
 | Field | Type | Description |
 |-------|------|-------------|
 | ua_prefix | `string` |  |
 | client_key_hash | `string` |  |
 | is_enabled | `boolean` |  |
+| key_generation | `number` | Key-rotation state (B14). `key_generation` is the BE-issued generation a
+derived-mode service must use to re-derive its key; `previous_*` carries
+the old hash during the grace window. |
+| previous_key_hash | `string \| null` |  |
+| previous_valid_until | `string \| Date \| null` | ISO string on the wire; Date when the BE passes rows in-process. |
 
 ### `ClientShieldSecretSlot`
 
@@ -978,6 +1038,15 @@ HTTP response metadata for cached endpoints.
 | current | `string` |  |
 | previous | `string \| null` |  |
 | rotated_at | `number` | Epoch ms of the last rotation. |
+
+### `CollaborationMeta`
+
+Collaboration fragment injected by `assembleMeta` at serve time.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| enabled | `boolean` |  |
+| expose_editing_value | `boolean` |  |
 
 ### `ConfigRepositoryPort`
 
@@ -1079,7 +1148,7 @@ ISO 4217 currency metadata.
 | Field | Type | Description |
 |-------|------|-------------|
 | engine | `DbMigrationEnginePort` | dal-pg migrations surface — `import * as m from "@primebrick/dal-pg"` satisfies this. |
-| pool | `() => unknown` | Live pg pool — evaluated lazily right after `initDal()` ran. |
+| pool | `() => unknown` | Live pg pool — evaluated lazily right after `getDal()` ran. |
 | schema | `() => string` | Owning service schema (e.g. `env.DATABASE_SCHEMA`) — registry lives there. |
 | patchesDir | `string` | Directory containing the .sql patch files (usually `<svc>/db-meta/patches`). |
 | dbMetaDir | `string` | db-meta dir with MANIFEST.json + keys.json — defaults to dirname(patchesDir). |
@@ -1150,6 +1219,36 @@ fired message. For `jobs.due.user.*` targets pass the triggering
 message's auth headers via `forwardAuthHeaders()` so the executor can
 run the full L2+RBAC chain on the ORIGINATING user. |
 
+### `EntityAction`
+
+One entry of `meta.actions` — the derived capability contract.
+EVERY standard op is present; `enabled: false` means the op is
+unavailable for everyone (route missing or product-disabled).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| op | `string` | Operation name — canonical (`list`, `get`, `delete.bulk`, ...) or the
+ last path segment for non-standard routes (`change_password`). |
+| permissions | `string[]` | Declared non-sentinel permissions, verbatim (OR semantics). |
+| sentinel | `EntityActionSentinel` | Sentinel gate when the route declares one instead of real perms. |
+| enabled | `boolean` | Visibility flag — false hides the CTA for everyone. |
+| endpoint | `EntityActionEndpoint` | The registered route that backs this op — present on every `enabled`
+ action, absent when no route exists (`enabled: false`). Consumers
+ dispatch writes to the declared endpoint instead of recomputing the
+ `/api/v1/entities/{entity}` convention — required for ops living under
+ non-standard prefixes (e.g. `/api/v1/auth/users`). |
+
+### `EntityActionEndpoint`
+
+Backing route of an `EntityAction` — emitted by the BE route scan.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| method | `string` | HTTP method of the backing route (`GET`, `POST`, `PUT`, `DELETE`, ...). |
+| path | `string` | Full registered API path with `:param` placeholders verbatim
+ (e.g. `/api/v1/auth/users/:uuid/restore`). Consumers substitute
+ placeholders from the row (`:uuid` ← `meta.uid`). |
+
 ### `EntityActionMeta`
 
 | Field | Type | Description |
@@ -1173,6 +1272,43 @@ most recent change without scanning the audit log.
 | audit_log_id | `number` | The `audit_log_id` of the change (for the GET audit/:auditLogId diff endpoint). |
 | changed_by | `string` | user_uuid of the writer. |
 | changed_at | `number` | Epoch ms of the save. |
+
+### `EntityMeta`
+
+Static entity meta — the shape every `*.meta.ts` file MUST satisfy.
+The schema is CLOSED for authored metas: undeclared properties are
+compile errors, so new meta props require extending this type first.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| entity | `string` | Entity name, snake_case singular (e.g. `user_profile`). |
+| translation_key | `string` | i18n prefix, snake_case singular — used to build dynamic keys. |
+| entities_ns | `string` | Namespace OWNING this entity's label keys — the module's own namespace
+(`job` → `job.entities.<translation_key>.*`). Absent → `system`
+(BE/core-owned entities keep `system.entities.*`).
+This is a READ-side reference declared by the owning module — the
+namespace write boundary (see `translation-keys.ts`) guarantees the
+keys actually live in that module's `<code>.translations` schema. |
+| title_key | `string` | Optional i18n key overriding the canonical page title.
+When absent, list/create/edit titles are built from the generic
+`system.entities.page_title.{list|create|edit}` templates interpolated
+with `system.entities.<translation_key>.{plural|singular}`.
+Set only for custom pages needing a bespoke title — CRUD entity metas
+must not declare it. |
+| uid | `string` | Field key holding the entity primary key (usually `uuid`). |
+| display_field | `string` | Canonical display field — the column key identifying the entity's
+ human-readable label. Drives first-column/sticky table identity and
+ default display resolution. |
+| display_name | `string` | Display expression template (`${field}` syntax, dot-paths allowed).
+OPTIONAL here: `assembleMeta` materializes it as
+`"${" + display_field + "}"` when absent — it is always present in the
+served response. Used automatically for edit-page titles; reusable for
+comboboxes, lists, chips. |
+| actions_overrides | `ActionsOverrides` | Per-op enable overrides — may ONLY toggle `enabled` on route-backed
+ ops; a missing route already produces `enabled: false`. |
+| columns | `MetaColumn[]` | Entity field dictionary (root-level, transversal). |
+| table | `TableMeta` | Table options — omit when the entity has no table page
+ (e.g. a self-service form meta). |
 
 ### `EntityRouterConfig`
 
@@ -1284,7 +1420,7 @@ The unified health response returned by `/health` on both BE and US.
 | serviceVersion | `string` | Service version (from package.json) — included in /health response. |
 | serviceUrl | `string` | Base URL the service is listening on — included in /health response. |
 | routeHandler | `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>` | Custom route handler — receives req/res, returns true if handled. |
-| clientRegistry | `ClientRegistry` | Client-identity gate (B11): when set, every non-/health request must
+| clientShieldRegistry | `ClientShieldRegistry` | Client-identity gate (B11): when set, every non-/health request must
 carry a registry-listed `User-Agent` prefix + valid
 `x-primebrick-client-shield-key` before the route handler runs. |
 | identityExemptPaths | `RegExp[]` | URL paths exempt from the client-identity gate — for services that
@@ -1341,6 +1477,28 @@ and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
 | is_enabled | `boolean` |  |
 | icon | `string` |  |
 | icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+
+### `ListFilterParamsOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| filterValues | `Record<string, unknown>` | Toolbar quick-filter values keyed by column key. |
+| columns | `typeOperator` | Entity columns (needed to map filterValues to the right operator). |
+| advancedFilters | `typeOperator` | FiltersPanel conditions. |
+| connector | `string` | Global connector for advanced filters (`AND` | `OR`). |
+
+### `ListResponse`
+
+The paged list response returned by every entity list endpoint.
+`total` is a `bigint` — parse JSON responses with a bigint-aware parser
+(`extJsonParse` from `@primebrick/sdk`), never `JSON.parse`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| rows | `TRow[]` |  |
+| page | `number` |  |
+| page_size | `number` |  |
+| total | `bigint` |  |
 
 ### `LogMeta`
 
@@ -1435,6 +1593,33 @@ auth dependencies into route handlers (e.g. setAuthDependencies(cfg, apiKeyPort)
 | endpoints | `Record<string, string>` | Service-specific endpoints (relative paths, e.g. &#123; webhook: "/webhook" &#125;).
 The health endpoint is added automatically.
 Full URLs are built as `${baseUrl}${path}` for the service registry. |
+| nav | `ModuleNavDeclaration` | Module navigation self-declaration — the wiring that lets THIS module
+own its FE pages. Persisted verbatim in `service_registry.endpoints.nav`
+via `service.register`; the BE merges it into `/modules/:code/meta`,
+`/modules` (route_prefixes) and the routes census. Declaring pages
+inside another module's static nav registry is the anti-pattern this
+replaces: each module presents its own nav.
+
+`route_prefixes` resolve the active module (longest match wins — a
+page under a shared prefix like `/system/jobs` belongs to THIS module,
+not to the module owning `/system`). `component_url` route fields are
+self-described by the service (e.g. `/ws/<code>/api/v1/module-assets/…`). |
+| partOf | `string` | ROOT LEVEL this module is part of (`service_registry.part_of`) —
+'system' for platform services, 'crm' for the CRM domain, … Combined
+with the service code it derives the module's FE route prefix
+`/{part_of}/{code}`; the BE rejects registration whose declared
+route_prefixes/nav/routes live outside it. No default — a module
+states its level explicitly. |
+| isDefault | `boolean` | DEFAULT-MODULE claim for the module's root level — `true` declares
+this service as the landing module of `partOf` (app select → this
+module → its nav[0].href). At most one holder per root: the BE keeps
+the existing winner on conflict (claim stored as `false`, warn-logged,
+registration still succeeds). Declaring `false`/omitting never
+downgrades an admin-set flag. |
+| labelKey | `string` | i18n key for the module's localized display name — sent as `label_key`
+in service.register and resolved by every UI surface (breadcrumbs,
+app launcher, module menus) against this service's own translation
+namespace. Fallback when absent/unresolved: the raw `name`. |
 | customHealthChecks | `Record<string, () => Promise<HealthCheckResult>>` | Custom health checks beyond DB — added to the HealthCheck constructor.
 NATS check is added automatically if not provided. |
 | dbPatches | `DbMigrationBootOptions` | Database migration boot step — runs immediately after `initDal`, before
@@ -1591,6 +1776,11 @@ OIDC configuration (STANDALONE mode only).
 | capabilities | `string[]` | Declared capabilities from package.json (`"capabilities": [...]`),
 snake_case lowercase. Sent in `service.register` → persisted in
 `service_registry.capabilities` — refreshed at every registration. |
+| service_code | `string` | Static service-code override declared in package.json
+(`"service_code": "..."`). When absent, the code is derived from
+`name` (`primebrick-<code>` → `<code>`). This is the ONLY way a
+service may carry a code that does not derive from its package name —
+it is part of the shipped artifact, not runtime-editable config. |
 
 ### `PresenceDelta`
 
@@ -1673,16 +1863,6 @@ forwards the full AuthUser in headers.
 
 ### `Rfc7807Body`
 
-Shared DAL → RFC 7807 error mapper. Pure function, runtime-agnostic:
-zero `node:*` imports, no Express/Bun/Node HTTP types — usable from the
-BE (Express errorHandler) and from every US microservice (Bun native
-http route handlers / `createHttpServer` catch path).
-
-Contract: the DAL emits stable `code` values — PG-originated via
-`pg_raise` (ERR01/ERR03/ERR04/ERR05, jsonb in `err.detail`) or
-TS-originated DalError classes (ERR02/ERR06, object on `err.detail`).
-`57014` is PG `query_canceled` (statement_timeout) → logical ERR07.
-
 | Field | Type | Description |
 |-------|------|-------------|
 | type | `string` |  |
@@ -1716,6 +1896,21 @@ forwards them in headers.
 |-------|------|-------------|
 | scope | `string` | "global" or a service code — scopes the key namespace. |
 | name | `string` |  |
+
+### `RowCustomAction`
+
+UI configuration for a non-standard row CTA (route-backed bare op).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| action_name | `string` | Action/op name — matches the bare op derived from the route
+ (e.g. `change_password`). |
+| translation_key | `string` | i18n key for the CTA label. |
+| icon | `string` | Icon name (Lucide in the reference FE). |
+| text_color | `string` | Optional CSS color class for the label. |
+| disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
+| required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
+ against the user's permission set). |
 
 ### `RpcRoute`
 
@@ -1822,7 +2017,7 @@ tests only. |
 | icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
 it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-system.client_registry, service_registry.pkg_name, log messages). |
+system.client_shield_registry, service_registry.pkg_name, log messages). |
 
 ### `ServiceRegisterPayload`
 
@@ -1843,12 +2038,35 @@ system.client_registry, service_registry.pkg_name, log messages). |
 | icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
 it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-system.client_registry, service_registry.pkg_name, log messages). |
+system.client_shield_registry, service_registry.pkg_name, log messages). |
 | endpoints | `Record<string, unknown>` |  |
+| part_of | `string` | ROOT LEVEL the module belongs to (`part of`) — e.g. 'system' for
+platform services, 'crm' for the CRM domain. Persisted in
+`service_registry.part_of`; combined with `code` it derives the
+module's FE route prefix `/{part_of}/{code}` — every declared
+route_prefixes entry, nav href and routes entry must live under it
+(enforced by the BE at registration). |
+| is_default | `boolean` | DEFAULT-MODULE CLAIM for the service's root level — `true` declares
+this module as the landing app module of `part_of` (sidebar selects it
+when the app is chosen → its nav[0].href). The BE applies keep-winner:
+a claim colliding with a different holder is stored as `false`, never
+rejected. `false`/absent never downgrades — an admin-set default
+survives reboots. |
+| label_key | `string` | i18n key for the module's localized display name — resolved by the FE
+against this service's OWN translation namespace (same contract as
+nav[].label_key). Persisted in `service_registry.label_key`; every UI
+surface (breadcrumbs, app launcher, module menus) renders it, falling
+back to the raw `name` when absent or the key is unresolved. |
 | client_key_hash | `string` | sha256 of the service's client shield key (module config
 `service_client_shield_key`). The raw key NEVER travels — the BE
-stores only this hash in client_registry and verifies inbound
+stores only this hash in client_shield_registry and verifies inbound
 `x-primebrick-client-shield-key` by hashing+comparing. |
+| key_mode | `"static" \| "derived"` | Key-rotation contract (B14): `key_mode='derived'` means the hash was
+produced from `HMAC(derivation_secret, ua_prefix:key_generation)` — the
+BE stores `key_generation` on the row and a rotate endpoint bumps it,
+triggering re-registration with the next derived key. 'static' rows
+carry a service-configured key and rotate only by admin action. |
+| key_generation | `number` |  |
 | capabilities | `string[]` | Capabilities declared in the service's package.json
 (`"capabilities": [...]`, snake_case lowercase) — e.g.
 `llm_orchestrator`, `vectorizing_engine`. Persisted by the BE in
@@ -1861,6 +2079,13 @@ when a claimed schema is owned by a different code, or is one of the
 platform schemas (the BE's own `DATABASE_SCHEMA`, e.g.
 public/system/custom). The claim survives offline/stale rows and is
 released only by `service.unregister` or admin purge. |
+| code_source | `"derived" \| "override"` | How `code` was resolved (B3 — static service identity):
+`derived`   — `code === pkg_name` minus the `primebrick-` prefix;
+              the BE re-derives and rejects on mismatch.
+`override`  — explicit `"service_code"` declared in the service's
+              package.json; the BE accepts any valid code.
+Absent (legacy payloads) is treated as `derived` — a code that does
+not match its package name must be declared in the artifact. |
 
 ### `ServiceRegistrarConfig`
 
@@ -1869,6 +2094,15 @@ released only by `service.unregister` or admin purge. |
 | serviceCode | `string` |  |
 | baseUrl | `string` |  |
 | endpoints | `Record<string, unknown>` |  |
+| partOf | `string` | Root level this module is part of (e.g. 'system', 'crm') — sent as
+`part_of` in service.register; the module's FE routes must live under
+`/{part_of}/{serviceCode}`. |
+| isDefault | `boolean` | Default-module claim for `partOf` — `true` asks the BE to mark this
+service as its root level's landing module. Keep-winner on conflict;
+absent/false never downgrades a stored flag. |
+| labelKey | `string` | i18n key for the module's localized display name — sent as `label_key`
+in service.register; resolved against this service's own translation
+namespace by every UI surface (fallback: raw `name`). |
 | heartbeatIntervalMs | `number` |  |
 | name | `string` |  |
 | description | `string` |  |
@@ -1879,8 +2113,20 @@ released only by `service.unregister` or admin purge. |
 | icon | `string` |  |
 | icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
 | clientKey | `string` | This service's own client key (module config `service_client_shield_key`) — paired with
-the UA prefix in `system.client_registry`. Only its sha256 hash is sent
+the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent
 in `service.register`; the raw key never leaves the service. |
+| keyDerivationSecret | `string` | Derived-key mode (B14): the service's derivation secret (module config
+`service_key_derivation_secret`). When set, every `service.register`
+materializes the key as `HMAC(secret, ua_prefix:generation)` for the
+generation the BE advertises — the row becomes `key_mode='derived'` and
+a BE-side rotate (generation bump) auto-triggers re-registration with
+the newly derived key. No key material rests in config or on disk. |
+| registryGeneration | `() => number` | Reads this service's current `key_generation` from the client-shield
+registry snapshot (wired by create-microservice). Required for derived
+mode; unused otherwise. |
+| generationSlot | `{ value: number }` | Shared slot (wired by create-microservice): the registrar writes the
+generation of each ACKED register so outbound calls keep deriving the
+acked key while the post-rotation handshake completes (zero-gap). |
 | gatewayUrl | `string` | API gateway base URL (the BE, e.g. `http://localhost:3001`) — used only
 as a log tag on lifecycle messages so the target of registration and
 heartbeats is visible on the service's stdout. |
@@ -1891,6 +2137,10 @@ registration automatically — no package.json edit needed. |
 (validated by `assertDbEnv`, first = owned schema). Sent in
 `service.register` → persisted in `service_registry.schemas` so the
 BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`). |
+| codeSource | `"derived" \| "override"` | How `serviceCode` was resolved: `"override"` when package.json
+declares an explicit `service_code`, else `"derived"` (package name
+minus `primebrick-`). Wired by create-microservice — the BE
+re-derives `derived` codes and rejects mismatches. |
 
 ### `ServiceRegistryPort`
 
@@ -2023,6 +2273,23 @@ followed by a blank line. Comments are sent as `: <text>\n\n`.
 |-------|------|-------------|
 | closed | `boolean` | Whether the underlying connection has been closed. |
 
+### `TableMeta`
+
+Table options — present only on entities with a table page.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| default_view | `ViewName` | Initial view (default "table"). |
+| default_sort | `{ key: string; dir: SortDir }` |  |
+| default_page_size | `number` |  |
+| page_size_options | `number[]` |  |
+| row_custom_actions | `RowCustomAction[]` | UI config for non-standard row actions (e.g. change password).
+ Standard ops (edit/delete/duplicate/preview) are derived from
+ `meta.actions` — never declared here. |
+| filter_presets | `typeOperator` | Mutually-exclusive preset WHERE filters — each rendered as its own
+ toolbar control; the active option's conditions AND into every list
+ request (see FilterPreset). |
+
 ### `TelemetryConfig`
 
 | Field | Type | Description |
@@ -2045,7 +2312,7 @@ Telemetry/logging block distributed via SharedConfig.
 | sampler | `"always_on" \| "always_off" \| "traceidratio"` |  |
 | sampler_arg | `number` |  |
 | log_format | `"json" \| "pretty"` |  |
-| log_level | `"debug" \| "info" \| "warn" \| "error"` |  |
+| log_level | `"error" \| "debug" \| "info" \| "warn"` |  |
 
 ### `TranslationRow`
 
@@ -2141,6 +2408,12 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 
 ## Types & Enums
 
+### `ActionsOverrides`
+
+Per-op enable overrides — may ONLY toggle `enabled` on route-backed ops.
+
+**Type:** `Record<string, { enabled: boolean }>`
+
 ### `ApiKeyCacheSource`
 
 **Type:** `CachePort \| () => CachePort \| null \| null \| undefined`
@@ -2217,9 +2490,62 @@ and FE widget selection.
 
 ### `DbEnv`
 
+### `DecimalInput`
+
+Anything coercion functions accept: Decimal, native number, bigint, or a decimal string.
+
+**Type:** `Decimal \| number \| bigint \| string`
+
+### `DeletionFilterMode`
+
+Soft-deletion visibility mode — maps to the `deleted_records` list param
+on the wire (`non_deleted` → `EXCLUDED`, `deleted` → `ONLY`,
+`all` → `INCLUDED`; absent param means the BE default, currently
+`EXCLUDED`).
+
+**Type:** `"non_deleted" \| "deleted" \| "all"`
+
+### `EntityActionSentinel`
+
+Sentinel gates a route may declare instead of concrete permissions.
+Values mirror the `Permission` enum in `@primebrick/sdk`.
+
+**Type:** `"_public" \| "_authenticated_user" \| "_authenticated_admin"`
+
 ### `EntityCrudOp`
 
 **Type:** `"meta" \| "list" \| "get" \| "create" \| "update" \| "delete" \| "purge" \| "restore" \| "audit" \| "export" \| "duplicate" \| "bulk_delete" \| "bulk_restore"`
+
+### `EntityMetaResponse`
+
+The served `GET /api/v1/entities/{entity}/meta` response:
+static meta + runtime-injected `display_name`, `actions`, `collaboration`.
+
+**Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta }`
+
+### `FilterCondition`
+
+One WHERE condition of a filter preset — serialized verbatim as a
+`filters[i]` entry on the `/list` query string (same vocabulary as
+`AdvancedFilter` conditions: field/op/value).
+
+### `FilterOperator`
+
+Filter operators available for advanced filters.
+
+**Type:** `"=" \| "!=" \| ">" \| "<" \| ">=" \| "<=" \| "contains" \| "startsWith" \| "endsWith" \| "BETWEEN"`
+
+### `FilterPreset`
+
+A mutually-exclusive preset filter group rendered as its own control in
+the table toolbar (tandem with the deletion-filter group). Exactly one
+option is always active — there is no "clear" affordance. Declared in
+`meta.table.filter_presets`; example: a `schedule_type` scope selector
+(recurring / once / all) on a jobs table.
+
+### `FilterPresetOption`
+
+A single selectable option of a table filter preset.
 
 ### `GenerateDocsFn`
 
@@ -2232,6 +2558,11 @@ Health check function — returns the result of local health checks
 so the registrar can include health status in heartbeats.
 
 **Type:** `() => Promise<{ http_healthy: boolean; checks: Record<string, ServiceHealthCheck> }>`
+
+### `HostMountHandle`
+
+Handle returned by `ModulePageHost.mount_host` — imperative channel to a
+host-mounted component root.
 
 ### `I18nDict`
 
@@ -2269,6 +2600,12 @@ Minimal shape of a decoded JWT payload (claims map).
 
 **Type:** `Record<string, unknown>`
 
+### `ListConnector`
+
+Global connector joining the advanced-filter group.
+
+**Type:** `"AND" \| "OR"`
+
 ### `LogFormat`
 
 **Type:** `"pretty" \| "json"`
@@ -2276,6 +2613,23 @@ Minimal shape of a decoded JWT payload (claims map).
 ### `LogLevel`
 
 **Type:** `"debug" \| "info" \| "done" \| "warn" \| "error"`
+
+### `MetaColumn`
+
+Entity field descriptor — the root-level `columns` dictionary.
+Transversal to every page type: table cells, form tooltips, labels.
+
+Declared as a type alias (not interface): object literal types get an
+implicit index signature, keeping `MetaColumn` assignable to
+`Record<string, unknown>` — host/remotes pass columns through generic
+cell-snippet args typed as `Record<string, unknown>`.
+
+### `MetaColumnType`
+
+UI column renderer type. NOTE: this is the UI type, not the DB type —
+ e.g. `roles` is `"text"` here but `jsonb` on disk (never ILIKE-searchable).
+
+**Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline"`
 
 ### `MfaConsumeFn`
 
@@ -2286,6 +2640,48 @@ Minimal shape of a decoded JWT payload (claims map).
 Discriminated result returned by the BE consume route.
 
 **Type:** `{ ok: true; user_uuid: string } \| { ok: false; code: string }`
+
+### `ModuleNavDeclaration`
+
+A module's self-described navigation declaration — the payload a service
+publishes in `service.register` (`endpoints.nav`) so the FE can render
+the module's sidebar nav and the census can resolve its routes WITHOUT
+the BE hardcoding another module's pages. This is the wiring that lets
+each module present its own nav — a remote page is owned by the service
+that ships it, never declared inside a host module's registry.
+
+`route_prefixes` drive active-module resolution (longest-prefix match —
+a page under a shared prefix like `/system/jobs` resolves to the owning
+module, not to the module owning the broader `/system` prefix).
+
+### `ModuleNavLink`
+
+One sidebar navigation link contributed by a module. `children` is the
+collapsible-group mechanism (the shell renders children under the parent).
+
+### `ModulePageHost`
+
+Host-side context handed to a remote page's `mountPage(el, ctx)`.
+Versioned via `host_version` — remote chunks can refuse incompatible hosts.
+
+HARD CONSTRAINT — plain values and functions ONLY: Svelte rune state
+(`$state`/`$derived`/`$effect`) is bundle-local and cannot cross this
+boundary. UI building blocks come from `@primebrick/ui` bundled inside the
+remote chunk, not from ctx; `components` is reserved for the few
+host-coupled cases (see `ModulePageHost.components`).
+
+### `ModulePageNotifyInput`
+
+Notification payload accepted by `ctx.notify` — the minimal shape of the
+host's `pushNotification` input. Plain values only.
+
+### `MountPageFn`
+
+The `esm-mount` chunk's entry contract — `export function mountPage(el, ctx)`.
+May return the `mount()` result (disposed via `unmount()`), a custom dispose
+function, or a promise of either.
+
+**Type:** `(el: HTMLElement, ctx: ModulePageHost) => unknown`
 
 ### `NatsRouteVerify`
 
@@ -2304,6 +2700,27 @@ The subset of RpcRoute fields the spec generator reads — lets services
  fabricating handler bodies.
 
 **Type:** `Pick<RpcRoute, "method" \| "path"> & Partial<Pick<RpcRoute, "auth" \| "permissions" \| "body" \| "streaming" \| "openapi">>`
+
+### `PageRouteComponentFormat`
+
+Remote component delivery format. Extensible — new literals are additive
+and non-breaking. `esm-mount`: a precompiled ESM chunk that exports
+`mountPage(el, ctx)` (or a default component as fallback).
+
+**Type:** `"esm-mount"`
+
+### `PageRouteDeclaration`
+
+One declared frontend route owned by a module. Modules MUST declare every
+FE path they own that is not deducible from nav links or entity
+conventions — the AI route census (GET /system/routes) depends on it.
+`param` marks dynamic segments using the FE convention ([uuid], [code]).
+
+### `PageRouteKind`
+
+Page archetype vocabulary — what the route renders, regardless of delivery.
+
+**Type:** `"list" \| "detail" \| "create" \| "page"`
 
 ### `Permission`
 
@@ -2359,9 +2776,48 @@ Queryable — same type the DAL Repository uses (Pick&#60;Pool, "query"&#62;).
 
 ### `RedisInfo`
 
+### `RoundingMode`
+
+**Type:** `"UP" \| "DOWN" \| "CEILING" \| "FLOOR" \| "HALF_UP" \| "HALF_DOWN" \| "HALF_EVEN"`
+
 ### `RouteHandler`
 
 **Type:** `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>`
+
+### `SnakeCaseSingular`
+
+Branded type that enforces snake_case singular (no uppercase letters).
+Used for `translation_key` in entity meta — the i18n key prefix.
+
+The brand is applied via `asSnakeCaseSingular()`, which performs a
+runtime check rejecting strings containing A-Z. This catches camelCase
+(`userProfile`), PascalCase (`RoleMapping`), and UPPER_CASE
+(`USER_PROFILE`) at both compile time and runtime.
+
+**Type:** `string & { __snakeCaseSingularBrand: typeOperator }`
+
+### `SortDir`
+
+Sort direction for server-side list queries and header UI.
+
+**Type:** `"asc" \| "desc"`
+
+### `StandardOp`
+
+**Type:** `typeof STANDARD_OPS[number]`
+
+### `TooltipPriority`
+
+Tooltip visual severity — drives icon and title color in priority
+ tooltip renderers.
+
+**Type:** `"INFORMATION" \| "WARNING" \| "ERROR" \| "QUESTION" \| "HINT" \| "SUCCESS"`
+
+### `ViewName`
+
+Table view names supported by entity list pages.
+
+**Type:** `"table" \| "cards" \| "cards_list"`
 
 ### `WidgetCapability`
 
@@ -2370,6 +2826,12 @@ Widget-level type_config capabilities (top-level type_config props).
 **Type:** `"currency" \| "country" \| "badge_values" \| "select_source" \| "url_protocols"`
 
 ## Constants
+
+### `ADMIN_INHERITED_ACCESS`
+
+Root implied for admins on the access axis — platform plane only.
+
+**Type:** `"access.system"`
 
 ### `API_KEY_CACHE_TTL_MS`
 
@@ -2434,18 +2896,18 @@ HTTP header names used by the Primebrick cache protocol.
 | PB_CACHED | "X-PB-Cached" |
 | PB_CACHE_SCOPE | "X-PB-Cache-Scope" |
 
-### `CLIENT_REGISTRY_SUBJECTS`
-
-**Type:** `{ GET: "system.clientRegistry.get"; CHANGED: "system.client_registry.changed" }`
-
-| Field | Value |
-|-------|-------|
-| GET | "system.clientRegistry.get" |
-| CHANGED | "system.client_registry.changed" |
-
 ### `CLIENT_SHIELD_KEY_HEADER`
 
 **Type:** `"x-primebrick-client-shield-key"`
+
+### `CLIENT_SHIELD_REGISTRY_SUBJECTS`
+
+**Type:** `{ GET: "system.clientShieldRegistry.get"; CHANGED: "system.client_shield_registry.changed" }`
+
+| Field | Value |
+|-------|-------|
+| GET | "system.clientShieldRegistry.get" |
+| CHANGED | "system.client_shield_registry.changed" |
 
 ### `CLIENT_SHIELD_SECRET_REF`
 
@@ -2478,12 +2940,18 @@ Docs-pack contract — the manifest describing a service's documentation
 bundle, built at build time and pulled by the AI service on registration.
 
 Pack layout on disk (`dist/docs-pack/`):
-  manifest.json      — this schema
-  docs/...           — raw .mdx/.md files + _order.json (verbatim source)
-  openapi.json       — optional service OpenAPI spec
+
+```
+manifest.json      — this schema
+docs/...           — raw .mdx/.md files + _order.json (verbatim source)
+openapi.json       — optional service OpenAPI spec
+```
 
 Wire format (`GET /api/v1/system/docs/pack`):
-  &#123; manifest: DocsPackManifest, files: [&#123; path, content &#125;] &#125;
+
+```ts
+{ manifest: DocsPackManifest, files: [{ path, content }] }
+```
 
 Text is always the source of truth — no precomputed vectors in the
 contract (embeddings are model-bound; the consumer re-embeds).
@@ -2503,6 +2971,22 @@ contract (embeddings are model-bound; the consumer re-embeds).
 Canonical header carrying the rotating client-shield secret on s2s calls.
 
 **Type:** `"x-client-shield-secret"`
+
+### `fromPG`
+
+Alias of `dec()` — parse a PostgreSQL `numeric`/`decimal` text value.
+
+**Type:** `typeof dec`
+
+### `fromString`
+
+**Type:** `typeof dec`
+
+### `fromWire`
+
+Alias of `dec()` — tolerates the `"…d"` wire suffix.
+
+**Type:** `typeof dec`
 
 ### `JOB_SCHEDULE_HEADERS`
 
@@ -2561,12 +3045,23 @@ TextMapCarrier over NATS MsgHdrs (Map&#60;string, string[]&#62; wrapper).
 | set | "" |
 | keys | "" |
 
+### `NUMERIC_MIN_SIG_DIGITS`
+
+Minimum significant digits preserved by automatic `div` scale — mirrors
+PostgreSQL `NUMERIC_MIN_SIG_DIGITS` (16). See `pgDivScale`.
+
+**Type:** `16`
+
 ### `NUMERIC_TYPES`
 
 Numeric types — min/max mean VALUE, `unsigned` flag applies.
 Mirrors the numeric checks in `config-validator.ts`.
 
 **Type:** `typeOperator`
+
+### `ONE`
+
+**Type:** `Decimal`
 
 ### `Permission`
 
@@ -2596,7 +3091,7 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
                                       pass. Use for high-risk non-CRUD
                                       operations (e.g. admin change-password).
 
-**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
+**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
 
 | Field | Value |
 |-------|-------|
@@ -2623,6 +3118,20 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
 | AUTH_EVENT_RESTORE_BULK | "auth_event.restore.bulk" |
 | AUTH_EVENT_DUPLICATE_SINGLE | "auth_event.duplicate.single" |
 | AUTH_EVENT_DUPLICATE_BULK | "auth_event.duplicate.bulk" |
+| CLIENT_REGISTRY_READ_ALL | "client_registry.read.all" |
+| CLIENT_REGISTRY_READ_SINGLE | "client_registry.read.single" |
+| CLIENT_REGISTRY_READ_AUDIT | "client_registry.read.audit" |
+| CLIENT_REGISTRY_EXPORT | "client_registry.export" |
+| CLIENT_REGISTRY_CREATE_SINGLE | "client_registry.create.single" |
+| CLIENT_REGISTRY_CREATE_BULK | "client_registry.create.bulk" |
+| CLIENT_REGISTRY_UPDATE_SINGLE | "client_registry.update.single" |
+| CLIENT_REGISTRY_UPDATE_BULK | "client_registry.update.bulk" |
+| CLIENT_REGISTRY_DELETE_SINGLE | "client_registry.delete.single" |
+| CLIENT_REGISTRY_DELETE_BULK | "client_registry.delete.bulk" |
+| CLIENT_REGISTRY_RESTORE_SINGLE | "client_registry.restore.single" |
+| CLIENT_REGISTRY_RESTORE_BULK | "client_registry.restore.bulk" |
+| CLIENT_REGISTRY_DUPLICATE_SINGLE | "client_registry.duplicate.single" |
+| CLIENT_REGISTRY_DUPLICATE_BULK | "client_registry.duplicate.bulk" |
 | CUSTOMER_READ_ALL | "customer.read.all" |
 | CUSTOMER_READ_SINGLE | "customer.read.single" |
 | CUSTOMER_READ_AUDIT | "customer.read.audit" |
@@ -2792,6 +3301,34 @@ SSE response headers per the Primebrick SSE standard.
 
 **Type:** `Record<string, string>`
 
+### `STANDARD_OPS`
+
+The canonical vocabulary of standard entity ops. Every op is always
+present in `meta.actions` — ops whose route is not registered are emitted
+with `enabled: false` (explicitly unavailable) instead of being omitted.
+
+**Type:** `typeOperator`
+
+### `STATIC_SERVICE_CONFIG_KEYS`
+
+Static-identity config keys — values the service treats as part of its
+deployed identity/discovery coordinates, NOT runtime-tunable settings.
+
+  - `service_code`     — resolved statically (package.json / pkg-name
+                         derivation); a config row survives only as a
+                         drift tripwire checked at boot.
+  - `service_base_url` — the discovery coordinate published in
+                         service_registry (`/ws/<code>` proxy target).
+                         Provisioned by deployment, not edited at
+                         runtime: a mid-flight change re-registers the
+                         service at a new URL and orphans the old one.
+
+Any entity-CRUD route that exposes `config_entry` writes MUST reject
+updates to these keys — call `assertWritableConfigKey` in the update
+handler (see emailsender's config-route for the canonical wiring).
+
+**Type:** `ReadonlySet<string>`
+
 ### `STRING_DERIVED_TYPES`
 
 String-derived types — min/max mean LENGTH, regex rules apply.
@@ -2807,6 +3344,10 @@ jobs, system API keys). Audit columns will record the literal string
 
 **Type:** `"system"`
 
+### `TEN`
+
+**Type:** `Decimal`
+
 ### `TYPE_CAPABILITIES`
 
 Capability matrix keyed by ConfigType. Frozen at module init — treat as
@@ -2814,13 +3355,47 @@ immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 
 **Type:** `Record<ConfigType, TypeCapabilities>`
 
+### `ZERO`
+
+**Type:** `Decimal`
+
 ## Functions
+
+### `abs(d): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+
+### `add(a, b): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
+
+### `allowedKeyNamespaces(moduleCode): ReadonlySet<string>`
+
+Namespaces a module's meta/nav declarations may REFERENCE — the module's
+own namespace plus the CORE vocabularies (`app`, `system`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| moduleCode | `string` |  |
 
 ### `apiKeyCacheKey(hash): string`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | hash | `string` |  |
+
+### `appendListFilterParams(params, opts, startIdx): number`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| params | `URLSearchParams` |  |
+| opts | `ListFilterParamsOptions` |  |
+| startIdx | `number` |  |
 
 ### `assertDbEnv(cwd): DbEnv`
 
@@ -2843,6 +3418,26 @@ dialog) or MfaConsumeUnavailableError (transport failure → 503).
 | spec | `MfaStepUpSpec` |  |
 | user | `AuthUser \| undefined` |  |
 | consume | `MfaConsumeFn` |  |
+
+### `assertWritableConfigKey(key): void`
+
+Throws when `key` is a static-identity config key. Designed for
+`config_entry` update handlers — a static key is edited by changing the
+artifact/deployment, never through the admin config UI.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+
+### `asSnakeCaseSingular(value): SnakeCaseSingular`
+
+Branded constructor for SnakeCaseSingular.
+ Throws if the value contains uppercase letters
+ (camelCase/PascalCase/UPPER_CASE).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| value | `string` |  |
 
 ### `brandRouteHandler(h): RouteHandler`
 
@@ -2962,6 +3557,14 @@ just replace the declaration).
 | scheduleSubject | `string` |  |
 | cancelSubject | `string` |  |
 
+### `ceil(d): Decimal`
+
+Smallest integer `>= d`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+
 ### `checkRbac(user, requiredPermissions, mode): RbacResult`
 
 Evaluate RBAC for a user against a list of required permissions.
@@ -2975,7 +3578,7 @@ Evaluate RBAC for a user against a list of required permissions.
 ### `clientKeyHash(key): string`
 
 sha256 hex of a client key — the only form that ever leaves the service
-(sent in `service.register` → stored in system.client_registry) and the
+(sent in `service.register` → stored in system.client_shield_registry) and the
 only form compared at verification time.
 
 | Parameter | Type | Description |
@@ -2986,6 +3589,15 @@ only form compared at verification time.
 
 Graceful shutdown — disconnect the Redis client. Safe to call multiple times.
 Registered with the SDK's `GracefulShutdown` by the BE (or US) at bootstrap.
+
+### `cmp(a, b): -1 \| 0 \| 1`
+
+Numeric comparison ignoring scale: `cmp(1.0, 1.00) === 0`. Returns -1 | 0 | 1.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
 
 ### `coerceConfigValue(type, value, type_config): string \| number \| bigint \| null`
 
@@ -3147,6 +3759,14 @@ The value a publisher must stamp on outbound calls.
 |-----------|------|-------------|
 | fallback | `string` |  |
 
+### `dec(input): Decimal`
+
+`Decimal` — pass-through. `string` — parsed (PG text form or `"…d"` wire form). `number` — via shortest round-trip `toString` so `0.1` stays `"0.1"`. `bigint` — scale 0.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `DecimalInput` |  |
+
 ### `defaultCurrencyForLang(lang): string`
 
 Derive the default currency code from a locale string.
@@ -3156,6 +3776,43 @@ Falls back to "EUR" for unknown locales.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | lang | `string` |  |
+
+### `defaultSearchGate(trimmed): boolean`
+
+search-gate — canonical "should this search query hit the server" predicate.
+
+Mirrors the backend list-search gate: ≥3 "real" characters, or an escaped
+wildcard (`\*` / `\?`) with ≥1 real char. Prevents per-keystroke queries
+while still allowing single-char wildcard searches.
+
+Canonical home for both the host FE and remote module pages — the gate
+must match the server-side rule byte-for-byte.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| trimmed | `string` | the search string, already `.trim()`ed by the caller |
+
+### `defaultVisibleColumnKeys(columns): string[]`
+
+Keys visible by default — from column flags.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| columns | `MetaColumn[]` |  |
+
+### `deriveClientKey(derivationSecret, uaPrefix, generation): string`
+
+Deterministic per-service client key (B14): `HMAC-SHA256(secret, uaPrefix:generation)`
+rendered base64url. Services configured with `service_key_derivation_secret`
+never store a key — they re-derive it from the derivation secret (provisioned
+by the installer/secret engine) plus the generation the BE registry row
+currently advertises. Rotating a key = bumping the generation on the BE.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| derivationSecret | `string` |  |
+| uaPrefix | `string` |  |
+| generation | `number` |  |
 
 ### `deserializeAuthUserFromHeaders(headers, config): AuthUser`
 
@@ -3172,6 +3829,25 @@ The gateway secret is verified separately by verifyAuthGatewayResolved().
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | startDir | `string` |  |
+
+### `div(a, b, opts): Decimal`
+
+`a / b`. Without `scale`, the result uses the PostgreSQL `numeric`
+division rule (`pgDivScale` — e.g. `1/3` → scale 20, `10/4` → 16), so
+Decimal↔DB computations compare equal digit-for-digit. Rounding defaults
+to `HALF_UP`. When the true quotient does not terminate at the target
+scale the result is flagged `periodic` (`isPeriodic(d)` → true).
+
+  div(1, 3)            // 0.33333333333333333333 — periodic
+  div(10, 4)           // 2.5000000000000000
+  div(1, 3, 2)         // 0.33
+  div(a, b, &#123; scale: 6, rounding: "HALF_EVEN" &#125;)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
+| opts | `number \| { scale: number; rounding: RoundingMode }` |  |
 
 ### `docsPackRouteHandler(packDir): RouteHandler`
 
@@ -3255,6 +3931,15 @@ convention used by existing specs) and secured with bearerAuth+apiKey.
 |-----------|------|-------------|
 | entity | `string` |  |
 | opts | `{ ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema }` |  |
+
+### `eq(a, b): boolean`
+
+Numeric equality ignoring scale — `eq(1.0, 1.00)` is `true`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
 
 ### `etagMatches(requestETag, cachedETag): boolean`
 
@@ -3386,6 +4071,14 @@ harmless (same trace context).
 | input | `string \| URL \| Request` |  |
 | init | `RequestInit` |  |
 
+### `floor(d): Decimal`
+
+Largest integer `<= d`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+
 ### `flushLogsSync(): void`
 
 Best-effort synchronous flush — called from graceful shutdown.
@@ -3412,6 +4105,19 @@ header names configured on this service's AuthConfig are copied.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | msg | `{ headers: MsgHdrs }` |  |
+
+### `fromBigInt(v, scale): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `bigint` |  |
+| scale | `number` |  |
+
+### `fromNumber(n): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| n | `number` |  |
 
 ### `generateApiKey(): { key: string; prefix: string }`
 
@@ -3458,6 +4164,14 @@ Returns `undefined` for entities not marked with `@Cached()`.
 ### `getLogOptions(): Readonly<LoggerState>`
 
 ### `getNatsShieldRegistry(): ShieldRegistryLike \| null`
+
+### `getOperatorsForColumnType(columnType): FilterOperator[]`
+
+Operators available for a given column UI type.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| columnType | `string` |  |
 
 ### `getRedisClient(): RedisClientType \| null`
 
@@ -3527,7 +4241,7 @@ Cache key format: `translations:i18n:{schema}:{language}`
 
 Identity headers to attach to every outbound internal call.
 `clientKey` comes from the service's own config (env/config entry) —
-it is the secret paired with the UA in `system.client_registry`.
+it is the secret paired with the UA in `system.client_shield_registry`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -3595,6 +4309,33 @@ Idempotent. Skipped under vitest (VITEST env) so test output is unaffected.
 
 Invalidate the cache so the next loadAuthConfig() re-reads from the port.
 
+### `isAccessGranted(userPermissions, isAdmin, required): boolean`
+
+Evaluate an access requirement against the user's grants.
+
+- `required` absent → true (undeclared = open to authenticated users).
+- `required` not an access key → false (defensive: never a silent grant).
+- `is_admin` → behaves as if `access.system` were granted. Non-system
+  roots are unaffected — admin sees the System app, not every app.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| userPermissions | `typeOperator \| Set<string>` |  |
+| isAdmin | `boolean` |  |
+| required | `string \| null` |  |
+
+### `isAccessKey(value): value is string`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| value | `unknown` |  |
+
+### `isDecimal(v): v is Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `unknown` |  |
+
 ### `isEntityCached(ctor): boolean`
 
 Returns `true` if the entity class is marked with `@Cached()`.
@@ -3602,6 +4343,21 @@ Returns `true` if the entity class is marked with `@Cached()`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | ctor | `(args: any[]) => any` |  |
+
+### `isEntityOpEnabled(actions, op): boolean`
+
+Pure enablement check — true when `op` exists in the served `actions`
+array and carries `enabled: true`. FAIL-CLOSED: when `actions` is absent
+(meta without actions — contract violation) the op is not enabled.
+
+This deliberately does NOT evaluate user permissions — that step lives in
+the consumer (e.g. FE `isEntityOpAllowed` composes this with the session
+permission check).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| actions | `typeOperator \| undefined` |  |
+| op | `string` |  |
 
 ### `isFactoryRouteHandler(h): h is RouteHandler`
 
@@ -3612,6 +4368,14 @@ refuses to mount anything else at startup.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | h | `unknown` |  |
+
+### `isPeriodic(d): boolean`
+
+`true` when the value was produced by a truncated non-terminating division.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
 
 ### `isPermissionGranted(userPermissions, requiredPermission): boolean`
 
@@ -3632,6 +4396,24 @@ role expansion.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | p | `string` |  |
+
+### `isSnakeCaseSingular(value): value is SnakeCaseSingular`
+
+Runtime validator for SnakeCaseSingular — rejects strings with
+ uppercase letters. Use in meta-loading code to catch BE meta that
+ violates the convention.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| value | `string` |  |
+
+### `keyNamespaceOf(key): string \| null`
+
+First dotted segment of a translation key — `job.entities.x` → `job`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
 
 ### `listNonSentinelPermissions(): string[]`
 
@@ -3742,6 +4524,29 @@ Check if a permission string matches a pattern (supports * wildcard).
 | pattern | `string` | Pattern with optional * wildcard (e.g., "customer.read.*") |
 | permission | `string` | Permission string to match (e.g., "customer.read.single") |
 
+### `max(a, b): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
+
+### `min(a, b): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
+
+### `mod(a, b): Decimal`
+
+`a mod b` — remainder of truncated division at the common scale.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
+
 ### `msgHeader(hdrs, name): string \| null`
 
 Case-insensitive lookup over a case-sensitive MsgHdrs.
@@ -3752,6 +4557,27 @@ Tries the name as given first, then the canonical MIME form
 |-----------|------|-------------|
 | hdrs | `MsgHdrs \| undefined` |  |
 | name | `string` |  |
+
+### `mul(a, b): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
+
+### `neg(d): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+
+### `normalize(d): Decimal`
+
+Strip trailing fractional zeros — `1.230` → `1.23`, `12.000` → `12`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
 
 ### `normalizeIdpToken(payload, rolesPath): NormalizedIdpUser`
 
@@ -3775,17 +4601,48 @@ operationId from method + path, snake_case:
 | method | `string` |  |
 | path | `string` |  |
 
+### `orderedColumns(columns): MetaColumn[]`
+
+Columns in display order: sticky group → normal group → audited group,
+each sorted by `order`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| columns | `typeOperator \| null \| undefined` |  |
+
 ### `parseBracketQuery(params): Record<string, unknown>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | params | `URLSearchParams` |  |
 
+### `parseDecimal(input): Decimal`
+
+Parse a decimal string into unscaled form.
+Accepts: `"12"`, `"-0.5"`, `".5"`, `"5."`, `"1.5e3"`, `"1E-3"`, `"+4"`.
+Rejects: `NaN`, `Infinity`, empty strings, hex, non-numeric garbage.
+Scale is preserved as written (`"1.230"` → scale 3).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `string` |  |
+
 ### `parseDocsPackPayload(raw): DocsPackPayload`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | raw | `unknown` |  |
+
+### `pgDivScale(a, b): number`
+
+PostgreSQL-faithful result scale for `x / y` (mirrors `select_div_scale`):
+`max(16 - 4·qweight, x.scale, y.scale)` — 16 significant digits minimum.
+Verified live: `1/3`→20, `10/4`→16, `1.00/8`→20, `2/1`→16, `100/3`→16.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
 
 ### `pgServerBanner(probe, databaseUrl): Promise<{ name: string; version: string \| null; url: string }>`
 
@@ -3798,6 +4655,12 @@ The connection URL is printed with the password stripped.
 |-----------|------|-------------|
 | probe | `SqlVersionProbe` |  |
 | databaseUrl | `string` |  |
+
+### `pow10(n): bigint`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| n | `number` |  |
 
 ### `presenceSubject(entityType, entityUuid): string`
 
@@ -3857,6 +4720,17 @@ Validate env vars and throw if any required ones are missing.
 |-----------|------|-------------|
 | schema | `EnvSchema` |  |
 
+### `rescale(d, newScale, mode): Decimal`
+
+Re-express `d` at `newScale`. Growing is exact; shrinking applies `mode`
+(default `HALF_UP`, matching PostgreSQL `round()`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+| newScale | `number` |  |
+| mode | `RoundingMode` |  |
+
 ### `resetInternalClient(): void`
 
 Test hook — clears the configured provider.
@@ -3868,6 +4742,50 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 ### `resetSdkCachePort(): void`
 
 Clear the singleton (for tests or graceful shutdown).
+
+### `resolvePresetConditions(presets, selections): FilterCondition[]`
+
+Flatten the WHERE conditions of every preset's ACTIVE option — the
+conditions AND-ed into every `/list` call. `selections` maps
+preset.id → option id; invalid/absent ids resolve per
+resolvePresetSelection.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| presets | `typeOperator \| undefined` |  |
+| selections | `Record<string, string>` |  |
+
+### `resolvePresetSelection(preset, selected): string`
+
+Resolve a preset's active option id — the caller-provided selection when
+it names a declared option, otherwise `default_option` (itself falling
+back to the first option when misconfigured, keeping the always-one
+invariant rather than failing closed).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| preset | `FilterPreset` |  |
+| selected | `string \| undefined` |  |
+
+### `resolveServiceCode(identity, configuredCode): string`
+
+Canonical service code — STATIC identity resolved once at boot from the
+deployed artifact, never from runtime-editable config:
+
+  1. package.json `"service_code"` (explicit override)
+  2. derived from package name (`primebrick-<code>` → `<code>`)
+
+Everything downstream — service_registry.code, `/ws/<code>` proxy
+routes, the i18n namespace (`<code>.*`), the NATS/schema ownership
+claim — is generated from this value. A DB `service_code` config row
+may still exist (legacy seeds): it is treated as a drift tripwire —
+when present and different from the static identity, boot fails loudly
+instead of silently re-identifing the service under a mutated code.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| identity | `PackageIdentity` |  |
+| configuredCode | `string \| null` |  |
 
 ### `restartTelemetry(cfg, serviceName, serviceVersion): Promise<void>`
 
@@ -3881,6 +4799,16 @@ the OLD endpoint) before the delegate swap.
 | cfg | `TelemetryConfig` |  |
 | serviceName | `string` |  |
 | serviceVersion | `string` |  |
+
+### `round(d, scale, mode): Decimal`
+
+Round to `scale` fractional digits (default `HALF_UP`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+| scale | `number` |  |
+| mode | `RoundingMode` |  |
 
 ### `rpcSpec(routes): Record<string, unknown>`
 
@@ -3922,6 +4850,24 @@ this directly, unless you are writing infrastructure code.
 | session | `Session` |  |
 | fn | `() => T` |  |
 
+### `sanitizeVisibleKeys(visibleKeys, columns): string[]`
+
+Drop unknown keys and fall back to defaults when nothing left.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| visibleKeys | `string[]` |  |
+| columns | `MetaColumn[]` |  |
+
+### `searchableTextColumns(columns): MetaColumn[]`
+
+Text-physical searchable columns — the scope selector + default
+ "all fields" search set.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| columns | `MetaColumn[]` |  |
+
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
 Serialize a fully resolved AuthUser into a headers object for forwarding
@@ -3944,6 +4890,17 @@ Serialize a typed value back to string for DB storage.
 |-----------|------|-------------|
 | type | `ConfigType` |  |
 | value | `string \| number \| bigint` |  |
+
+### `serviceApiBase(listBasePath): string`
+
+Service API base of an entity list basePath — strips the trailing
+`/entities/<entity>` segment so service-relative endpoints declared in
+meta (e.g. sparkline `endpoint: "/actions/job-run-stats"`) resolve to
+`/ws/<svc>/api/v1/actions/…` or `/api/v1/actions/…` for BE entities.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| listBasePath | `string` |  |
 
 ### `serviceShieldVerify(msg): Promise<null \| undefined>`
 
@@ -3999,6 +4956,12 @@ Store the cache port and Redis info (called once after Redis connects).
 
 Flush pending batches + shutdown current providers (graceful shutdown).
 
+### `signum(d): -1 \| 0 \| 1`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+
 ### `startSecretProvider(provider): Promise<void>`
 
 Wire the consumer: subscribe to `secret.rotated` (shielded broadcast),
@@ -4008,6 +4971,22 @@ are up, then `provider.get(ref)` for each consumed secret.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | provider | `SecretProvider` |  |
+
+### `strictEq(a, b): boolean`
+
+Exact structural equality — value AND scale must match (`strictEq(1.0, 1.00)` is `false`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
+
+### `sub(a, b): Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| a | `DecimalInput` |  |
+| b | `DecimalInput` |  |
 
 ### `subscribeConfigChanged(nats, handler): Promise<void>`
 
@@ -4067,6 +5046,38 @@ one exists, else the service code) — it is audit metadata, not identity.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | initiator | `string` |  |
+
+### `toPG(d): string`
+
+PostgreSQL parameter form — plain canonical decimal string, no `d` suffix.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+
+### `toWire(d): string`
+
+Wire form — `"…d"` suffixed string.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
+
+### `translationKeyNamespace(schema): string`
+
+Owning PG schema → the only translation-key namespace writable there.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| schema | `string` |  |
+
+### `trunc(d): Decimal`
+
+Integer part, toward zero.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| d | `DecimalInput` |  |
 
 ### `typeCapabilities(type): TypeCapabilities`
 
@@ -4167,8 +5178,8 @@ Verify an inbound internal call's identity headers.
 - `ua` not starting with an allowed prefix → 403 UNKNOWN_CLIENT
 - `verifyKey(key)` false      → 401 INVALID_CLIENT_SHIELD_KEY
 
-`allowedPrefixes` is loaded from `system.client_registry` (cached by the
-caller and refreshed on `system.client_registry.changed` events).
+`allowedPrefixes` is loaded from `system.client_shield_registry` (cached by the
+caller and refreshed on `system.client_shield_registry.changed` events).
 `verifyKey` compares the presented key against the registry entry for the
 matched prefix (hash comparison — inject the hasher).
 
@@ -4206,6 +5217,18 @@ contexts only). Denials are logged with the presented UA.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | msg | `{ subject: string; headers: MsgHdrs }` |  |
+
+### `verifyRowKey(row, presentedKey): boolean`
+
+Verify a presented key against a registry row: current hash always wins;
+during the post-rotation grace window (`previous_valid_until` in the future)
+the previous hash is still accepted so in-flight callers are not cut off
+mid-rotation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| row | `ClientKeyMaterial \| undefined` |  |
+| presentedKey | `string` |  |
 
 ### `withCache(repo, port, logger): R`
 
