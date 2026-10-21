@@ -1,15 +1,7 @@
-import {
-  connect,
-  headers,
-  AckPolicy,
-  type NatsConnection,
-  type JetStreamClient,
-  type JetStreamManager,
-  type JsMsg,
-  type Subscription,
-  type Msg,
-  type MsgHdrs,
-} from "nats";
+import { connect, headers } from "@nats-io/transport-node";
+import type { NatsConnection, Subscription, Msg, MsgHdrs } from "@nats-io/transport-node";
+import { jetstream, jetstreamManager, AckPolicy, JetStreamApiError } from "@nats-io/jetstream";
+import type { JetStreamClient, JetStreamManager, JsMsg } from "@nats-io/jetstream";
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
@@ -26,6 +18,17 @@ const natsTracer = trace.getTracer("@primebrick/sdk");
 /** Inject W3C traceparent/tracestate into a MsgHdrs instance. */
 function injectInto(hdrs: MsgHdrs): void {
   propagation.inject(context.active(), hdrs, natsCarrier);
+}
+
+/**
+ * Extract the JetStream API error code (`err_code`) from a thrown error.
+ * nats.js v3 wraps API errors in `JetStreamApiError` (`apiError().err_code`);
+ * the raw `{api_error: {err_code}}` shape is kept as a fallback for errors
+ * surfaced without the wrapper.
+ */
+function apiErrCode(error: unknown): number | undefined {
+  if (error instanceof JetStreamApiError) return error.apiError().err_code;
+  return (error as { api_error?: { err_code?: number } })?.api_error?.err_code;
 }
 
 /**
@@ -70,8 +73,8 @@ export class NatsClient {
     if (NatsClient.nc) return NatsClient.nc;
     const natsUrl = url ?? process.env.NATS_URL ?? "nats://127.0.0.1:4222";
     NatsClient.nc = await connect({ servers: natsUrl });
-    NatsClient.js = NatsClient.nc.jetstream();
-    NatsClient.jsm = await NatsClient.nc.jetstreamManager();
+    NatsClient.js = jetstream(NatsClient.nc);
+    NatsClient.jsm = await jetstreamManager(NatsClient.nc);
     NatsClient.serverUrl = natsUrl;
     // nc.info is populated by the INFO handshake at connect time.
     // ServerInfo.version is a string like "2.14.3".
@@ -246,19 +249,18 @@ export class NatsClient {
     opts?: { allowMsgSchedules?: boolean; syncSubjects?: boolean },
   ): Promise<void> {
     const nc = await NatsClient.getConnection();
-    const jsm = NatsClient.jsm ?? (await nc.jetstreamManager());
+    const jsm = NatsClient.jsm ?? (await jetstreamManager(nc));
     const config = {
       name,
       subjects,
       ...(opts?.allowMsgSchedules ? { allow_msg_schedules: true } : {}),
-    } as Parameters<JetStreamManager["streams"]["add"]>[0];
+    };
     try {
       await jsm.streams.add(config);
       return;
     } catch (error) {
       // 10058 = stream name already in use — fall through to reconcile.
-      const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
-      if (apiErr?.err_code !== 10058) throw error;
+      if (apiErrCode(error) !== 10058) throw error;
     }
     const wantsSchedules = opts?.allowMsgSchedules === true;
     if (!wantsSchedules && !opts?.syncSubjects) return;
@@ -354,7 +356,7 @@ export class NatsClient {
     ) => Promise<void>;
   }): Promise<{ close(): Promise<void> }> {
     const js = NatsClient.getJetStream();
-    const jsm = NatsClient.jsm ?? (await (await NatsClient.getConnection()).jetstreamManager());
+    const jsm = NatsClient.jsm ?? (await jetstreamManager(await NatsClient.getConnection()));
     // Consumers may start before the ingress service has created the stream —
     // retry on "stream not found" (10059) the same way the registrar retries
     // service.register until the BE is up. Other errors are fatal.
@@ -376,10 +378,10 @@ export class NatsClient {
         });
         break;
       } catch (error) {
-        const apiErr = (error as { api_error?: { err_code?: number } })?.api_error;
+        const errCode = apiErrCode(error);
         // 10014/10148 = consumer name already in use — already ensured.
-        if (apiErr?.err_code === 10014 || apiErr?.err_code === 10148) break;
-        if (apiErr?.err_code === 10059) {
+        if (errCode === 10014 || errCode === 10148) break;
+        if (errCode === 10059) {
           logger.warn(`JetStream stream "${opts.stream}" not found — retrying in 5s`, { tags: ["nats"], attempt });
           await new Promise((r) => setTimeout(r, 5000));
           continue;
@@ -414,7 +416,7 @@ export class NatsClient {
           await opts.handler(data, {
             subject,
             headers: m.headers,
-            info: { redeliveryCount: m.info.redeliveryCount },
+            info: { redeliveryCount: m.info.deliveryCount },
             authUser,
           });
           m.ack();
@@ -429,10 +431,11 @@ export class NatsClient {
       });
     };
 
+    const pullConsumer = await js.consumers.get(opts.stream, opts.durable);
     (async () => {
       while (!stopped && NatsClient.isConnected()) {
         try {
-          const batch = js.fetch(opts.stream, opts.durable, { batch: 10, expires: 5000 });
+          const batch = await pullConsumer.fetch({ max_messages: 10, expires: 5000 });
           for await (const m of batch) {
             if (stopped) {
               m.nak();

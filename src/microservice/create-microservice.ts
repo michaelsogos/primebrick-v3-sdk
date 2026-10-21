@@ -99,13 +99,16 @@ import {
   setSdkCachePort,
   configureInternalClient,
   detectPackageIdentity,
+  resolveServiceCode,
   buildUserAgent,
+  deriveClientKey,
   logModuleStartup,
   CLIENT_SHIELD_KEY_HEADER,
   isFactoryRouteHandler,
   brandRouteHandler,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
+import type { ModuleNavDeclaration } from "@primebrick/core";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
 import {
   runDbMigrationStep,
@@ -221,6 +224,49 @@ export interface MicroserviceOptions {
    * Full URLs are built as `${baseUrl}${path}` for the service registry.
    */
   endpoints?: Record<string, string>;
+
+  /**
+   * Module navigation self-declaration — the wiring that lets THIS module
+   * own its FE pages. Persisted verbatim in `service_registry.endpoints.nav`
+   * via `service.register`; the BE merges it into `/modules/:code/meta`,
+   * `/modules` (route_prefixes) and the routes census. Declaring pages
+   * inside another module's static nav registry is the anti-pattern this
+   * replaces: each module presents its own nav.
+   *
+   * `route_prefixes` resolve the active module (longest match wins — a
+   * page under a shared prefix like `/system/jobs` belongs to THIS module,
+   * not to the module owning `/system`). `component_url` route fields are
+   * self-described by the service (e.g. `/ws/<code>/api/v1/module-assets/…`).
+   */
+  nav?: ModuleNavDeclaration;
+
+  /**
+   * ROOT LEVEL this module is part of (`service_registry.part_of`) —
+   * 'system' for platform services, 'crm' for the CRM domain, … Combined
+   * with the service code it derives the module's FE route prefix
+   * `/{part_of}/{code}`; the BE rejects registration whose declared
+   * route_prefixes/nav/routes live outside it. No default — a module
+   * states its level explicitly.
+   */
+  partOf: string;
+
+  /**
+   * DEFAULT-MODULE claim for the module's root level — `true` declares
+   * this service as the landing module of `partOf` (app select → this
+   * module → its nav[0].href). At most one holder per root: the BE keeps
+   * the existing winner on conflict (claim stored as `false`, warn-logged,
+   * registration still succeeds). Declaring `false`/omitting never
+   * downgrades an admin-set flag.
+   */
+  isDefault?: boolean;
+
+  /**
+   * i18n key for the module's localized display name — sent as `label_key`
+   * in service.register and resolved by every UI surface (breadcrumbs,
+   * app launcher, module menus) against this service's own translation
+   * namespace. Fallback when absent/unresolved: the raw `name`.
+   */
+  labelKey?: string;
 
   /**
    * Custom health checks beyond DB — added to the HealthCheck constructor.
@@ -423,16 +469,40 @@ export async function createMicroservice(
   // Resolve service coordinates EARLY — the identity closure below captures
   // serviceCode; every callNats (client_shield_registry.get, secret.get, register)
   // invokes it, so these must be initialized before the first NATS call.
-  const serviceCode = configLoader.require("service_code");
+  // serviceCode is STATIC identity: package.json "service_code" or the
+  // `primebrick-<code>` name derivation — never runtime-editable config.
+  // A `service_code` config row survives only as a drift tripwire: when it
+  // disagrees with the static identity, boot fails loudly.
+  const selfIdentity = detectPackageIdentity();
+  const serviceCode = resolveServiceCode(selfIdentity, configLoader.get("service_code"));
   const baseUrl = configLoader.require("service_base_url");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
   const clientKey = configLoader.get("service_client_shield_key");
-  const selfIdentity = detectPackageIdentity();
-  configureInternalClient(() => ({
-    "User-Agent": buildUserAgent(selfIdentity, serviceCode),
-    ...(clientKey ? { [CLIENT_SHIELD_KEY_HEADER]: clientKey } : {}),
-  }));
-  if (clientKey) {
+  const keyDerivationSecret = configLoader.get("service_key_derivation_secret");
+  const uaPrefix = `${selfIdentity.name}/${serviceVersion}`;
+  /**
+   * Shared acked-generation slot (B14): the registrar writes the generation
+   * of each successful register; the header closure keeps deriving it until
+   * the post-rotation handshake lands — during a rotation the old
+   * (grace-windowed) key keeps outbound calls alive while the new one is
+   * being enrolled. Zero-gap.
+   */
+  const generationSlot: { value?: number } = {};
+  const outboundClientKey = (): string | null => {
+    if (keyDerivationSecret) {
+      const generation = generationSlot.value ?? clientShieldRegistry.generationFor(uaPrefix);
+      return deriveClientKey(keyDerivationSecret, uaPrefix, generation);
+    }
+    return clientKey;
+  };
+  configureInternalClient(() => {
+    const key = outboundClientKey();
+    return {
+      "User-Agent": buildUserAgent(selfIdentity, serviceCode),
+      ...(key ? { [CLIENT_SHIELD_KEY_HEADER]: key } : {}),
+    };
+  });
+  if (clientKey || keyDerivationSecret) {
     logger.done(`The service ${selfIdentity.name}/${selfIdentity.version ?? "?"} shield key enrolled`, { tags: ["core"] });
   }
 
@@ -569,6 +639,11 @@ export async function createMicroservice(
       registrarEndpoints[key] = `${baseUrl}${path}`;
     }
   }
+  // Module nav self-declaration — verbatim object (not a URL path): the BE
+  // merges endpoints.nav into module meta + routes census.
+  if (options.nav) {
+    registrarEndpoints.nav = options.nav;
+  }
 
   // Docs pack dir — shared between the registrar (capability) and the
   // auto-mounted serving route below. One detection, one source of truth.
@@ -602,6 +677,9 @@ export async function createMicroservice(
       serviceCode,
       baseUrl,
       endpoints: registrarEndpoints,
+      partOf: options.partOf,
+      isDefault: options.isDefault,
+      labelKey: options.labelKey,
       service_version: serviceVersion,
       name: options.serviceDisplayName,
       description: options.serviceDescription,
@@ -610,6 +688,12 @@ export async function createMicroservice(
       icon_type: options.iconType,
       // Per-service client key from module config (never env).
       clientKey: configLoader.get("service_client_shield_key") ?? undefined,
+      // Derived-key mode (B14): `service_key_derivation_secret` — the service
+      // derives its key as HMAC(secret, ua_prefix:generation); a BE rotate
+      // bumps the generation and this registrar re-enrolls automatically.
+      keyDerivationSecret: keyDerivationSecret ?? undefined,
+      registryGeneration: () => clientShieldRegistry.generationFor(uaPrefix),
+      generationSlot,
       // API gateway endpoint — shown as a log tag on register/heartbeat.
       // Required module config: it is also the identity of the only public
       // ingress this service talks to; a missing value is a misconfigured
@@ -621,8 +705,19 @@ export async function createMicroservice(
       // Schema ownership claim — the validated DATABASE_SCHEMA list from
       // the env contract (step 2). The BE enforces one-module-one-schema.
       schemas: dbEnv.schemas,
+      // Static code provenance — the BE re-derives `derived` codes and
+      // rejects mismatches; `override` = explicit package.json service_code.
+      codeSource: selfIdentity.service_code ? "override" : "derived",
     },
     registrarHealthCheckFn,
+  );
+
+  // Derived-key rotation (B14): when the BE bumps this service's
+  // key_generation (rotate endpoint), the registry reload notifies the
+  // registrar → re-register with the newly derived key. Until the ack
+  // lands, outbound calls keep using the acked (grace-windowed) key.
+  clientShieldRegistry.addChangeListener(() =>
+    registrar.onRegistryChanged(clientShieldRegistry.generationFor(uaPrefix)),
   );
 
   // 8. HTTP server + HealthCheck

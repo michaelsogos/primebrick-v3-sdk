@@ -74,6 +74,22 @@ export const Permission = {
   AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single",
   AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk",
 
+  // --- client_registry (service-identity allowlist — source='manual' rows are admin-managed) ---
+  CLIENT_REGISTRY_READ_ALL: "client_registry.read.all",
+  CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single",
+  CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit",
+  CLIENT_REGISTRY_EXPORT: "client_registry.export",
+  CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single",
+  CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk",
+  CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single",
+  CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk",
+  CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single",
+  CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk",
+  CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single",
+  CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk",
+  CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single",
+  CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk",
+
   // --- customer ---
   CUSTOMER_READ_ALL: "customer.read.all",
   CUSTOMER_READ_SINGLE: "customer.read.single",

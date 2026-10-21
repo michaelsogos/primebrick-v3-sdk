@@ -1,4 +1,41 @@
 import type { ConfigRepositoryPort } from "../ports/config-repository-port.js";
+import { ValidationError } from "../http/rpc-router.js";
+
+/**
+ * Static-identity config keys — values the service treats as part of its
+ * deployed identity/discovery coordinates, NOT runtime-tunable settings.
+ *
+ *   - `service_code`     — resolved statically (package.json / pkg-name
+ *                          derivation); a config row survives only as a
+ *                          drift tripwire checked at boot.
+ *   - `service_base_url` — the discovery coordinate published in
+ *                          service_registry (`/ws/<code>` proxy target).
+ *                          Provisioned by deployment, not edited at
+ *                          runtime: a mid-flight change re-registers the
+ *                          service at a new URL and orphans the old one.
+ *
+ * Any entity-CRUD route that exposes `config_entry` writes MUST reject
+ * updates to these keys — call `assertWritableConfigKey` in the update
+ * handler (see emailsender's config-route for the canonical wiring).
+ */
+export const STATIC_SERVICE_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  "service_code",
+  "service_base_url",
+]);
+
+/**
+ * Throws when `key` is a static-identity config key. Designed for
+ * `config_entry` update handlers — a static key is edited by changing the
+ * artifact/deployment, never through the admin config UI.
+ */
+export function assertWritableConfigKey(key: string): void {
+  if (STATIC_SERVICE_CONFIG_KEYS.has(key)) {
+    throw new ValidationError(
+      `Config key "${key}" is static service identity — it cannot be edited at runtime. ` +
+        `Change the deployed artifact (package.json/service config) and redeploy.`,
+    );
+  }
+}
 
 /**
  * Dictionary-style config loader backed by a config table.

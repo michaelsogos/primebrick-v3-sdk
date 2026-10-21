@@ -11,7 +11,7 @@
  * (e.g. "User-Agent") for compatibility with foreign publishers.
  */
 
-import type { MsgHdrs } from "nats";
+import type { MsgHdrs } from "@nats-io/transport-node";
 
 /**
  * Case-insensitive lookup over a case-sensitive MsgHdrs.

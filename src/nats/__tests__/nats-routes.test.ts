@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
-import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "nats";
+import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
 import { makeNatsRoutes, makeNatsRequestRoute, callNats } from "../nats-routes.js";
 import { initAuthConfig, loadAuthConfig } from "../../auth/auth-config-cache.js";
 import { buildNatsAuthHeaders } from "../../auth/verify-nats.js";

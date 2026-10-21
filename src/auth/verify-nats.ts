@@ -9,7 +9,7 @@
  * serializeAuthUserToHeaders() and adds the gateway secret.
  */
 
-import type { Msg } from "nats";
+import type { Msg } from "@nats-io/transport-node";
 import type { AuthConfig, AuthUser } from "./types.js";
 import { NatsHeaderProvider } from "./header-provider.js";
 import { verifyAuthGatewayResolved } from "./verify.js";

@@ -17,7 +17,7 @@
  * `verifyNatsPublisher` logs a warning the first time it is skipped.
  */
 
-import type { Msg, MsgHdrs } from "nats";
+import type { Msg, MsgHdrs } from "@nats-io/transport-node";
 import { NatsClient } from "./nats-client.js";
 import { msgHeader } from "./msg-headers.js";
 import { verifyClientIdentity, CLIENT_SHIELD_KEY_HEADER } from "../service/service-identity.js";

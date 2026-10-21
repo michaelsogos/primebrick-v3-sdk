@@ -197,6 +197,34 @@ For NATS™ subscribers, use `enforceNatsRbac()` — same logic, semantic separa
 The non-throwing variant `checkRbac()` returns `{ allowed, missing? }` instead
 of throwing.
 
+### Access axis — `isAccessGranted()`
+
+Navigation visibility uses a separate vocabulary inside the same permission
+set: `access.{app}.{module}.{page}` grants gate discovery metadata (modules,
+nav links, routes), not entity APIs. `isAccessGranted(user, required)`
+evaluates them:
+
+```ts
+import { isAccessGranted } from "@primebrick/sdk";
+
+isAccessGranted(user, "access.system.settings"); // page/module gate
+isAccessGranted(user, undefined);                // no declaration → open
+```
+
+Semantics differ from entity RBAC:
+
+- **Hierarchical** — a bare grant covers its subtree:
+  `access.system.job` ⇒ `access.system.job.rules`; wildcards work at any
+  level (`access.system.*`, `access.*`). A page-level grant never climbs
+  to its module ancestor.
+- **Deny-first** — an invalid `required` key fails closed.
+- **`isAdmin` implies `access.system` only** — the platform plane. Business
+  roots (`access.crm.*`, …) require explicit grants even for admins, unlike
+  the blanket RBAC bypass.
+
+Grants live in `role_mappings.permissions` alongside entity permissions; the
+two axes never collide because `access.*` is never an entity scope.
+
 ## Session context
 
 Session context uses `AsyncLocalStorage` to propagate the authenticated actor

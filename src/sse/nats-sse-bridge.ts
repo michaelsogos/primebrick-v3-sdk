@@ -10,7 +10,7 @@
  * @see {@link docs/user-guide/sse-standard.mdx} for the full SSE standard.
  */
 
-import type { Subscription } from "nats";
+import type { Subscription } from "@nats-io/transport-node";
 import { NatsClient } from "../nats/nats-client.js";
 import type { SseEventBus } from "./types.js";
 

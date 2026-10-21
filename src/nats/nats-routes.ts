@@ -19,7 +19,7 @@
  * `queue: null` explicitly — visible and auditable in the declaration.
  */
 
-import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "nats";
+import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
 import { NatsClient } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";

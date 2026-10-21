@@ -5,7 +5,7 @@
  * Source of truth: `system.client_shield_registry` (BE-owned). Distribution:
  *   - snapshot at boot via `system.clientShieldRegistry.get` (governed correlation-reply, BE responder)
  *   - live invalidation via `system.client_shield_registry.changed` pub/sub —
- *     every mutation (register, admin CRUD, enable/disable) re-fetches
+ *     every mutation (register, admin CRUD, enable/disable, rotation) re-fetches
  *     the snapshot, so there is exactly one read pattern.
  *
  * Fail-closed: if the snapshot cannot be loaded, `allowedPrefixes` is empty
@@ -17,7 +17,7 @@ import { NatsClient } from "../nats/nats-client.js";
 import { callNats } from "../nats/nats-routes.js";
 import { subscribeShielded } from "../nats/service-shield.js";
 import { logger } from "../lifecycle/logger.js";
-import { clientKeyHash } from "./service-identity.js";
+import { verifyRowKey, type ClientKeyMaterial } from "./service-identity.js";
 
 export const CLIENT_SHIELD_REGISTRY_SUBJECTS = {
   /** nats-req subject answered by the BE: full enabled-row snapshot. */
@@ -30,10 +30,24 @@ export interface ClientShieldRegistryRow {
   ua_prefix: string;
   client_key_hash: string;
   is_enabled: boolean;
+  /**
+   * Key-rotation state (B14). `key_generation` is the BE-issued generation a
+   * derived-mode service must use to re-derive its key; `previous_*` carries
+   * the old hash during the grace window.
+   */
+  key_generation?: number;
+  previous_key_hash?: string | null;
+  /** ISO string on the wire; Date when the BE passes rows in-process. */
+  previous_valid_until?: string | Date | null;
+}
+
+interface CachedRow extends ClientKeyMaterial {
+  key_generation: number;
 }
 
 export class ClientShieldRegistry {
-  private rows = new Map<string, string>();
+  private rows = new Map<string, CachedRow>();
+  private listeners: (() => void)[] = [];
 
   /**
    * Subscribe to invalidation events first, then keep retrying the snapshot
@@ -45,7 +59,10 @@ export class ClientShieldRegistry {
     await subscribeShielded(CLIENT_SHIELD_REGISTRY_SUBJECTS.CHANGED, async () => {
       try {
         const changed = await this.reload();
-        if (changed) this.logAllowed("have been updated");
+        if (changed) {
+          this.logAllowed("have been updated");
+          this.notifyListeners();
+        }
       } catch (error) {
         logger.warn("client_shield_registry reload failed — keeping previous snapshot", {
           tags: ["core"],
@@ -54,6 +71,25 @@ export class ClientShieldRegistry {
       }
     });
     void this.reloadUntilOk();
+  }
+
+  /**
+   * Register a callback fired after a reload that actually changed row
+   * material — the service registrar hooks this to re-register when its own
+   * `key_generation` was bumped by a BE rotation.
+   */
+  addChangeListener(cb: () => void): void {
+    this.listeners.push(cb);
+  }
+
+  private notifyListeners(): void {
+    for (const cb of this.listeners) {
+      try {
+        cb();
+      } catch (error) {
+        logger.warn("client_shield_registry change listener failed", { tags: ["core"], error });
+      }
+    }
   }
 
   private async reloadUntilOk(): Promise<void> {
@@ -80,10 +116,10 @@ export class ClientShieldRegistry {
   }
 
   /**
-   * Re-fetch the snapshot. Returns true when the enabled-prefix set
-   * actually changed — callers use it to log only on real diffs (the BE
-   * publishes `changed` on every enrollment, including re-registers that
-   * leave the set identical).
+   * Re-fetch the snapshot. Returns true when the row material actually
+   * changed — hash, previous-hash, or generation (a generation bump with an
+   * unchanged hash is still a material change: the owning service must
+   * re-register with its newly derived key).
    */
   private async reload(): Promise<boolean> {
     const rows = await callNats<ClientShieldRegistryRow[]>(
@@ -91,13 +127,29 @@ export class ClientShieldRegistry {
       null,
       { timeoutMs: 5000 },
     );
-    const next = new Map<string, string>();
+    const next = new Map<string, CachedRow>();
     for (const row of rows ?? []) {
-      if (row.is_enabled) next.set(row.ua_prefix, row.client_key_hash);
+      if (row.is_enabled) {
+        next.set(row.ua_prefix, {
+          client_key_hash: row.client_key_hash,
+          previous_key_hash: row.previous_key_hash ?? null,
+          previous_valid_until: row.previous_valid_until ?? null,
+          key_generation: row.key_generation ?? 0,
+        });
+      }
     }
     const changed =
       next.size !== this.rows.size ||
-      [...next].some(([k, v]) => this.rows.get(k) !== v);
+      [...next].some(([k, v]) => {
+        const prev = this.rows.get(k);
+        return (
+          !prev ||
+          prev.client_key_hash !== v.client_key_hash ||
+          prev.previous_key_hash !== v.previous_key_hash ||
+          prev.previous_valid_until !== v.previous_valid_until ||
+          prev.key_generation !== v.key_generation
+        );
+      });
     this.rows = next;
     return changed;
   }
@@ -107,9 +159,17 @@ export class ClientShieldRegistry {
     return [...this.rows.keys()];
   }
 
-  /** Constant-time-ish hash comparison for the matched UA prefix. */
+  /**
+   * The generation the BE issued for `uaPrefix` — a derived-mode service
+   * re-derives its key as `HMAC(secret, prefix:generation)`. Returns 0 for
+   * unknown/static rows (matches the DB default).
+   */
+  generationFor(uaPrefix: string): number {
+    return this.rows.get(uaPrefix)?.key_generation ?? 0;
+  }
+
+  /** Current-hash or grace-windowed previous-hash comparison for the matched prefix. */
   verifyKey(uaPrefix: string, presentedKey: string): boolean {
-    const expected = this.rows.get(uaPrefix);
-    return expected !== undefined && expected === clientKeyHash(presentedKey);
+    return verifyRowKey(this.rows.get(uaPrefix), presentedKey);
   }
 }

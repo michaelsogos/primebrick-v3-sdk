@@ -18,7 +18,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { extJsonParse } from "../json/ext-json.js";
 
 export const CLIENT_SHIELD_KEY_HEADER = "x-primebrick-client-shield-key";
@@ -32,6 +32,43 @@ export function clientKeyHash(key: string): string {
   return createHash("sha256").update(key).digest("hex");
 }
 
+/**
+ * Deterministic per-service client key (B14): `HMAC-SHA256(secret, uaPrefix:generation)`
+ * rendered base64url. Services configured with `service_key_derivation_secret`
+ * never store a key — they re-derive it from the derivation secret (provisioned
+ * by the installer/secret engine) plus the generation the BE registry row
+ * currently advertises. Rotating a key = bumping the generation on the BE.
+ */
+export function deriveClientKey(derivationSecret: string, uaPrefix: string, generation: number): string {
+  return createHmac("sha256", derivationSecret).update(`${uaPrefix}:${generation}`).digest("base64url");
+}
+
+/**
+ * Row-shaped key material for verification (subset of
+ * `system.client_shield_registry` used by both the SDK consumer cache and the
+ * BE publisher-identity verifier).
+ */
+export interface ClientKeyMaterial {
+  client_key_hash: string;
+  previous_key_hash?: string | null;
+  previous_valid_until?: string | Date | null;
+}
+
+/**
+ * Verify a presented key against a registry row: current hash always wins;
+ * during the post-rotation grace window (`previous_valid_until` in the future)
+ * the previous hash is still accepted so in-flight callers are not cut off
+ * mid-rotation.
+ */
+export function verifyRowKey(row: ClientKeyMaterial | undefined, presentedKey: string): boolean {
+  if (!row) return false;
+  const h = clientKeyHash(presentedKey);
+  if (h === row.client_key_hash) return true;
+  if (!row.previous_key_hash || h !== row.previous_key_hash) return false;
+  const until = row.previous_valid_until ? new Date(row.previous_valid_until).getTime() : 0;
+  return until > Date.now();
+}
+
 export interface PackageIdentity {
   name: string;
   version?: string;
@@ -41,6 +78,14 @@ export interface PackageIdentity {
    * `service_registry.capabilities` — refreshed at every registration.
    */
   capabilities?: string[];
+  /**
+   * Static service-code override declared in package.json
+   * (`"service_code": "..."`). When absent, the code is derived from
+   * `name` (`primebrick-<code>` → `<code>`). This is the ONLY way a
+   * service may carry a code that does not derive from its package name —
+   * it is part of the shipped artifact, not runtime-editable config.
+   */
+  service_code?: string;
 }
 
 /**
@@ -71,6 +116,7 @@ export function detectPackageIdentity(startDir?: string): PackageIdentity {
       name?: string;
       version?: string;
       capabilities?: unknown;
+      service_code?: unknown;
     }>(readFileSync(join(cwd, "package.json"), "utf8"));
     return {
       name: pkg.name ?? "app",
@@ -78,10 +124,43 @@ export function detectPackageIdentity(startDir?: string): PackageIdentity {
       capabilities: Array.isArray(pkg.capabilities)
         ? pkg.capabilities.filter((c): c is string => typeof c === "string")
         : undefined,
+      service_code: typeof pkg.service_code === "string" ? pkg.service_code : undefined,
     };
   } catch {
     return { name: "app" };
   }
+}
+
+/**
+ * Canonical service code — STATIC identity resolved once at boot from the
+ * deployed artifact, never from runtime-editable config:
+ *
+ *   1. package.json `"service_code"` (explicit override)
+ *   2. derived from package name (`primebrick-<code>` → `<code>`)
+ *
+ * Everything downstream — service_registry.code, `/ws/<code>` proxy
+ * routes, the i18n namespace (`<code>.*`), the NATS/schema ownership
+ * claim — is generated from this value. A DB `service_code` config row
+ * may still exist (legacy seeds): it is treated as a drift tripwire —
+ * when present and different from the static identity, boot fails loudly
+ * instead of silently re-identifing the service under a mutated code.
+ */
+export function resolveServiceCode(identity: PackageIdentity, configuredCode?: string | null): string {
+  const code = identity.service_code ?? identity.name.replace(/^primebrick-/, "");
+  if (!/^[a-z][a-z0-9_]*$/.test(code)) {
+    throw new Error(
+      `Invalid service_code "${code}" (from ${identity.service_code ? 'package.json "service_code"' : `package name "${identity.name}"`}) — ` +
+        `must match ^[a-z][a-z0-9_]*$. Declare an explicit "service_code" in package.json to override.`,
+    );
+  }
+  if (configuredCode && configuredCode !== code) {
+    throw new Error(
+      `service_code config drift: config_entries carries "${configuredCode}" but the deployed artifact resolves to "${code}" ` +
+        `(${identity.service_code ? 'package.json "service_code"' : `derived from package name "${identity.name}"`}). ` +
+        `service_code is static identity — fix the config row, not the code.`,
+    );
+  }
+  return code;
 }
 
 /** Detected runtime, e.g. `Bun/1.2.19` or `Node/24.14.1`. */

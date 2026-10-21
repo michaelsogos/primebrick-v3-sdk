@@ -40,14 +40,15 @@ shutdown, NATS™ client, health checks, and env validation.
   watch-mode reloads REPLACE instead of stack. New per-instance
   subscriptions/listeners must go through the same registry.
 
-## Patch SHA256 management
+## Database patches
 
-The SDK provides `applyPatches()` in `src/migrations/apply-patches.ts` which enforces
-strict sha256 immutability on database patches. If a consuming repo (BE or US) hits
-a sha256 mismatch, they must follow their own `.devin/rules/patch-sha256-management.md`.
-
-The SDK MUST NOT add a "force" or "skip hash check" option. See
-[.devin/rules/patch-sha256-management.md](./.devin/rules/patch-sha256-management.md).
+The old `applyPatches()`/`DatabasePort` helpers were **deleted** — database
+migrations are owned by the dal-pg engine (`runMigrations`, in `@primebrick/dal-pg`)
+and wired into `createMicroservice` via the `dbPatches` option (boot-time, before
+domain traffic; degraded boot on failure). See
+[.devin/rules/db-patches.md](./.devin/rules/db-patches.md) for the patch contract —
+never edit a shipped patch, `db-meta/fire-and-forget/` is retired, and re-sign
+`MANIFEST.json` after adding a patch (`primebrick-db sign`).
 
 ## Package Versioning — FIXED versions only (MANDATORY)
 

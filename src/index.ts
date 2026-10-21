@@ -2,7 +2,8 @@
  * @primebrick/sdk — Shared microservice infrastructure for Primebrick v3.
  *
  * DB-agnostic via port interfaces (dependency inversion).
- * ZERO dependencies on any Primebrick library or DB driver.
+ * Depends only on @primebrick/core (env-neutral shared contracts), which it
+ * re-exports so consumers get the canonical types through this package.
  *
  * Modules:
  * - ports: ConfigRepositoryPort, ServiceRegistryPort, HealthCheckPort
@@ -15,6 +16,10 @@
  * - env: validateEnv, requireEnv
  * - sse: createSseWriter, createSseEventBus, bridgeNatsToSse
  */
+
+// Canonical shared contracts — re-exported so consumers (BE/US/…) get
+// entity-meta types, list query types, and decimal through this package.
+export * from "@primebrick/core";
 
 // Ports (dependency inversion — consumer implements these)
 export { type ConfigRepositoryPort } from "./ports/config-repository-port.js";
@@ -36,7 +41,7 @@ export {
   type ValidationRuleEmail,
   type ValidationRuleRegex,
 } from "./config/iconfig-entity.js";
-export { ConfigLoader } from "./config/config-loader.js";
+export { ConfigLoader, STATIC_SERVICE_CONFIG_KEYS, assertWritableConfigKey } from "./config/config-loader.js";
 export {
   validateConfigValue,
   ConfigValidationError,
@@ -67,14 +72,25 @@ export { ServiceRegistrar, type ServiceRegistrarConfig, type HealthCheckFn } fro
 export {
   CLIENT_SHIELD_KEY_HEADER,
   clientKeyHash,
+  deriveClientKey,
+  verifyRowKey,
   detectPackageIdentity,
+  resolveServiceCode,
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,
   type PackageIdentity,
   type ClientIdentityResult,
+  type ClientKeyMaterial,
 } from "./service/service-identity.js";
 export { ClientShieldRegistry, CLIENT_SHIELD_REGISTRY_SUBJECTS, type ClientShieldRegistryRow } from "./service/client-shield-registry.js";
+export {
+  validateNavDeclaration,
+  accessNamespace,
+  entityPaths,
+  PAGE_ROUTE_KINDS,
+  SINGULAR_NAV_ALLOWLIST,
+} from "./service/nav-declaration.js";
 export {
   DOCS_PACK_CAPABILITY,
   DOCS_PACK_SCHEMA_VERSION,
