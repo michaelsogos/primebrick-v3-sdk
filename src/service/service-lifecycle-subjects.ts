@@ -59,6 +59,32 @@ export interface ServiceHeartbeatPayload {
 export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
   endpoints: Record<string, unknown>;
   /**
+   * ROOT LEVEL the module belongs to (`part of`) — e.g. 'system' for
+   * platform services, 'crm' for the CRM domain. Persisted in
+   * `service_registry.part_of`; combined with `code` it derives the
+   * module's FE route prefix `/{part_of}/{code}` — every declared
+   * route_prefixes entry, nav href and routes entry must live under it
+   * (enforced by the BE at registration).
+   */
+  part_of: string;
+  /**
+   * DEFAULT-MODULE CLAIM for the service's root level — `true` declares
+   * this module as the landing app module of `part_of` (sidebar selects it
+   * when the app is chosen → its nav[0].href). The BE applies keep-winner:
+   * a claim colliding with a different holder is stored as `false`, never
+   * rejected. `false`/absent never downgrades — an admin-set default
+   * survives reboots.
+   */
+  is_default?: boolean;
+  /**
+   * i18n key for the module's localized display name — resolved by the FE
+   * against this service's OWN translation namespace (same contract as
+   * nav[].label_key). Persisted in `service_registry.label_key`; every UI
+   * surface (breadcrumbs, app launcher, module menus) renders it, falling
+   * back to the raw `name` when absent or the key is unresolved.
+   */
+  label_key?: string;
+  /**
    * sha256 of the service's client shield key (module config
    * `service_client_shield_key`). The raw key NEVER travels — the BE
    * stores only this hash in client_shield_registry and verifies inbound
@@ -92,6 +118,16 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    * released only by `service.unregister` or admin purge.
    */
   schemas?: string[];
+  /**
+   * How `code` was resolved (B3 — static service identity):
+   * `derived`   — `code === pkg_name` minus the `primebrick-` prefix;
+   *               the BE re-derives and rejects on mismatch.
+   * `override`  — explicit `"service_code"` declared in the service's
+   *               package.json; the BE accepts any valid code.
+   * Absent (legacy payloads) is treated as `derived` — a code that does
+   * not match its package name must be declared in the artifact.
+   */
+  code_source?: "derived" | "override";
 }
 
 export interface ServiceUnregisterPayload {

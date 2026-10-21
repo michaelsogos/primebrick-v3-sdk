@@ -18,6 +18,24 @@ export interface ServiceRegistrarConfig {
   serviceCode: string;
   baseUrl: string;
   endpoints: Record<string, unknown>;
+  /**
+   * Root level this module is part of (e.g. 'system', 'crm') — sent as
+   * `part_of` in service.register; the module's FE routes must live under
+   * `/{part_of}/{serviceCode}`.
+   */
+  partOf: string;
+  /**
+   * Default-module claim for `partOf` — `true` asks the BE to mark this
+   * service as its root level's landing module. Keep-winner on conflict;
+   * absent/false never downgrades a stored flag.
+   */
+  isDefault?: boolean;
+  /**
+   * i18n key for the module's localized display name — sent as `label_key`
+   * in service.register; resolved against this service's own translation
+   * namespace by every UI surface (fallback: raw `name`).
+   */
+  labelKey?: string;
   heartbeatIntervalMs?: number;
   name?: string;
   description?: string;
@@ -73,6 +91,13 @@ export interface ServiceRegistrarConfig {
    * BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`).
    */
   schemas?: string[];
+  /**
+   * How `serviceCode` was resolved: `"override"` when package.json
+   * declares an explicit `service_code`, else `"derived"` (package name
+   * minus `primebrick-`). Wired by create-microservice — the BE
+   * re-derives `derived` codes and rejects mismatches.
+   */
+  codeSource?: "derived" | "override";
 }
 
 /**
@@ -191,6 +216,9 @@ export class ServiceRegistrar {
       code: this.config.serviceCode,
       base_url: this.config.baseUrl,
       endpoints: this.config.endpoints,
+      part_of: this.config.partOf,
+      is_default: this.config.isDefault,
+      label_key: this.config.labelKey,
       service_version: this.config.service_version,
       name: this.config.name,
       description: this.config.description,
@@ -208,6 +236,7 @@ export class ServiceRegistrar {
       key_mode: generation !== undefined ? "derived" : "static",
       capabilities: this.capabilities,
       schemas: this.config.schemas ?? [],
+      code_source: this.config.codeSource,
     };
     const ref = `${this.pkgName}/${this.config.service_version ?? "?"}`;
     const gwTag = this.config.gatewayUrl;

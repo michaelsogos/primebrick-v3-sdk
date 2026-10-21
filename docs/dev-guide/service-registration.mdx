@@ -84,6 +84,54 @@ await registrar.unregister();
 registrar.stopHeartbeat();
 ```
 
+## Nav declaration — validated at enrollment
+
+A module declares its frontend surface in `endpoints.nav` (a
+`ModuleNavDeclaration`): `route_prefixes`, `nav` links, and the `routes`
+census. At `service.register` the BE runs `validateNavDeclaration(code,
+decl, partOf)` and **rejects** the enrollment on any violation — the
+declaration never reaches `service_registry`.
+
+The enforced conventions:
+
+| Rule | Contract |
+|------|----------|
+| Primary prefix | `route_prefixes[0]` must be `/{part_of}/{code}`; extra prefixes keep `code` as the URL's second segment |
+| R1 — list plural | `kind:"list"` routes end in a plural leaf (`pluralize`) |
+| R2 — nav leaf | a leaf nav `href` resolves to a declared route, or is itself plural |
+| R3 — derived leaves | `kind:"create"` ends in `/create`; `kind:"detail"` ends in `[param]` |
+| `access` | optional `access.{app}.{module}.{page}` gate — must prefix-match the module's own grant |
+
+Route paths are **derived, never literals** — `entityPaths(prefix,
+listLeaf, detailParam?)` is the single constructor of the entity-route
+shape:
+
+```ts
+import { entityPaths, type ModuleNavDeclaration } from "@primebrick/sdk";
+
+const customersPaths = entityPaths("/crm", "customers");
+// → list   "/crm/customers"
+// → create "/crm/customers/create"
+// → detail "/crm/customers/[uuid]"  (detailParam → "[code]" etc.)
+
+export const CRM_NAV: ModuleNavDeclaration = {
+  route_prefixes: ["/crm"],
+  nav: [{ id: "customers", label_key: "crm.customers.nav", href: customersPaths.list }],
+  routes: [
+    { route: customersPaths.list, kind: "list", entity: "customer" },
+    { route: customersPaths.create, kind: "create", entity: "customer" },
+  ],
+};
+```
+
+Unit-test the declaration at write time — the same function the BE calls
+at enrollment:
+
+```ts
+import { validateNavDeclaration } from "@primebrick/sdk";
+expect(validateNavDeclaration("crm", CRM_NAV, "crm")).toBeNull();
+```
+
 ## Health checks
 
 The `healthCheckFn` (third constructor argument) is called on each heartbeat to

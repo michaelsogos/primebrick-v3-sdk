@@ -41,7 +41,7 @@ export {
   type ValidationRuleEmail,
   type ValidationRuleRegex,
 } from "./config/iconfig-entity.js";
-export { ConfigLoader } from "./config/config-loader.js";
+export { ConfigLoader, STATIC_SERVICE_CONFIG_KEYS, assertWritableConfigKey } from "./config/config-loader.js";
 export {
   validateConfigValue,
   ConfigValidationError,
@@ -75,6 +75,7 @@ export {
   deriveClientKey,
   verifyRowKey,
   detectPackageIdentity,
+  resolveServiceCode,
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,
@@ -83,6 +84,13 @@ export {
   type ClientKeyMaterial,
 } from "./service/service-identity.js";
 export { ClientShieldRegistry, CLIENT_SHIELD_REGISTRY_SUBJECTS, type ClientShieldRegistryRow } from "./service/client-shield-registry.js";
+export {
+  validateNavDeclaration,
+  accessNamespace,
+  entityPaths,
+  PAGE_ROUTE_KINDS,
+  SINGULAR_NAV_ALLOWLIST,
+} from "./service/nav-declaration.js";
 export {
   DOCS_PACK_CAPABILITY,
   DOCS_PACK_SCHEMA_VERSION,
