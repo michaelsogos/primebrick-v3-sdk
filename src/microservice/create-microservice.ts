@@ -251,6 +251,16 @@ export interface MicroserviceOptions {
   partOf: string;
 
   /**
+   * DEFAULT-MODULE claim for the module's root level — `true` declares
+   * this service as the landing module of `partOf` (app select → this
+   * module → its nav[0].href). At most one holder per root: the BE keeps
+   * the existing winner on conflict (claim stored as `false`, warn-logged,
+   * registration still succeeds). Declaring `false`/omitting never
+   * downgrades an admin-set flag.
+   */
+  isDefault?: boolean;
+
+  /**
    * Custom health checks beyond DB — added to the HealthCheck constructor.
    * NATS check is added automatically if not provided.
    */
@@ -660,6 +670,7 @@ export async function createMicroservice(
       baseUrl,
       endpoints: registrarEndpoints,
       partOf: options.partOf,
+      isDefault: options.isDefault,
       service_version: serviceVersion,
       name: options.serviceDisplayName,
       description: options.serviceDescription,

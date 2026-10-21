@@ -24,6 +24,12 @@ export interface ServiceRegistrarConfig {
    * `/{part_of}/{serviceCode}`.
    */
   partOf: string;
+  /**
+   * Default-module claim for `partOf` — `true` asks the BE to mark this
+   * service as its root level's landing module. Keep-winner on conflict;
+   * absent/false never downgrades a stored flag.
+   */
+  isDefault?: boolean;
   heartbeatIntervalMs?: number;
   name?: string;
   description?: string;
@@ -205,6 +211,7 @@ export class ServiceRegistrar {
       base_url: this.config.baseUrl,
       endpoints: this.config.endpoints,
       part_of: this.config.partOf,
+      is_default: this.config.isDefault,
       service_version: this.config.service_version,
       name: this.config.name,
       description: this.config.description,

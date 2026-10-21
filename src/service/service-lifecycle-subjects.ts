@@ -68,6 +68,15 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    */
   part_of: string;
   /**
+   * DEFAULT-MODULE CLAIM for the service's root level — `true` declares
+   * this module as the landing app module of `part_of` (sidebar selects it
+   * when the app is chosen → its nav[0].href). The BE applies keep-winner:
+   * a claim colliding with a different holder is stored as `false`, never
+   * rejected. `false`/absent never downgrades — an admin-set default
+   * survives reboots.
+   */
+  is_default?: boolean;
+  /**
    * sha256 of the service's client shield key (module config
    * `service_client_shield_key`). The raw key NEVER travels — the BE
    * stores only this hash in client_shield_registry and verifies inbound
