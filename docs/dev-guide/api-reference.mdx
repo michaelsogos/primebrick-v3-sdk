@@ -3063,6 +3063,10 @@ Mirrors the numeric checks in `config-validator.ts`.
 
 **Type:** `Decimal`
 
+### `PAGE_ROUTE_KINDS`
+
+**Type:** `Set<string>`
+
 ### `Permission`
 
 RBAC registry — single source of truth for permissions and role mappings.
@@ -3290,6 +3294,14 @@ NATS subject for the shared config request/reply.
 
 **Type:** `"config.get"`
 
+### `SINGULAR_NAV_ALLOWLIST`
+
+Leaf nav segments allowed to stay singular when they resolve to no
+declared route — kept deliberately tiny; extending it is an explicit
+diff, never an accident.
+
+**Type:** `Set<string>`
+
 ### `SSE_HEADERS`
 
 SSE response headers per the Primebrick SSE standard.
@@ -3366,6 +3378,18 @@ immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `accessNamespace(code, partOf): string`
+
+A module's access-axis namespace — `access.{app}.{module}` with the
+`part_of === code` collapse (same rule as the URL prefix). Declared
+`access` keys on the nav declaration MUST live under it: job can only
+gate `access.system.job.*`, never `access.system.settings.*`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| partOf | `string` |  |
 
 ### `add(a, b): Decimal`
 
@@ -3931,6 +3955,19 @@ convention used by existing specs) and secured with bearerAuth+apiKey.
 |-----------|------|-------------|
 | entity | `string` |  |
 | opts | `{ ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema }` |  |
+
+### `entityPaths(prefix, listLeaf, detailParam): { list: string; create: string; detail: string }`
+
+The ONLY constructor of entity route paths — modules declare routes
+through this builder instead of writing string literals, so the
+`/{list}` / `/{list}/create` / `/{list}/[param]` shape can never
+diverge by hand.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| prefix | `string` |  |
+| listLeaf | `string` |  |
+| detailParam | `string` |  |
 
 ### `eq(a, b): boolean`
 
@@ -5109,6 +5146,31 @@ Pure process.env — no DB dependency.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | schema | `EnvSchema` |  |
+
+### `validateNavDeclaration(code, decl, partOf): string \| null`
+
+Validate a service's self-declared `endpoints.nav` contract — called at
+`service.register` time so a malformed declaration is REJECTED at
+enrollment and can never poison /modules or the routes census.
+Returns the first error string, or null when valid.
+
+`partOf` is the module's declared ROOT LEVEL — its primary route prefix
+is derived, never free-chosen: `/{partOf}/{code}`. When the module IS its
+own root (`partOf === code`, e.g. crm) the segment collapses to `/{code}`
+— `/crm/customers`, not `/crm/crm/customers`.
+`route_prefixes` must CONTAIN that primary prefix and may add EXTRA root
+memberships in the `/{root}/{code}` shape only — a module with a foot in
+two apps keeps its code as the URL's second segment
+(`/system/crm/pipeline` = a crm page inside the System app), so
+longest-prefix ownership keeps resolving module and breadcrumb.
+Single-segment extras and foreign-code segments are rejected.
+Every nav href / routes entry must live under SOME declared prefix.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| decl | `unknown` |  |
+| partOf | `string` |  |
 
 ### `validClientShieldSecrets(graceMs, fallback): string[]`
 
