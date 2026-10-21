@@ -30,6 +30,12 @@ export interface ServiceRegistrarConfig {
    * absent/false never downgrades a stored flag.
    */
   isDefault?: boolean;
+  /**
+   * i18n key for the module's localized display name — sent as `label_key`
+   * in service.register; resolved against this service's own translation
+   * namespace by every UI surface (fallback: raw `name`).
+   */
+  labelKey?: string;
   heartbeatIntervalMs?: number;
   name?: string;
   description?: string;
@@ -212,6 +218,7 @@ export class ServiceRegistrar {
       endpoints: this.config.endpoints,
       part_of: this.config.partOf,
       is_default: this.config.isDefault,
+      label_key: this.config.labelKey,
       service_version: this.config.service_version,
       name: this.config.name,
       description: this.config.description,

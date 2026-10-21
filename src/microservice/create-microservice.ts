@@ -261,6 +261,14 @@ export interface MicroserviceOptions {
   isDefault?: boolean;
 
   /**
+   * i18n key for the module's localized display name — sent as `label_key`
+   * in service.register and resolved by every UI surface (breadcrumbs,
+   * app launcher, module menus) against this service's own translation
+   * namespace. Fallback when absent/unresolved: the raw `name`.
+   */
+  labelKey?: string;
+
+  /**
    * Custom health checks beyond DB — added to the HealthCheck constructor.
    * NATS check is added automatically if not provided.
    */
@@ -671,6 +679,7 @@ export async function createMicroservice(
       endpoints: registrarEndpoints,
       partOf: options.partOf,
       isDefault: options.isDefault,
+      labelKey: options.labelKey,
       service_version: serviceVersion,
       name: options.serviceDisplayName,
       description: options.serviceDescription,

@@ -77,6 +77,14 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    */
   is_default?: boolean;
   /**
+   * i18n key for the module's localized display name — resolved by the FE
+   * against this service's OWN translation namespace (same contract as
+   * nav[].label_key). Persisted in `service_registry.label_key`; every UI
+   * surface (breadcrumbs, app launcher, module menus) renders it, falling
+   * back to the raw `name` when absent or the key is unresolved.
+   */
+  label_key?: string;
+  /**
    * sha256 of the service's client shield key (module config
    * `service_client_shield_key`). The raw key NEVER travels — the BE
    * stores only this hash in client_shield_registry and verifies inbound
