@@ -65,6 +65,59 @@ function isPluralLeaf(leaf: string): boolean {
 const DETAIL_LEAF_RE = /^\[[a-zA-Z0-9_]+\]$/;
 
 /**
+ * Section `source` grammar — `remote:<export>` names a mount export of the
+ * page's own chunk; `host:<key>` names a host-registered section component.
+ * The name part follows the JS identifier rule on both sides so a remote
+ * source is always callable and a host key always registry-shaped.
+ */
+const SECTION_SOURCE_RE = /^(remote|host):[A-Za-z_$][\w$]*$/;
+
+/**
+ * Validate `page_props.layout` — the section-composition contract. Grid is
+ * the single layout archetype: `columns`/`rows`/`gap` are CSS strings,
+ * `sections` is a non-empty ordered list whose `source` selects the mount
+ * target and `span`/`col`/`row` place it inside the grid.
+ */
+function validatePageLayout(layout: unknown, path: string): string | null {
+  if (!layout || typeof layout !== "object" || Array.isArray(layout)) {
+    return `${path}: layout must be an object {columns?, rows?, gap?, sections}`;
+  }
+  const l = layout as Record<string, unknown>;
+  for (const k of ["columns", "rows", "gap"] as const) {
+    if (l[k] !== undefined && typeof l[k] !== "string") {
+      return `${path}.${k}: must be a CSS string (e.g. 'repeat(3, 1fr)', '280px 1fr', '1.5rem')`;
+    }
+  }
+  if (!Array.isArray(l["sections"]) || (l["sections"] as unknown[]).length === 0) {
+    return `${path}.sections: must be a non-empty array of section declarations`;
+  }
+  const seen = new Set<string>();
+  for (let i = 0; i < (l["sections"] as unknown[]).length; i++) {
+    const s = (l["sections"] as unknown[])[i];
+    const sp = `${path}.sections[${i}]`;
+    if (!s || typeof s !== "object" || Array.isArray(s)) {
+      return `${sp}: section must be an object {id, source, props?, span?, col?, row?}`;
+    }
+    const sd = s as Record<string, unknown>;
+    if (typeof sd["id"] !== "string" || !sd["id"]) return `${sp}: missing section id`;
+    if (seen.has(sd["id"] as string)) return `${sp}: duplicate section id '${sd["id"]}'`;
+    seen.add(sd["id"] as string);
+    if (typeof sd["source"] !== "string" || !SECTION_SOURCE_RE.test(sd["source"] as string)) {
+      return `${sp} ('${sd["id"]}'): source must be 'remote:<export>' or 'host:<key>' (JS-identifier name)`;
+    }
+    if (sd["props"] !== undefined && (typeof sd["props"] !== "object" || sd["props"] === null || Array.isArray(sd["props"]))) {
+      return `${sp} ('${sd["id"]}'): props must be a plain object`;
+    }
+    for (const k of ["span", "col", "row"] as const) {
+      if (sd[k] !== undefined && (!Number.isInteger(sd[k]) || (sd[k] as number) < 1)) {
+        return `${sp} ('${sd["id"]}'): ${k} must be a positive integer (grid placement)`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * A module's access-axis namespace — `access.{app}.{module}` with the
  * `part_of === code` collapse (same rule as the URL prefix). Declared
  * `access` keys on the nav declaration MUST live under it: job can only
@@ -233,6 +286,16 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
       }
       if (rd["component_url"] !== undefined && typeof rd["component_url"] !== "string") {
         return `endpoints.nav.routes[${i}]: component_url must be a string`;
+      }
+      if (rd["page_props"] !== undefined) {
+        if (!rd["page_props"] || typeof rd["page_props"] !== "object" || Array.isArray(rd["page_props"])) {
+          return `endpoints.nav.routes[${i}]: page_props must be an object`;
+        }
+        const pp = rd["page_props"] as Record<string, unknown>;
+        if (pp["layout"] !== undefined) {
+          const layoutErr = validatePageLayout(pp["layout"], `endpoints.nav.routes[${i}].page_props.layout`);
+          if (layoutErr) return layoutErr;
+        }
       }
       const routeAccessErr = validateAccessKey(accessNs, rd["access"], `endpoints.nav.routes[${i}]`, "item");
       if (routeAccessErr) return routeAccessErr;
