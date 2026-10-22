@@ -39,8 +39,11 @@ history preserves them. One-off operational SQL goes to the workspace
 pnpm db:meta:compare      # entity snapshot vs catalog → new unsigned patch
 primebrick-db sign --db-meta db-meta --key @<keyfile> --key-id <id>   # re-sign MANIFEST.json
 ```
-Commit the patch + `MANIFEST.json` + snapshots together. The dev key lives
-in workspace `temp/` — never in the repo.
+Commit the patch + `MANIFEST.json` + `keys.json` + snapshots together —
+they are signed provenance; the engine is fail-closed without them (a
+fresh clone cannot boot). `diff-entities-vs-database.json` is a
+regenerable diagnostic (tracked for convenience; never hand-edit). The
+dev key lives in workspace `temp/` — never in the repo.
 
 ### 4. Pragmas (patch header, first 40 lines)
 - `-- pb:requires-review` — parks at `pending_review` until an admin approves

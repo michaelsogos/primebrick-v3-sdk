@@ -71,7 +71,10 @@ export class NatsClient {
 
   static async getConnection(url?: string): Promise<NatsConnection> {
     if (NatsClient.nc) return NatsClient.nc;
-    const natsUrl = url ?? process.env.NATS_URL ?? "nats://127.0.0.1:4222";
+    // Closed-set env contract: no NATS_URL env read — callers pass the URL
+    // explicitly from their config_entries (`createMicroservice` requires
+    // `nats_url`); the default is the local dev broker.
+    const natsUrl = url ?? "nats://127.0.0.1:4222";
     NatsClient.nc = await connect({ servers: natsUrl });
     NatsClient.js = jetstream(NatsClient.nc);
     NatsClient.jsm = await jetstreamManager(NatsClient.nc);

@@ -2713,7 +2713,8 @@ and non-breaking. `esm-mount`: a precompiled ESM chunk that exports
 
 One declared frontend route owned by a module. Modules MUST declare every
 FE path they own that is not deducible from nav links or entity
-conventions — the AI route census (GET /system/routes) depends on it.
+conventions — the AI route census (derived from the consolidated
+`GET /api/v1/modules` discovery payload) depends on it.
 `param` marks dynamic segments using the FE convention ([uuid], [code]).
 
 ### `PageRouteKind`
@@ -2776,6 +2777,11 @@ Queryable — same type the DAL Repository uses (Pick&#60;Pool, "query"&#62;).
 
 ### `RedisInfo`
 
+### `RemoteDepsManifest`
+
+`<chunk>.deps.json` — emitted next to each remote chunk at build time,
+declaring the vendor specifiers/versions it was compiled against.
+
 ### `RoundingMode`
 
 **Type:** `"UP" \| "DOWN" \| "CEILING" \| "FLOOR" \| "HALF_UP" \| "HALF_DOWN" \| "HALF_EVEN"`
@@ -2812,6 +2818,24 @@ Tooltip visual severity — drives icon and title color in priority
  tooltip renderers.
 
 **Type:** `"INFORMATION" \| "WARNING" \| "ERROR" \| "QUESTION" \| "HINT" \| "SUCCESS"`
+
+### `VendorManifest`
+
+Host `vendor-manifest.json` — specifier → published vendor asset.
+
+**Type:** `Record<string, { url: string; version: string }>`
+
+### `VendorMismatch`
+
+**Type:** `{ specifier: string; kind: "missing"; required: string } \| { specifier: string; kind: "version"; required: string; provided: string }`
+
+### `VendorResolution`
+
+**Type:** `"external" \| "reject" \| "bundle"`
+
+### `VendorSpecifier`
+
+**Type:** `typeof VENDOR_SPECIFIERS[number]`
 
 ### `ViewName`
 
@@ -3367,6 +3391,23 @@ immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 
 **Type:** `Record<ConfigType, TypeCapabilities>`
 
+### `VENDOR_BLOCKED_PACKAGES`
+
+Packages that MUST NOT be imported raw inside a remote chunk — they are
+already served through a sanctioned vendor specifier (e.g. transformers is
+vendored behind `@primebrick/ui/transformers`). A raw import would bundle
+a second runtime copy (split caches, split env config) — reject it.
+
+**Type:** `typeOperator`
+
+### `VENDOR_SPECIFIERS`
+
+Closed allowlist of bare specifiers remote chunks may import. The union
+of a package's specifiers maps to ONE bundle file per package, so the
+browser dedupes by URL — a single runtime instance is guaranteed.
+
+**Type:** `typeOperator`
+
 ### `ZERO`
 
 **Type:** `Decimal`
@@ -3853,6 +3894,19 @@ The gateway secret is verified separately by verifyAuthGatewayResolved().
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | startDir | `string` |  |
+
+### `diffVendorRequirements(requires, manifest): VendorMismatch[]`
+
+Vendor compatibility check — exact-match policy. A remote chunk compiled
+against a different version of a vendored package is incompatible:
+`svelte/internal/*` is not a stable API and each union bundle's export set
+may change between versions. The remedy is rebuilding the remote chunk —
+a semver-tolerant handshake would only defer an opaque import failure.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| requires | `Record<string, string>` |  |
+| manifest | `VendorManifest` |  |
 
 ### `div(a, b, opts): Decimal`
 
@@ -4824,6 +4878,16 @@ instead of silently re-identifing the service under a mutated code.
 | identity | `PackageIdentity` |  |
 | configuredCode | `string \| null` |  |
 
+### `resolveVendorSpecifier(specifier): VendorResolution`
+
+How a remote chunk's bundler must treat a bare import specifier. Both the
+host vendor build and every module chunk build derive behavior from this
+single function so the plane stays deterministic.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| specifier | `string` |  |
+
 ### `restartTelemetry(cfg, serviceName, serviceVersion): Promise<void>`
 
 Rebuild the telemetry pipeline with new config — no process restart.
@@ -4998,6 +5062,14 @@ Flush pending batches + shutdown current providers (graceful shutdown).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `specifierTopPackage(specifier): string`
+
+Top-level npm package of a specifier ('svelte/internal/client' → 'svelte').
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| specifier | `string` |  |
 
 ### `startSecretProvider(provider): Promise<void>`
 
