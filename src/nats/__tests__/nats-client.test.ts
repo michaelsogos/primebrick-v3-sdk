@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
   const mockRequest = vi.fn(async () => ({ data: new Uint8Array(0) }));
   const nc = {
     close: mockClose,
+    isClosed: vi.fn(() => false),
     publish: mockPublish,
     subscribe: mockSubscribe,
     request: mockRequest,
