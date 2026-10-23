@@ -302,6 +302,64 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
       declaredRoutes.set(route, kind);
     }
   }
+  // Sheets — remote `mountSheet` panels owned by this module. The engine is
+  // host-side; the declaration only publishes the chunk + chrome hints.
+  // Keys are module-namespaced (`<code>.<name>`) so two services can never
+  // collide on an open-sheet address.
+  if (d["sheets"] !== undefined) {
+    if (!Array.isArray(d["sheets"])) return "endpoints.nav.sheets must be an array of sheet declarations";
+    const seen = new Set<string>();
+    for (let i = 0; i < (d["sheets"] as unknown[]).length; i++) {
+      const s = (d["sheets"] as unknown[])[i];
+      const sp = `endpoints.nav.sheets[${i}]`;
+      if (!s || typeof s !== "object" || Array.isArray(s)) {
+        return `${sp}: sheet declaration must be an object`;
+      }
+      const sd = s as Record<string, unknown>;
+      if (typeof sd["key"] !== "string" || !sd["key"]) {
+        return `${sp}: missing key`;
+      }
+      const key = sd["key"] as string;
+      if (!key.startsWith(`${code}.`) || !/^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_$]*$/.test(key)) {
+        return `${sp}: key '${key}' must be '<module>.<name>' — the '${code}.' namespace prefix is mandatory so services can never collide`;
+      }
+      if (seen.has(key)) return `${sp}: duplicate sheet key '${key}'`;
+      seen.add(key);
+      if (typeof sd["component_url"] !== "string" || !(sd["component_url"] as string).startsWith("/ws/")) {
+        return `${sp} ('${key}'): component_url must be a '/ws/<service>/…' module-assets path`;
+      }
+      if (sd["component_format"] !== undefined && sd["component_format"] !== "esm-mount") {
+        return `${sp} ('${key}'): component_format must be 'esm-mount'`;
+      }
+      if (sd["integrity"] !== undefined && typeof sd["integrity"] !== "string") {
+        return `${sp} ('${key}'): integrity must be a string`;
+      }
+      if (sd["label_key"] !== undefined) {
+        const ns = keyNamespaceOf(sd["label_key"] as string);
+        if (ns === null || !allowedKeyNamespaces(code).has(ns)) {
+          return `${sp} ('${key}'): label_key '${sd["label_key"]}' is outside the module namespace '${code}.*' and CORE namespaces`;
+        }
+      }
+      if (sd["default_options"] !== undefined) {
+        const o = sd["default_options"];
+        if (!o || typeof o !== "object" || Array.isArray(o)) {
+          return `${sp} ('${key}'): default_options must be an object {side?, modal?, content_class?}`;
+        }
+        const od = o as Record<string, unknown>;
+        if (od["side"] !== undefined && od["side"] !== "left" && od["side"] !== "right") {
+          return `${sp} ('${key}'): default_options.side must be 'left' or 'right'`;
+        }
+        if (od["modal"] !== undefined && typeof od["modal"] !== "boolean") {
+          return `${sp} ('${key}'): default_options.modal must be a boolean`;
+        }
+        if (od["content_class"] !== undefined && typeof od["content_class"] !== "string") {
+          return `${sp} ('${key}'): default_options.content_class must be a string`;
+        }
+      }
+      const sheetAccessErr = validateAccessKey(accessNs, sd["access"], sp, "item");
+      if (sheetAccessErr) return sheetAccessErr;
+    }
+  }
   // R2 — every leaf nav href must resolve to a DECLARED route (the census
   // already requires declaring every path). A link to a `list` route is
   // plural-checked at R1; to any other kind is fine; a link resolving to
