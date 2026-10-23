@@ -24,6 +24,11 @@
  *                   dependent (esbuild/tsx never emits it; bun collapses
  *                   unions to the concrete type). Without an explicit option,
  *                   an optional property silently snapshots as NOT NULL.
+ *   truncated-sibling
+ *                   A file whose name is a proper prefix of a sibling's name
+ *                   with byte-identical content — the signature of a write
+ *                   path cut mid-stream (`AG` next to `AGENTS.md`). Delete
+ *                   the prefix file.
  *
  * Profile `lib` (dal-pg itself): `ext-json` + `entity-nullable-explicit` —
  * the library IS the driver wrapper; query/sql/pool rules are its
@@ -63,7 +68,7 @@
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 
 type RuleId =
   | "ext-json"
@@ -80,7 +85,8 @@ type RuleId =
   | "dal-access"
   | "layer-repo-import"
   | "i18n-key-ns"
-  | "i18n-sql-ns";
+  | "i18n-sql-ns"
+  | "truncated-sibling";
 
 interface Rule {
   id: RuleId;
@@ -292,6 +298,45 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
+// truncated-sibling — a model write whose file_path was cut mid-stream
+// leaves a sibling file whose name is a proper prefix of the intended
+// file's name, carrying the full content (e.g. `AG` next to `AGENTS.md`,
+// `foo.t` next to `foo.ts`). Flag the prefix file only when its content is
+// byte-identical to the longer sibling — name-prefix alone has legitimate
+// cases (Dockerfile vs Dockerfile.prod never share content).
+function* walkAll(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir)) {
+    if (entry === "node_modules" || entry === "dist" || entry.startsWith(".")) continue;
+    const p = join(dir, entry);
+    if (statSync(p).isDirectory()) yield* walkAll(p);
+    else yield p;
+  }
+}
+
+function checkTruncatedSiblings(srcDir: string): Violation[] {
+  const out: Violation[] = [];
+  const byDir = new Map<string, string[]>();
+  for (const f of walkAll(srcDir)) {
+    const d = dirname(f);
+    (byDir.get(d) ?? byDir.set(d, []).get(d)!).push(f);
+  }
+  for (const files of byDir.values()) {
+    for (const f of files) {
+      const name = basename(f);
+      for (const g of files) {
+        if (g === f || !basename(g).startsWith(name) || basename(g) === name) continue;
+        if (statSync(f).size !== statSync(g).size) continue;
+        if (!readFileSync(f).equals(readFileSync(g))) continue;
+        out.push({
+          file: relative(srcDir, f).replace(/\\/g, "/"), line: 1, rule: "truncated-sibling",
+          text: name, hint: `truncated-write sibling of ${basename(g)} — delete this file`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 function isTestFile(p: string): boolean {
   return (
     p.includes("__tests__") ||
@@ -487,6 +532,11 @@ for (const file of walk(dir)) {
 // always-on — the schema→namespace seed boundary is a repo invariant.
 // `i18n_sql_exempt` grandfathers shipped pre-boundary patches by filename.
 violations.push(...checkTranslationSeedPatches(process.cwd(), new Set(cfg.i18n_sql_exempt ?? [])));
+
+// truncated-sibling — always-on; sweeps every file in the REPO (cwd),
+// not just srcDir and not just .ts — the classic victims are root files
+// (AGENTS.md, package.json) and docs/, which srcDir never covers.
+violations.push(...checkTruncatedSiblings(process.cwd()));
 
 for (const v of violations) {
   console.log(`${v.file}:${v.line}  [${v.rule}] ${v.text.slice(0, 140)}  → ${v.hint}`);
