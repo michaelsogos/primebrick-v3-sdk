@@ -1312,6 +1312,35 @@ comboboxes, lists, chips. |
 | table | `TableMeta` | Table options — omit when the entity has no table page
  (e.g. a self-service form meta). |
 
+### `EntityRouteDecl`
+
+Entity declaration for `makeServiceRoutes`. `spec` only shapes the
+ generated OpenAPI block — the router ignores it. Operation set is
+ derived from `permissions`/`meta`/`duplicate`, never restated.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
+| service | `EntityServiceLike<TEntity>` |  |
+| permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
+| meta | `Record<string, unknown> & { display_field: string; actions_overrides: Record<string, { enabled: boolean }> }` | Static entity meta — served by GET /meta with derived
+ `display_name` + `actions` + `collaboration`. When omitted, the meta
+ route is not registered even if `permissions.meta` is set. |
+| auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
+ in the meta response (the BE derives it from entity persistence meta;
+ the SDK cannot inspect decorators, so the caller declares it). |
+| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] } }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
+receive the parsed bracket-notation query object; `createBody`/
+`updateBody`/`duplicateBody` receive the parsed JSON body and MUST
+validate the `{entity}` envelope (strict — reject `translations`).
+Throw `ValidationError` (or anything — it is wrapped) on failure. |
+| duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
+ `<entity>.duplicate.bulk` permission when not declared. `false`
+ disables the route entirely. |
+| guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
+ replacement for Express action middlewares (MFA step-up, B9). |
+| spec | `{ tag: string; label: string; listResponse: JsonSchema }` |  |
+
 ### `EntityRouterConfig`
 
 | Field | Type | Description |
@@ -2153,6 +2182,18 @@ The SDK's ServiceRegistrar no longer uses this port — it publishes
 via NATS instead. The BE's NATS subscriber uses this port (via
 ServiceRegistryRepo) to persist incoming lifecycle events.
 
+### `ServiceRoutesInput`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| info | `{ title: string; version: string; description: string }` | OpenAPI document info — title is required, version recommended. |
+| serverUrl | `string` | Emitted as `servers[0].url` when present. |
+| tags | `{ name: string; description: string }[]` | Extra top-level OpenAPI tags. |
+| entities | `EntityRouteDecl<unknown>[]` | Entity CRUD routers — routes AND spec derived from one config. |
+| rpc | `RpcRoute<unknown, Record<string, string>>[] \| { routes: RpcRoute<unknown, Record<string, string>>[]; deps: RpcRouterDeps }[]` | RPC route tables — one makeRpcRouter per entry; `openapi` metadata
+ on each route feeds `rpcSpec`. An entry may be a bare `RpcRoute[]`
+ or `{ routes, deps }` when the router needs wiring (e.g. apiKeyPort). |
+
 ### `ServiceStalePayload`
 
 Payload for `service.stale` — published by the BE's stale-detection job
@@ -2857,6 +2898,14 @@ declaring the vendor specifiers/versions it was compiled against.
 
 **Type:** `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>`
 
+### `ServiceRoutesHandler`
+
+The composed route handler returned by `makeServiceRoutes` — carries
+ the built OpenAPI document so docs-pack builds (`buildDocsPack`) can
+ embed `handler.spec` without a second spec declaration.
+
+**Type:** `RouteHandler & { spec: Record<string, unknown> }`
+
 ### `SnakeCaseSingular`
 
 Branded type that enforces snake_case singular (no uppercase letters).
@@ -3462,16 +3511,20 @@ immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 
 Packages that MUST NOT be imported raw inside a remote chunk — they are
 already served through a sanctioned vendor specifier (e.g. transformers is
-vendored behind `@primebrick/ui/transformers`). A raw import would bundle
+vendored behind `@primebrick/ui/vendor/transformers`). A raw import would bundle
 a second runtime copy (split caches, split env config) — reject it.
 
 **Type:** `typeOperator`
 
 ### `VENDOR_SPECIFIERS`
 
-Closed allowlist of bare specifiers remote chunks may import. The union
-of a package's specifiers maps to ONE bundle file per package, so the
-browser dedupes by URL — a single runtime instance is guaranteed.
+Closed allowlist of bare specifiers remote chunks may import. A
+package's specifiers normally union into ONE bundle file so the browser
+dedupes by URL — a single runtime instance is guaranteed. Exception:
+`svelte`'s public subpaths (events/reactivity/store/attachments) get
+their own files — their export names collide with the internal signal
+API (`get`/`derived` exist in both), and a flat union module cannot hold
+both. Shared internals still dedupe through the bundler's shared chunks.
 
 **Type:** `typeOperator`
 
@@ -4661,6 +4714,17 @@ without permissions that isn't explicitly `auth: "public"` never exists.
 |-----------|------|-------------|
 | routes | `RpcRoute<unknown, Record<string, string>>[]` |  |
 | deps | `RpcRouterDeps` |  |
+
+### `makeServiceRoutes(input): ServiceRoutesHandler`
+
+Build a service's full route surface from one declaration: entity CRUD
+routers, RPC routers, and the OpenAPI spec handler — spec paths derived
+from the same route metadata, so a route that exists but isn't
+documented (or vice versa) is impossible.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `ServiceRoutesInput` |  |
 
 ### `mapDalError(err, instance): MappedDalError \| null`
 
