@@ -68,22 +68,46 @@ export class NatsClient {
   private static jsm: JetStreamManager | null = null;
   private static serverVersion: string | null = null;
   private static serverUrl: string | null = null;
+  private static connecting: Promise<NatsConnection> | null = null;
 
   static async getConnection(url?: string): Promise<NatsConnection> {
-    if (NatsClient.nc) return NatsClient.nc;
+    if (NatsClient.nc && !NatsClient.nc.isClosed()) return NatsClient.nc;
+    if (NatsClient.connecting) return NatsClient.connecting;
+    if (NatsClient.nc) {
+      // Permanently closed (broker down past the client's reconnect
+      // window) — nats.js cannot revive it. Drop the dead handles so a
+      // fresh connection can be made. Every subscription bound to the old
+      // conn is dead too: clear the hot-reload dedupe map so callers
+      // re-subscribing the same subject don't unsubscribe() ghosts.
+      NatsClient.nc = null;
+      NatsClient.js = null;
+      NatsClient.jsm = null;
+      NatsClient.serverVersion = null;
+      NatsClient.serverUrl = null;
+      lifecycleRegistry().natsSubscriptions?.clear();
+      logger.warn("NATS connection was closed — opening a fresh one", { tags: ["core"] });
+    }
     // Closed-set env contract: no NATS_URL env read — callers pass the URL
     // explicitly from their config_entries (`createMicroservice` requires
     // `nats_url`); the default is the local dev broker.
     const natsUrl = url ?? "nats://127.0.0.1:4222";
-    NatsClient.nc = await connect({ servers: natsUrl });
-    NatsClient.js = jetstream(NatsClient.nc);
-    NatsClient.jsm = await jetstreamManager(NatsClient.nc);
-    NatsClient.serverUrl = natsUrl;
-    // nc.info is populated by the INFO handshake at connect time.
-    // ServerInfo.version is a string like "2.14.3".
-    NatsClient.serverVersion = NatsClient.nc.info?.version ?? null;
-    logger.done(`NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`, { tags: ["core"] });
-    return NatsClient.nc;
+    NatsClient.connecting = (async () => {
+      try {
+        const nc = await connect({ servers: natsUrl });
+        NatsClient.nc = nc;
+        NatsClient.js = jetstream(nc);
+        NatsClient.jsm = await jetstreamManager(nc);
+        NatsClient.serverUrl = natsUrl;
+        // nc.info is populated by the INFO handshake at connect time.
+        // ServerInfo.version is a string like "2.14.3".
+        NatsClient.serverVersion = nc.info?.version ?? null;
+        logger.done(`NATS ${NatsClient.serverVersion ?? "unknown"} connected (${natsUrl})`, { tags: ["core"] });
+        return nc;
+      } finally {
+        NatsClient.connecting = null;
+      }
+    })();
+    return NatsClient.connecting;
   }
 
   static getJetStream(): JetStreamClient {
