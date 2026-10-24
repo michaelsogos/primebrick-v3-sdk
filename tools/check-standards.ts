@@ -29,6 +29,13 @@
  *                   with byte-identical content — the signature of a write
  *                   path cut mid-stream (`AG` next to `AGENTS.md`). Delete
  *                   the prefix file.
+ *   nav-decl-access
+ *                   A `nav-declaration.ts` declaring a ModuleNavDeclaration
+ *                   must set module-level `access:` — declared nav is
+ *                   exposed surface and ungated exposure is not allowed.
+ *                   Static mirror of the enrollment-time
+ *                   `validateNavDeclaration` gate (that one is the authority;
+ *                   this catches the omission before boot).
  *
  * Profile `lib` (dal-pg itself): `ext-json` + `entity-nullable-explicit` —
  * the library IS the driver wrapper; query/sql/pool rules are its
@@ -86,6 +93,7 @@ type RuleId =
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
+  | "nav-decl-access"
   | "truncated-sibling";
 
 interface Rule {
@@ -258,7 +266,7 @@ const SQL_SHAPES =
 const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
-  "entity-nullable-explicit",
+  "entity-nullable-explicit", "nav-decl-access",
 ]);
 const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit"]);
 
@@ -428,6 +436,33 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     const exemptAt = (i: number) =>
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     out.push(...checkEntityNullableExplicit(lines, rel, isExempted, exemptAt));
+  }
+
+  // nav-decl-access — a file declaring a ModuleNavDeclaration must set
+  // module-level `access:` somewhere (top-level decl property). Item-level
+  // access alone also satisfies the literal check by design — exact-value
+  // enforcement lives in `validateNavDeclaration` at enrollment; this lint
+  // only proves the omission does not pass silently.
+  if (
+    rules.has("nav-decl-access") &&
+    basename(file) === "nav-declaration.ts" &&
+    lines.some((l) => l.includes("ModuleNavDeclaration"))
+  ) {
+    const declLine = lines.findIndex((l) => l.includes("ModuleNavDeclaration"));
+    const hasAccess = lines.some((l) => /^\s*access\s*:/.test(l));
+    if (!hasAccess) {
+      const exempt =
+        parseExempt(lines[declLine]) ?? (declLine > 0 ? parseExempt(lines[declLine - 1]) : null);
+      if (!isExempted(exempt, "nav-decl-access")) {
+        out.push({
+          file: rel,
+          line: declLine + 1,
+          rule: "nav-decl-access",
+          text: lines[declLine]?.trim() ?? "",
+          hint: "nav declaration must set module-level `access:` (accessNamespace(code, part_of)) — declared nav is exposed surface; ungated modules are not allowed",
+        });
+      }
+    }
   }
   return out;
 }

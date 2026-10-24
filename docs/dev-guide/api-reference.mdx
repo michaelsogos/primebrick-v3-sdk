@@ -3032,12 +3032,6 @@ Widget-level type_config capabilities (top-level type_config props).
 
 ## Constants
 
-### `ADMIN_INHERITED_ACCESS`
-
-Root implied for admins on the access axis — platform plane only.
-
-**Type:** `"access.system"`
-
 ### `API_KEY_CACHE_TTL_MS`
 
 Shared cache key + TTL for `api_keys` lookups.
@@ -3605,6 +3599,23 @@ both. Shared internals still dedupe through the bundler's shared chunks.
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
 
+### `accessLeafKey(ns, relPath): string`
+
+The access key of a leaf route — `create` and `[param]` segments are
+sub-states of the owning leaf, never leaves of their own.
+
+`/system/job/job-schedules/create` under ns `access.system.job` →
+`access.system.job.job-schedules`; `/crm/customers` under `access.crm`
+→ `access.crm.customers`.
+
+`relPath` = the route path with the module prefix already stripped
+(leading `/` tolerated).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| ns | `string` |  |
+| relPath | `string` |  |
+
 ### `accessNamespace(code, partOf): string`
 
 A module's access-axis namespace — `access.{app}.{module}` with the
@@ -3616,6 +3627,18 @@ gate `access.system.job.*`, never `access.system.settings.*`.
 |-----------|------|-------------|
 | code | `string` |  |
 | partOf | `string` |  |
+
+### `accessSheetKey(ns, code, sheetKey): string`
+
+The access key of a module sheet — sheet keys are `<code>.<name>`;
+strip the code prefix and attach the name to the module namespace:
+`job.runDetail` under `access.system.job` → `access.system.job.runDetail`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| ns | `string` |  |
+| code | `string` |  |
+| sheetKey | `string` |  |
 
 ### `add(a, b): Decimal`
 
@@ -4585,20 +4608,38 @@ Idempotent. Skipped under vitest (VITEST env) so test output is unaffected.
 
 Invalidate the cache so the next loadAuthConfig() re-reads from the port.
 
-### `isAccessGranted(userPermissions, isAdmin, required): boolean`
+### `isAccessGranted(userPermissions, required): boolean`
 
 Evaluate an access requirement against the user's grants.
 
-- `required` absent → true (undeclared = open to authenticated users).
+- `required` absent → true (undeclared = open).
 - `required` not an access key → false (defensive: never a silent grant).
-- `is_admin` → behaves as if `access.system` were granted. Non-system
-  roots are unaffected — admin sees the System app, not every app.
+- No `is_admin` short-circuit — admin sees only what its grants cover.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | userPermissions | `typeOperator \| Set<string>` |  |
-| isAdmin | `boolean` |  |
 | required | `string \| null` |  |
+
+### `isAccessGrantLegal(grant, leafKeys): boolean`
+
+Grant-legality grammar for `access.*` permission strings — the
+role_mappings write-path guard (rejection, not silent non-coverage):
+
+  `access`           → ILLEGAL — the axis root is not a grant
+  `access.*`         → ILLEGAL — would cover the whole axis
+  `access.<path>.*`  → LEGAL wildcard (any non-empty path; `*` only as
+                       the trailing whole segment)
+  `access.<leaf>`    → LEGAL exact — only when the key is a REAL leaf:
+                       bare namespaces (`access.system.job`) and typos
+                       are ILLEGAL, not dead grants. Requires `leafKeys`
+                       (the inventory of derived leaf keys); absent =
+                       structural check only.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| grant | `string` |  |
+| leafKeys | `ReadonlySet<string>` |  |
 
 ### `isAccessKey(value): value is string`
 

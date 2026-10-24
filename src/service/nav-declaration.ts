@@ -17,6 +17,16 @@
  * - R3 create/detail leaf — `kind === 'create'` → leaf is exactly
  *   `create`; `kind === 'detail'` → leaf is a `[param]` segment.
  *   `create` is THE convention — `/new` is rejected.
+ * - R4 the bare prefix is a namespace, never a page — no `route` or nav
+ *   `href` may EQUAL a declared `route_prefix`; every leaf lives
+ *   strictly under it. GOTO(module) resolves the default leaf instead.
+ * - R5 exactly one leaf nav item flags `default: true` — the module's
+ *   landing page. It must resolve to a declared route and never carry
+ *   `children`.
+ * - Item `access` is not declarable AT ALL — every leaf's access key is
+ *   DERIVED from its route (`accessLeafKey` under the module namespace);
+ *   a hand-written key can only drift. Nav links, routes and sheets
+ *   carrying `access:` are rejected.
  *
  * Path construction is never a literal: {@link entityPaths} derives
  * list/create/detail from the leaf — modules compute, they don't write.
@@ -127,26 +137,39 @@ export function accessNamespace(code: string, partOf: string): string {
   return partOf === code ? `access.${code}` : `access.${partOf}.${code}`;
 }
 
-function validateAccessKey(
+function validateModuleAccess(
   ns: string,
   value: unknown,
   path: string,
-  field: "module" | "item",
 ): string | null {
-  if (value === undefined) return null;
+  if (value === undefined) {
+    // The namespace declaration is mandatory: a nav declaration IS
+    // exposed surface — without it no leaf key can be derived.
+    return `${path}: module-level access is required — must be exactly '${ns}' (the module's access namespace; declared nav is exposed surface)`;
+  }
   if (!isAccessKey(value)) {
-    return `${path}: access must be an 'access.{app}.{module}[.{page}]' key`;
+    return `${path}: access must be an 'access.{app}.{module}' key`;
   }
-  if (field === "module" && value !== ns) {
+  if (value !== ns) {
     return `${path}: module-level access must be exactly '${ns}'`;
-  }
-  if (field === "item" && value !== ns && !(value as string).startsWith(ns + ".")) {
-    return `${path}: access '${value}' is outside the module access namespace '${ns}.*'`;
   }
   return null;
 }
 
-function validateNavLink(code: string, accessNs: string, link: unknown, path: string): string | null {
+/** `access` is never declarable on nav/route/sheet items — keys derive. */
+function validateNoItemAccess(obj: Record<string, unknown>, path: string): string | null {
+  if (obj["access"] !== undefined) {
+    return `${path}: 'access' is not declarable on items — every leaf's access key is DERIVED from its route under the module namespace (accessLeafKey)`;
+  }
+  return null;
+}
+
+function validateNavLink(
+  code: string,
+  strictlyUnderAny: (p: string) => boolean,
+  link: unknown,
+  path: string,
+): string | null {
   if (!link || typeof link !== "object" || Array.isArray(link)) {
     return `endpoints.nav.nav ${path}: link must be an object`;
   }
@@ -162,17 +185,32 @@ function validateNavLink(code: string, accessNs: string, link: unknown, path: st
   if (typeof l["href"] !== "string" || !(l["href"] as string).startsWith("/")) {
     return `endpoints.nav.nav ${path} ('${l["id"]}'): href must be an absolute FE path`;
   }
+  // R4 — applied recursively: children get the same containment check as
+  // top-level links (a nested href outside the prefixes was previously
+  // able to slip through).
+  if (!strictlyUnderAny(l["href"] as string)) {
+    return `endpoints.nav.nav ${path} ('${l["id"]}'): href '${l["href"]}' must live strictly under a declared route_prefix — the bare prefix is the module namespace, never a page`;
+  }
   if (l["icon"] !== undefined && typeof l["icon"] !== "string") {
     return `endpoints.nav.nav ${path} ('${l["id"]}'): icon must be a lucide name string`;
   }
-  const accessErr = validateAccessKey(accessNs, l["access"], `endpoints.nav.nav ${path} ('${l["id"]}')`, "item");
-  if (accessErr) return accessErr;
+  const itemAccessErr = validateNoItemAccess(l, `endpoints.nav.nav ${path} ('${l["id"]}')`);
+  if (itemAccessErr) return itemAccessErr;
+  const hasChildren = Array.isArray(l["children"]) && (l["children"] as unknown[]).length > 0;
+  if (l["default"] !== undefined) {
+    if (l["default"] !== true) {
+      return `endpoints.nav.nav ${path} ('${l["id"]}'): default must be literal true — exactly one leaf item flags the module default`;
+    }
+    if (hasChildren) {
+      return `endpoints.nav.nav ${path} ('${l["id"]}'): default can only flag a leaf item — a parent with children is a group, not a page`;
+    }
+  }
   if (l["children"] !== undefined) {
     if (!Array.isArray(l["children"])) {
       return `endpoints.nav.nav ${path} ('${l["id"]}'): children must be an array`;
     }
     for (let i = 0; i < (l["children"] as unknown[]).length; i++) {
-      const err = validateNavLink(code, accessNs, (l["children"] as unknown[])[i], `${path}.children[${i}]`);
+      const err = validateNavLink(code, strictlyUnderAny, (l["children"] as unknown[])[i], `${path}.children[${i}]`);
       if (err) return err;
     }
   }
@@ -185,6 +223,19 @@ function collectNavHrefs(nav: unknown[], out: string[] = []): string[] {
     const l = item as Record<string, unknown>;
     if (typeof l["href"] === "string") out.push(l["href"]);
     if (Array.isArray(l["children"])) collectNavHrefs(l["children"] as unknown[], out);
+  }
+  return out;
+}
+
+/** Recursively collect every nav link object in the tree. */
+function collectNavLinks(
+  nav: unknown[],
+  out: Record<string, unknown>[] = [],
+): Record<string, unknown>[] {
+  for (const item of nav) {
+    const l = item as Record<string, unknown>;
+    out.push(l);
+    if (Array.isArray(l["children"])) collectNavLinks(l["children"] as unknown[], out);
   }
   return out;
 }
@@ -234,20 +285,20 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
   if (!prefixes.includes(modulePrefix)) {
     return `endpoints.nav.route_prefixes: module '${code}' (part_of='${partOf}') must declare its primary prefix '${modulePrefix}'`;
   }
-  const underAny = (p: string) => prefixes.some((px) => p === px || p.startsWith(px + "/"));
+  // R4 — a route/href must live STRICTLY under a declared prefix. The
+  // bare prefix is the module's namespace — it must never be a page:
+  // `/system/ai` is as illegal as `/other`. GOTO(module) resolves the
+  // default leaf instead.
+  const strictlyUnderAny = (p: string) => prefixes.some((px) => p.startsWith(px + "/"));
   const accessNs = accessNamespace(code, partOf);
-  const moduleAccessErr = validateAccessKey(accessNs, d["access"], "endpoints.nav.access", "module");
+  const moduleAccessErr = validateModuleAccess(accessNs, d["access"], "endpoints.nav.access");
   if (moduleAccessErr) return moduleAccessErr;
   if (!Array.isArray(d["nav"])) {
     return "endpoints.nav.nav must be an array of {id,label_key,href} links";
   }
   for (let i = 0; i < (d["nav"] as unknown[]).length; i++) {
-    const err = validateNavLink(code, accessNs, (d["nav"] as unknown[])[i], `[${i}]`);
+    const err = validateNavLink(code, strictlyUnderAny, (d["nav"] as unknown[])[i], `[${i}]`);
     if (err) return err;
-    const href = ((d["nav"] as unknown[])[i] as Record<string, unknown>)["href"] as string;
-    if (!underAny(href)) {
-      return `endpoints.nav.nav[${i}]: href '${href}' is outside the module prefixes ${extJsonStringify(prefixes)}`;
-    }
   }
   const declaredRoutes = new Map<string, string>();
   if (d["routes"] !== undefined) {
@@ -262,8 +313,8 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
         return `endpoints.nav.routes[${i}]: route must be an absolute FE path`;
       }
       const route = rd["route"] as string;
-      if (!underAny(route)) {
-        return `endpoints.nav.routes[${i}]: route '${route}' is outside the module prefixes ${extJsonStringify(prefixes)}`;
+      if (!strictlyUnderAny(route)) {
+        return `endpoints.nav.routes[${i}]: route '${route}' must live strictly under a declared route_prefix — the bare prefix is the module namespace, never a page`;
       }
       if (typeof rd["kind"] !== "string" || !PAGE_ROUTE_KINDS.has(rd["kind"] as string)) {
         return `endpoints.nav.routes[${i}]: kind must be one of ${[...PAGE_ROUTE_KINDS].join("|")}`;
@@ -297,7 +348,7 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
           if (layoutErr) return layoutErr;
         }
       }
-      const routeAccessErr = validateAccessKey(accessNs, rd["access"], `endpoints.nav.routes[${i}]`, "item");
+      const routeAccessErr = validateNoItemAccess(rd, `endpoints.nav.routes[${i}]`);
       if (routeAccessErr) return routeAccessErr;
       declaredRoutes.set(route, kind);
     }
@@ -356,7 +407,7 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
           return `${sp} ('${key}'): default_options.content_class must be a string`;
         }
       }
-      const sheetAccessErr = validateAccessKey(accessNs, sd["access"], sp, "item");
+      const sheetAccessErr = validateNoItemAccess(sd, sp);
       if (sheetAccessErr) return sheetAccessErr;
     }
   }
@@ -372,6 +423,25 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
     if (leaf === null) continue;
     if (!isPluralLeaf(leaf) && !SINGULAR_NAV_ALLOWLIST.has(leaf)) {
       return `endpoints.nav.nav: href '${href}' resolves to no declared route and its leaf '${leaf}' is neither plural nor allowlisted — declare the route or fix the leaf`;
+    }
+  }
+  // R5 — exactly one leaf nav item flags the module default. It must
+  // resolve to a DECLARED route: GOTO(module) lands there, so an
+  // undeclared default would GOTO into a route the census never
+  // registered.
+  if ((d["nav"] as unknown[]).length > 0) {
+    const defaults = collectNavLinks(d["nav"] as unknown[]).filter(
+      (l) => l["default"] === true,
+    );
+    if (defaults.length === 0) {
+      return "endpoints.nav.nav: exactly one leaf item must flag `default: true` — GOTO(module) resolves to it";
+    }
+    if (defaults.length > 1) {
+      return `endpoints.nav.nav: ${defaults.length} items flag \`default: true\` — exactly one leaf may be the module default`;
+    }
+    const defHref = defaults[0]["href"] as string;
+    if (!declaredRoutes.has(defHref)) {
+      return `endpoints.nav.nav: the default leaf's href '${defHref}' resolves to no declared route — the module default must be a declared page`;
     }
   }
   return null;
