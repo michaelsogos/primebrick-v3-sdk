@@ -11361,6 +11361,14 @@
 						},
 						{
 							"type": "literal",
+							"value": "svelte/motion"
+						},
+						{
+							"type": "literal",
+							"value": "svelte/easing"
+						},
+						{
+							"type": "literal",
 							"value": "@primebrick/core"
 						},
 						{
