@@ -1,6 +1,6 @@
 {
   "name": "@primebrick/sdk",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "private": false,
   "type": "module",
   "engines": {
@@ -59,7 +59,7 @@
     "@opentelemetry/sdk-logs": "0.223.0",
     "@opentelemetry/sdk-trace-base": "2.12.0",
     "@opentelemetry/semantic-conventions": "1.43.0",
-    "@primebrick/core": "3.0.0",
+    "@primebrick/core": "workspace:*",
     "countries-list": "3.4.1",
     "jose": "6.2.12",
     "json-bigint": "1.0.0",

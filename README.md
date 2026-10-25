@@ -1,20 +1,20 @@
 # @primebrick/sdk
 
-Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS™ client, health checks, env validation. DB-agnostic via port interfaces.
+Microservice infrastructure for Primebrick v3 — `createMicroservice`
+lifecycle (config loading, migration runner, service registration,
+heartbeats, graceful shutdown, health checks), the route-handler
+factories (`makeRpcRouter`, `makeEntityRouter`, `makeOpenApiHandler`,
+`composeRouteHandlers`), NATS™ client, ext-json wire codec, and port
+interfaces (`ConfigRepositoryPort`, `DatabasePort`, `HealthCheckPort`…)
+that keep the SDK DB-agnostic.
 
-## What the SDK provides
+## Documentation
 
-- **Port interfaces** — `ConfigRepositoryPort`, `DatabasePort`, `ServiceRegistryPort`, `HealthCheckPort`. Abstract contracts the consumer implements using their DAL.
-- **ConfigLoader** — load config from a DB config table at startup, cache in memory, `get(key)` on hot path, `invalidate()` for refresh.
-- **IConfigEntity** — self-contained interface for dictionary-style config rows.
-- **Migration runner** — SHA256-based patch tracking, idempotent re-runs.
-- **ServiceRegistrar** — register microservice in `service_registry`, maintain heartbeat.
-- **IServiceRegistry** — self-contained interface for `service_registry` rows.
-- **GracefulShutdown** — re-entrancy guard, `Promise.allSettled` for parallel resource cleanup, signal handlers.
-- **NatsClient** — singleton NATS™ connection management.
-- **HttpServer** — minimal HTTP server with health endpoint.
-- **HealthCheck** — DB health check utility.
-- **EnvValidator** — centralized env var validation.
+- [AGENTS.md](./AGENTS.md) — agent entry point, repo conventions
+- [docs/dev-guide/](./docs/dev-guide/) — generated API reference +
+  hand-written guides
+- `src/index.ts` — the public barrel is the source of truth for exports;
+  `package.json` `exports` lists every importable subpath
 
 ## License
 
