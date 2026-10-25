@@ -15,9 +15,11 @@ TypeScript® objects. BigInt values are preserved across the wire.
 ```ts
 import { NatsClient } from "@primebrick/sdk";
 
-// Connect using NATS_URL env var (or pass a URL explicitly)
-await NatsClient.getConnection();
-// or: await NatsClient.getConnection("nats://broker:4222");
+// Connect — callers pass the URL from their config_entries `nats_url`
+// row (createMicroservice does this automatically); no env var is read.
+await NatsClient.getConnection("nats://broker:4222");
+// `getConnection()` with no arg falls back to the local dev broker
+// "nats://127.0.0.1:4222" — suitable only for scripts/tests.
 
 // Check if the connection is alive
 NatsClient.isConnected(); // boolean

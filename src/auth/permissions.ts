@@ -186,6 +186,22 @@ export const Permission = {
   EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single",
   EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk",
 
+  // --- emailsender.email_template (microservice entity — module-prefixed scope) ---
+  EMAILSENDER_TEMPLATE_READ_ALL: "emailsender.email_template.read.all",
+  EMAILSENDER_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single",
+  EMAILSENDER_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit",
+  EMAILSENDER_TEMPLATE_EXPORT: "emailsender.email_template.export",
+  EMAILSENDER_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single",
+  EMAILSENDER_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk",
+  EMAILSENDER_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single",
+  EMAILSENDER_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk",
+  EMAILSENDER_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single",
+  EMAILSENDER_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk",
+  EMAILSENDER_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single",
+  EMAILSENDER_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk",
+  EMAILSENDER_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single",
+  EMAILSENDER_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk",
+
   // --- Action permissions (non-entity, module-scoped verbs) ---
   // Service action (Category-2 endpoint) — verb-form scope, qualifier-free
   // by grammar extension: a bare `{scope}.{action}` is legal only when

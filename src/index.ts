@@ -216,6 +216,12 @@ export {
   type EntityCrudOp,
   type OpenApiSpecInput,
 } from "./http/openapi.js";
+export {
+  makeServiceRoutes,
+  type EntityRouteDecl,
+  type ServiceRoutesHandler,
+  type ServiceRoutesInput,
+} from "./http/service-routes.js";
 
 // Lifecycle — startup logging
 export { logModuleStartup, logServiceStartup, pgServerBanner, type SqlVersionProbe } from "./lifecycle/startup-logger.js";

@@ -59,6 +59,9 @@ const newSecret = () => randomBytes(32).toString("hex");
 // ---------------------------------------------------------------------------
 
 export class RotatingSecretEngine {
+  /** Armed intervals per ref — startAutoRotation is idempotent. */
+  private readonly rotationTimers = new Map<string, ReturnType<typeof setInterval>>();
+
   constructor(
     private readonly redis: RedisClientType,
     private readonly opts: { rotationMs?: number; graceMs?: number } = {},
@@ -125,8 +128,12 @@ export class RotatingSecretEngine {
     }
   }
 
-  /** Interval driver — ensure existence now, then rotate every rotationMs. */
+  /** Interval driver — ensure existence now, then rotate every rotationMs.
+   *  Idempotent per ref: a lifecycle re-run (e.g. after a NATS outage)
+   *  must not stack a second interval on the same rotation. */
   startAutoRotation(ref: RotatingSecretRef): void {
+    const timerKey = `${ref.scope}/${ref.name}`;
+    if (this.rotationTimers.has(timerKey)) return;
     void this.get(ref).catch((e) =>
       logger.error(`The secret engine failed to provision the service client-shield secret at startup`, {
         tags: ["secret-engine"],
@@ -142,6 +149,7 @@ export class RotatingSecretEngine {
       );
     }, this.rotationMs);
     t.unref();
+    this.rotationTimers.set(timerKey, t);
   }
 }
 

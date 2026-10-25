@@ -30,71 +30,72 @@ for the contract.
 
 ## Minimal microservice setup
 
-A typical Primebrick microservice wires up the SDK in this order at startup:
+A Primebrick microservice is a single `createMicroservice()` call — the SDK
+owns env validation (`assertDbEnv` closed set), DAL init, own-schema
+migrations, `ConfigLoader`, NATS connection, service registration +
+heartbeat, the HTTP server (with `/health`), and graceful shutdown:
 
 ```ts
+import "dotenv/config";
+import "reflect-metadata";
+import { join } from "node:path";
 import {
-  NatsClient,
-  ServiceRegistrar,
-  createHttpServer,
-  HealthCheck,
-  GracefulShutdown,
-  validateEnv,
-  logModuleStartup,
-  logServiceStartup,
+  createMicroservice,
+  assertDbEnv,
+  pgServerBanner,
+  CachingApiKeyPort,
+  NatsApiKeyPort,
 } from "@primebrick/sdk";
+import * as dalMigrations from "@primebrick/dal-pg";
+import { initDal, getDal } from "./db/dal.js";
+import { ENTITY_REGISTRY } from "./domain/entities/registry.js";
+import { ConfigRepositoryAdapter } from "./adapters/config-repository-adapter.js";
+import { HealthCheckAdapter } from "./adapters/health-check-adapter.js";
+import { MyAuthConfigPort } from "./adapters/auth-ports-adapter.js";
+import { myRouteHandler } from "./controllers/http/router.js";
 
-// 1. Validate environment
-const env = validateEnv({
-  NATS_URL: { required: true },
-  PORT: { required: true },
-  SERVICE_CODE: { required: true },
-  BASE_URL: { required: true },
-});
+await createMicroservice({
+  serviceName: "my-service",
+  serviceDisplayName: "My Service",
+  serviceDescription: "What this service does",
+  icon: "mail",
+  iconType: "icon",
 
-// 2. Connect to NATS — getConnection() logs the [startup] banner automatically
-await NatsClient.getConnection(env.NATS_URL);
-logModuleStartup("NATS", NatsClient.getServerVersion(), env.NATS_URL);
+  // Closed-set env contract: DATABASE_URL + DATABASE_SCHEMA are the ONLY
+  // env vars — enforced by assertDbEnv(). envSchema has no keys left.
+  envSchema: {},
 
-// 3. Health checks — the HealthCheck class produces the unified HealthResponse
-//    shape consumed by both BE and US /health endpoints.
-const healthCheck = new HealthCheck();
-healthCheck.add("nats", () => NatsClient.isConnected());
+  initDal,
+  dalClose: async () => { await getDal().close(); },
+  dbBanner: () => pgServerBanner(getDal(), process.env.DATABASE_URL!),
 
-// 4. Register the service via NATS lifecycle events
-const registrar = new ServiceRegistrar(NatsClient, {
-  serviceCode: env.SERVICE_CODE,
-  baseUrl: env.BASE_URL,
-  endpoints: { "POST /send": {} },
-}, async () => ({
-  http_healthy: true,
-  checks: { nats: { ok: NatsClient.isConnected() } },
-}));
-await registrar.register();
-registrar.startHeartbeat();
-
-// 5. HTTP server with health endpoint — serviceVersion + serviceUrl are
-//    included in the /health response so the FE can display them.
-const server = await createHttpServer({
-  port: Number(env.PORT),
-  serviceName: env.SERVICE_CODE,
-  serviceVersion: "1.0.0",           // from package.json
-  serviceUrl: env.BASE_URL,
-  healthCheck,
-  routeHandler: async (req, res, url) => {
-    // your routes here
-    return false;
+  // Own-schema migrations run BEFORE ConfigLoader reads config_entries.
+  dbPatches: {
+    engine: dalMigrations,
+    pool: () => getDal().getPool(),
+    schema: () => assertDbEnv().schemas[0],
+    patchesDir: join(process.cwd(), "db-meta", "patches"),
+    entityRegistry: [...ENTITY_REGISTRY],
+    // NODE_ENV is a platform var (Docker ENV / launch env — never .env):
+    // production trusts only release-signed patches.
+    allowedTrust:
+      process.env.NODE_ENV === "production" ? ["release"] : ["dev", "release"],
   },
-});
-logServiceStartup(env.SERVICE_CODE, "1.0.0", env.BASE_URL);
 
-// 6. Graceful shutdown
-GracefulShutdown.register(async () => {
-  await registrar.unregister();
-  server.close();
-  await NatsClient.close();
+  configRepositoryAdapter: () => new ConfigRepositoryAdapter(),
+  authConfigPort: (configLoader) => new MyAuthConfigPort(configLoader),
+  apiKeyPort: () => new CachingApiKeyPort(new NatsApiKeyPort(3000)),
+  healthCheckPort: () => new HealthCheckAdapter(getDal()),
+
+  routeHandler: myRouteHandler,
+  endpoints: { my_endpoint: "/my-endpoint" },
 });
 ```
+
+Mandatory `config_entries` keys (seeded via `db-meta/patches`):
+`nats_url`, `service_code`, `http_port`, `service_base_url`,
+`be_base_url`, `service_client_shield_key` — `createMicroservice`
+`configLoader.require`s them at boot and crashes when missing.
 
 ## Verify the health endpoint
 
