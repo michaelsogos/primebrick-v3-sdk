@@ -111,6 +111,15 @@ until the BE answers — the BE may be down at boot (same stateless-retry
 model as service.register). Non-blocking: until the first snapshot lands
 the allowlist is empty and every internal call is rejected (fail-closed).
 
+#### `ClientShieldRegistry.refresh(): Promise<void>`
+
+Forced snapshot reload — drives the `.changed` broadcast handler and the
+NATS shield's stale-snapshot recovery (`ShieldRegistryLike.refresh`: on a
+403 denial the shield force-refreshes and retries once, so a client
+enrolled after the last refresh — e.g. a new-version service or the BE
+itself after a version bump — is learnable immediately instead of being
+dropped until the next verifiable broadcast).
+
 #### `ClientShieldRegistry.addChangeListener(cb)`
 
 Register a callback fired after a reload that actually changed row
@@ -2691,6 +2700,8 @@ Global connector joining the advanced-filter group.
 
 **Type:** `"debug" \| "info" \| "done" \| "warn" \| "error"`
 
+### `LucideRewriteResult`
+
 ### `MetaColumn`
 
 Entity field descriptor — the root-level `columns` dictionary.
@@ -3612,6 +3623,22 @@ Packages that MUST NOT be imported raw inside a remote chunk — they are
 already served through a sanctioned vendor specifier (e.g. transformers is
 vendored behind `@primebrick/ui/vendor/transformers`). A raw import would bundle
 a second runtime copy (split caches, split env config) — reject it.
+
+**Type:** `typeOperator`
+
+### `VENDOR_SPECIFIER_PREFIXES`
+
+Open-ended specifier prefixes — everything under a prefix is a sanctioned
+vendor specifier without central allowlisting per item. Unlike
+VENDOR_SPECIFIERS (one bundle file per specifier), each prefix
+maps to a `/vendor/…/` URL directory: the specifier suffix resolves
+verbatim after the prefix.
+
+`@primebrick/ui/vendor/lucide/icons/` covers every lucide icon file the
+host vendor build emits at `/vendor/icons/lucide/<dist-name>.js` —
+remote chunks never resolve icons through a barrel (a barrel would force
+the whole catalog on every consumer), they emit one specifier per used
+icon. New lucide releases add icons with zero changes to this contract.
 
 **Type:** `typeOperator`
 
@@ -4803,6 +4830,18 @@ logger's mandatory [service#version] tag, so only the URL is needed.
 |-----------|------|-------------|
 | url | `string` | Base URL the service is listening on |
 
+### `lucideIconSpecifier(exportName): string`
+
+CamelCase lucide export name → emitted icon specifier.
+`Cpu` → `@primebrick/ui/vendor/lucide/icons/cpu.js`;
+`CheckCircle2` → `…/check-circle-2.js`. Matches the dist filename
+convention (`dist/icons/<kebab>.js`) so aliases (`alarm-check`) resolve
+identically — validation of existence is the remote build's job.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| exportName | `string` |  |
+
 ### `makeDbMigrationRouteHandler(boot, state): RouteHandler`
 
 | Parameter | Type | Description |
@@ -5177,6 +5216,20 @@ the OLD endpoint) before the delegate swap.
 | cfg | `TelemetryConfig` |  |
 | serviceName | `string` |  |
 | serviceVersion | `string` |  |
+
+### `rewriteLucideBarrelImports(code): LucideRewriteResult`
+
+Remote-build transform: decomposes named imports of the lucide vendor
+barrel into one bare specifier per icon — the chunk then carries only
+the icons it actually uses. Type imports are stripped (they exist only
+for the compiler, which checks the ORIGINAL source pre-transform).
+
+Non-decomposable forms (`import X`, `import * as X`, `export … from`)
+throw — the barrel surface cannot survive into an emitted chunk.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
 
 ### `round(d, scale, mode): Decimal`
 

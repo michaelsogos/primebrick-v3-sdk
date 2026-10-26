@@ -56,21 +56,31 @@ export class ClientShieldRegistry {
    * the allowlist is empty and every internal call is rejected (fail-closed).
    */
   async start(): Promise<void> {
-    await subscribeShielded(CLIENT_SHIELD_REGISTRY_SUBJECTS.CHANGED, async () => {
-      try {
-        const changed = await this.reload();
-        if (changed) {
-          this.logAllowed("have been updated");
-          this.notifyListeners();
-        }
-      } catch (error) {
-        logger.warn("client_shield_registry reload failed — keeping previous snapshot", {
-          tags: ["core"],
-          error,
-        });
-      }
-    });
+    await subscribeShielded(CLIENT_SHIELD_REGISTRY_SUBJECTS.CHANGED, () => this.refresh());
     void this.reloadUntilOk();
+  }
+
+  /**
+   * Forced snapshot reload — drives the `.changed` broadcast handler and the
+   * NATS shield's stale-snapshot recovery (`ShieldRegistryLike.refresh`: on a
+   * 403 denial the shield force-refreshes and retries once, so a client
+   * enrolled after the last refresh — e.g. a new-version service or the BE
+   * itself after a version bump — is learnable immediately instead of being
+   * dropped until the next verifiable broadcast).
+   */
+  async refresh(): Promise<void> {
+    try {
+      const changed = await this.reload();
+      if (changed) {
+        this.logAllowed("have been updated");
+        this.notifyListeners();
+      }
+    } catch (error) {
+      logger.warn("client_shield_registry reload failed — keeping previous snapshot", {
+        tags: ["core"],
+        error,
+      });
+    }
   }
 
   /**
@@ -98,8 +108,8 @@ export class ClientShieldRegistry {
         await this.reload();
         this.logAllowed("are", attempt > 1 ? attempt : undefined);
         return;
-      } catch {
-        logger.warn(`client_shield_registry snapshot attempt ${attempt} failed (BE unreachable?) — retrying in 5s`, { tags: ["core"], attempt });
+      } catch (error) {
+        logger.warn(`client_shield_registry snapshot attempt ${attempt} failed — retrying in 5s`, { tags: ["core"], attempt, error });
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
