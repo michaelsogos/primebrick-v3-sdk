@@ -49,7 +49,7 @@ describe("access — the module namespace is mandatory", () => {
     ).toMatch(/'access' is not declarable on items/);
     expect(
       validateNavDeclaration("job", baseDecl({
-        sheets: [{ key: "job.runDetail", component_url: "/ws/job/api/v1/module-assets/s.js", access: "access.system.job.runDetail" }],
+        sheets: [{ key: "job.runDetail", component_url: "/svc/job/api/v1/module-assets/s.js", access: "access.system.job.runDetail" }],
       }), "system"),
     ).toMatch(/'access' is not declarable on items/);
   });
@@ -263,7 +263,7 @@ describe("page_props.layout — section composition", () => {
       {
         route: "/system/job/console",
         kind: "page",
-        component_url: "/ws/job/api/v1/module-assets/console-page.js",
+        component_url: "/svc/job/api/v1/module-assets/console-page.js",
         page_props: { layout },
       },
     ],

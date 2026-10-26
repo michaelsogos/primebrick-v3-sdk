@@ -1704,7 +1704,7 @@ replaces: each module presents its own nav.
 `route_prefixes` resolve the active module (longest match wins — a
 page under a shared prefix like `/system/jobs` belongs to THIS module,
 not to the module owning `/system`). `component_url` route fields are
-self-described by the service (e.g. `/ws/<code>/api/v1/module-assets/…`). |
+self-described by the service (e.g. `/svc/<code>/api/v1/module-assets/…`). |
 | partOf | `string` | ROOT LEVEL this module is part of (`service_registry.part_of`) —
 'system' for platform services, 'crm' for the CRM domain, … Combined
 with the service code it derives the module's FE route prefix
@@ -2899,6 +2899,14 @@ The `esm-mount` chunk's entry contract — `export function mountPage(el, ctx)`.
 May return the `mount()` result (disposed via `unmount()`), a custom dispose
 function, or a promise of either.
 
+NOTE: a raw `mount()` result is only safe when it was registered by the
+SAME svelte module instance that will call `unmount()` on it. Remote
+chunks resolve svelte through the vendor import map while the host runs
+its own bundled copy — two `mounted_components` registries — so chunk
+code MUST go through `mountModuleContent` (or return an equivalent
+dispose closure over the mounting bundle's `unmount`), never hand the
+host a foreign mount record.
+
 **Type:** `(el: HTMLElement, ctx: ModulePageHost) => unknown`
 
 ### `MountSectionFn`
@@ -3645,7 +3653,7 @@ deployed identity/discovery coordinates, NOT runtime-tunable settings.
                          derivation); a config row survives only as a
                          drift tripwire checked at boot.
   - `service_base_url` — the discovery coordinate published in
-                         service_registry (`/ws/<code>` proxy target).
+                         service_registry (`/svc/<code>` proxy target).
                          Provisioned by deployment, not edited at
                          runtime: a mid-flight change re-registers the
                          service at a new URL and orphans the old one.
@@ -5289,7 +5297,7 @@ deployed artifact, never from runtime-editable config:
   1. package.json `"service_code"` (explicit override)
   2. derived from package name (`primebrick-<code>` → `<code>`)
 
-Everything downstream — service_registry.code, `/ws/<code>` proxy
+Everything downstream — service_registry.code, `/svc/<code>` proxy
 routes, the i18n namespace (`<code>.*`), the NATS/schema ownership
 claim — is generated from this value. A DB `service_code` config row
 may still exist (legacy seeds): it is treated as a drift tripwire —
@@ -5434,7 +5442,7 @@ Serialize a typed value back to string for DB storage.
 Service API base of an entity list basePath — strips the trailing
 `/entities/<entity>` segment so service-relative endpoints declared in
 meta (e.g. sparkline `endpoint: "/actions/job-run-stats"`) resolve to
-`/ws/<svc>/api/v1/actions/…` or `/api/v1/actions/…` for BE entities.
+`/svc/<svc>/api/v1/actions/…` or `/api/v1/actions/…` for BE entities.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

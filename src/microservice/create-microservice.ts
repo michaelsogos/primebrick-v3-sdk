@@ -236,7 +236,7 @@ export interface MicroserviceOptions {
    * `route_prefixes` resolve the active module (longest match wins — a
    * page under a shared prefix like `/system/jobs` belongs to THIS module,
    * not to the module owning `/system`). `component_url` route fields are
-   * self-described by the service (e.g. `/ws/<code>/api/v1/module-assets/…`).
+   * self-described by the service (e.g. `/svc/<code>/api/v1/module-assets/…`).
    */
   nav?: ModuleNavDeclaration;
 

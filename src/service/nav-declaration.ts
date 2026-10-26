@@ -376,8 +376,8 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
       }
       if (seen.has(key)) return `${sp}: duplicate sheet key '${key}'`;
       seen.add(key);
-      if (typeof sd["component_url"] !== "string" || !(sd["component_url"] as string).startsWith("/ws/")) {
-        return `${sp} ('${key}'): component_url must be a '/ws/<service>/…' module-assets path`;
+      if (typeof sd["component_url"] !== "string" || !(sd["component_url"] as string).startsWith("/svc/")) {
+        return `${sp} ('${key}'): component_url must be a '/svc/<service>/…' module-assets path`;
       }
       if (sd["component_format"] !== undefined && sd["component_format"] !== "esm-mount") {
         return `${sp} ('${key}'): component_format must be 'esm-mount'`;

@@ -138,7 +138,7 @@ export function detectPackageIdentity(startDir?: string): PackageIdentity {
  *   1. package.json `"service_code"` (explicit override)
  *   2. derived from package name (`primebrick-<code>` → `<code>`)
  *
- * Everything downstream — service_registry.code, `/ws/<code>` proxy
+ * Everything downstream — service_registry.code, `/svc/<code>` proxy
  * routes, the i18n namespace (`<code>.*`), the NATS/schema ownership
  * claim — is generated from this value. A DB `service_code` config row
  * may still exist (legacy seeds): it is treated as a drift tripwire —
