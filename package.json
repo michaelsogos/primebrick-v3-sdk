@@ -61,6 +61,8 @@
     "@opentelemetry/semantic-conventions": "1.43.0",
     "@primebrick/core": "workspace:*",
     "countries-list": "3.4.1",
+    "exceljs": "4.4.0",
+    "handlebars": "4.7.10",
     "jose": "6.2.12",
     "json-bigint": "1.0.0",
     "libphonenumber-js": "1.13.15",

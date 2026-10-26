@@ -874,11 +874,17 @@ Cache-first; falls back to DB on miss.
 
 ### `ValidationError`
 
-#### `ValidationError(message)`
+| Property | Type | Description |
+|----------|------|-------------|
+| internal_code | `string` | Stable machine code surfaced in the RFC 7807 body — FE error handling
+ keys off it (e.g. "VERSION_REQUIRED"), never off the message. |
+
+#### `ValidationError(message, internal_code)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | message | `string` |  |
+| internal_code | `string` |  |
 
 ## Interfaces
 
@@ -1275,6 +1281,27 @@ most recent change without scanning the audit log.
 | changed_by | `string` | user_uuid of the writer. |
 | changed_at | `number` | Epoch ms of the save. |
 
+### `EntityExportConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| columns | `string[]` | Explicit export column allowlist (order preserved). Default: derived
+ from meta (see header comment). |
+| templates | `{ xlsx: string; html: string }` | Template overrides — default `<cwd>/templates/<entity>_export_template.<ext>`. |
+| entityLabels | `{ singular: string; plural: string }` | Entity display labels — default: resolved from
+ `<entities_ns>.entities.<entity>.{singular,plural}` translation keys. |
+| dictResolver | `(locale: string) => Promise<Record<string, string> \| null>` | Locale-aware dictionary resolver — the service wires its own
+ `TranslationsService` (module-qualified table) here. Return `null`
+ for "no dictionary" (labels fall back to humanized keys). |
+
+### `EntityExportQuery`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| file_type | `ExportFileType` |  |
+| locale | `string` |  |
+| timezone | `string` |  |
+
 ### `EntityMeta`
 
 Static entity meta — the shape every `*.meta.ts` file MUST satisfy.
@@ -1323,13 +1350,13 @@ Entity declaration for `makeServiceRoutes`. `spec` only shapes the
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
 | permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
-| meta | `Record<string, unknown> & { display_field: string; actions_overrides: Record<string, { enabled: boolean }> }` | Static entity meta — served by GET /meta with derived
+| meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
 | auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
  in the meta response (the BE derives it from entity persistence meta;
  the SDK cannot inspect decorators, so the caller declares it). |
-| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] } }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
+| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] }; exportQuery: (query: Record<string, unknown>) => EntityExportQuery }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
 receive the parsed bracket-notation query object; `createBody`/
 `updateBody`/`duplicateBody` receive the parsed JSON body and MUST
 validate the `{entity}` envelope (strict — reject `translations`).
@@ -1337,6 +1364,9 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
  `<entity>.duplicate.bulk` permission when not declared. `false`
  disables the route entirely. |
+| export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
+ resolution. Requires `permissions.export` (the route) and `meta`
+ (the column driver). See `entity-export.ts`. |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 | spec | `{ tag: string; label: string; listResponse: JsonSchema }` |  |
@@ -1348,13 +1378,13 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
 | permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
-| meta | `Record<string, unknown> & { display_field: string; actions_overrides: Record<string, { enabled: boolean }> }` | Static entity meta — served by GET /meta with derived
+| meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
 | auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
  in the meta response (the BE derives it from entity persistence meta;
  the SDK cannot inspect decorators, so the caller declares it). |
-| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] } }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
+| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] }; exportQuery: (query: Record<string, unknown>) => EntityExportQuery }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
 receive the parsed bracket-notation query object; `createBody`/
 `updateBody`/`duplicateBody` receive the parsed JSON body and MUST
 validate the `{entity}` envelope (strict — reject `translations`).
@@ -1362,6 +1392,9 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
  `<entity>.duplicate.bulk` permission when not declared. `false`
  disables the route entirely. |
+| export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
+ resolution. Requires `permissions.export` (the route) and `meta`
+ (the column driver). See `entity-export.ts`. |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 
@@ -1376,6 +1409,43 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | valid | `boolean` |  |
 | errors | `string[]` |  |
 | env | `Record<string, string \| undefined>` |  |
+
+### `ExportConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| locale | `string` |  |
+| defaultTimezone | `string` |  |
+| entity | `ExportEntity` |  |
+| translations | `ExportTranslations` |  |
+| fieldMapping | `ExportFieldMapping` |  |
+| metadata | `ExportMetadata` |  |
+| data | `Record<string, unknown>[] \| AsyncIterable<Record<string, unknown>, any, any>` |  |
+
+### `ExportFieldMapping`
+
+### `ExportFieldMetadata`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| type | `"string" \| "number" \| "date" \| "datetime" \| "currency" \| "percentage"` |  |
+| precision | `number \| "seconds"` |  |
+| timezoneField | `string` |  |
+| currencyField | `string` |  |
+
+### `ExportOutputPaths`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| excelOutputPath | `string` |  |
+| csvOutputPath | `string` |  |
+
+### `ExportOutputStreams`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| excelStream | `WritableStream` |  |
+| csvStream | `WritableStream` |  |
 
 ### `GatewayConfig`
 
@@ -2591,6 +2661,10 @@ static meta + runtime-injected `display_name`, `actions`, `collaboration`.
 
 **Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta }`
 
+### `ExportFileType`
+
+**Type:** `"xlsx" \| "csv" \| "html"`
+
 ### `FilterCondition`
 
 One WHERE condition of a filter preset — serialized verbatim as a
@@ -2690,6 +2764,8 @@ Global connector joining the advanced-filter group.
 ### `LogLevel`
 
 **Type:** `"debug" \| "info" \| "done" \| "warn" \| "error"`
+
+### `LucideRewriteResult`
 
 ### `MetaColumn`
 
@@ -3615,6 +3691,22 @@ a second runtime copy (split caches, split env config) — reject it.
 
 **Type:** `typeOperator`
 
+### `VENDOR_SPECIFIER_PREFIXES`
+
+Open-ended specifier prefixes — everything under a prefix is a sanctioned
+vendor specifier without central allowlisting per item. Unlike
+VENDOR_SPECIFIERS (one bundle file per specifier), each prefix
+maps to a `/vendor/…/` URL directory: the specifier suffix resolves
+verbatim after the prefix.
+
+`@primebrick/ui/vendor/lucide/icons/` covers every lucide icon file the
+host vendor build emits at `/vendor/icons/lucide/<dist-name>.js` —
+remote chunks never resolve icons through a barrel (a barrel would force
+the whole catalog on every consumer), they emit one specifier per used
+icon. New lucide releases add icons with zero changes to this contract.
+
+**Type:** `typeOperator`
+
 ### `VENDOR_SPECIFIERS`
 
 Closed allowlist of bare specifiers remote chunks may import. A
@@ -4090,6 +4182,12 @@ Falls back to "EUR" for unknown locales.
 |-----------|------|-------------|
 | lang | `string` |  |
 
+### `defaultExportColumns(meta): MetaColumn[]`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+
 ### `defaultSearchGate(trimmed): boolean`
 
 search-gate — canonical "should this search query hit the server" predicate.
@@ -4302,6 +4400,33 @@ Roles marked with `is_admin=true` bypass all permission checks.
 |-----------|------|-------------|
 | roles | `typeOperator` | Role names from the IDP (as extracted from JWT via roles_path) |
 | getRoleMappingFn | `(role: string) => Promise<{ permissions: string[]; is_admin: boolean } \| null>` | Function that returns the mapping for a specific role |
+
+### `exportDataWithTemplate(templatePath, outputPaths, config): Promise<void>`
+
+Export data to Excel and CSV using template-based approach (writes to files)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| templatePath | `string` | Path to Excel template file |
+| outputPaths | `ExportOutputPaths` | Output paths for Excel and CSV |
+| config | `ExportConfig` | Export configuration |
+
+### `exportDataWithTemplateToStream(templatePath, outputStream, fileType, config): Promise<void>`
+
+Export data to Excel, CSV, or HTML using template-based approach (streams to HTTP response)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| templatePath | `string` | Path to template file (Excel for xlsx/csv, HTML for html) |
+| outputStream | `WritableStream` | Output stream for the requested format |
+| fileType | `"xlsx" \| "csv" \| "html"` | File type to export ('xlsx', 'csv', or 'html') |
+| config | `ExportConfig` | Export configuration |
+
+### `exportFieldMetadata(col): ExportFieldMetadata`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `MetaColumn` |  |
 
 ### `extJsonBodyParser(opts): (req: Request, _res: Response, next: NextFunction) => Promise<void>`
 
@@ -4576,6 +4701,15 @@ Cache key format: `translations:i18n:{schema}:{language}`
 | schema | `string` |  |
 | language | `string` |  |
 
+### `ianaHelperFields(meta): Set<string>`
+
+Columns that exist only to carry a record-level IANA timezone for a
+ `datetime_iana_toggle` column — helper data, never a visible export column.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+
 ### `identityHeaders(identity, capabilities, clientKey): Record<string, string>`
 
 Identity headers to attach to every outbound internal call.
@@ -4802,6 +4936,18 @@ logger's mandatory [service#version] tag, so only the URL is needed.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | url | `string` | Base URL the service is listening on |
+
+### `lucideIconSpecifier(exportName): string`
+
+CamelCase lucide export name → emitted icon specifier.
+`Cpu` → `@primebrick/ui/vendor/lucide/icons/cpu.js`;
+`CheckCircle2` → `…/check-circle-2.js`. Matches the dist filename
+convention (`dist/icons/<kebab>.js`) so aliases (`alarm-check`) resolve
+identically — validation of existence is the remote build's job.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| exportName | `string` |  |
 
 ### `makeDbMigrationRouteHandler(boot, state): RouteHandler`
 
@@ -5178,6 +5324,20 @@ the OLD endpoint) before the delegate swap.
 | serviceName | `string` |  |
 | serviceVersion | `string` |  |
 
+### `rewriteLucideBarrelImports(code): LucideRewriteResult`
+
+Remote-build transform: decomposes named imports of the lucide vendor
+barrel into one bare specifier per icon — the chunk then carries only
+the icons it actually uses. Type imports are stripped (they exist only
+for the compiler, which checks the ORIGINAL source pre-transform).
+
+Non-decomposable forms (`import X`, `import * as X`, `export … from`)
+throw — the barrel surface cannot survive into an emitted chunk.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+
 ### `round(d, scale, mode): Decimal`
 
 Round to `scale` fractional digits (default `HALF_UP`).
@@ -5357,6 +5517,14 @@ are up, then `provider.get(ref)` for each consumed secret.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | provider | `SecretProvider` |  |
+
+### `streamEntityExport(opts, query, res): Promise<void>`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| opts | `{ entityName: string; meta: EntityMeta; stream: (query: EntityExportQuery) => AsyncIterable<Record<string, unknown>>; export: EntityExportConfig }` |  |
+| query | `EntityExportQuery` |  |
+| res | `ServerResponse` |  |
 
 ### `strictEq(a, b): boolean`
 

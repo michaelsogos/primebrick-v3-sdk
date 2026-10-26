@@ -198,6 +198,26 @@ export {
   type EntityActionMeta,
 } from "./http/entity-router.js";
 export {
+  streamEntityExport,
+  defaultExportColumns,
+  exportFieldMetadata,
+  ianaHelperFields,
+  type EntityExportConfig,
+  type EntityExportQuery,
+} from "./http/entity-export.js";
+export {
+  exportDataWithTemplate,
+  exportDataWithTemplateToStream,
+} from "./export/index.js";
+export type {
+  ExportConfig,
+  ExportFieldMetadata,
+  ExportFieldMapping,
+  ExportFileType,
+  ExportOutputPaths,
+  ExportOutputStreams,
+} from "./export/types.js";
+export {
   mapDalError,
   type MappedDalError,
   type Rfc7807Body,

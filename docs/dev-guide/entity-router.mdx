@@ -21,6 +21,7 @@ registration, exactly like the BE:
 |---|---|---|
 | `meta` | `GET /meta` | assembled meta + derived `actions` |
 | `list` | `GET /list` | `service.list(query)` |
+| `export` | `GET /export` | `streamEntityExport` — meta-derived (requires `meta`; see below) |
 | `create` | `POST /` | `service.create(entity)` → 201 |
 | `duplicate` | `POST /duplicate` | `service.duplicate(uuids)` — ON by default (pass `duplicate: false` to disable) |
 | `bulkDelete` | `POST /bulk-delete` | `service.bulkDelete(items)` |
@@ -48,9 +49,24 @@ makeEntityRouter({
   meta: { ... },                     // static meta → GET /meta (+ actions derived)
   auditable: true,                   // drives meta.collaboration.enabled
   schemas: { createBody, updateBody, listQuery, auditQuery, duplicateBody },
+  export: { dictResolver, templates }, // GET /export — only when permissions.export
   guards: { delete: mfaGuard },      // async hook before the service call
 })
 ```
+
+### `export` — meta-derived, first-class op
+
+`permissions.export` + `meta` register `GET /export?file_type=csv|xlsx|pdf|html`.
+The handler streams via `streamEntityExport`: columns are **derived from
+`meta.columns`** (field types from `type`, `datetime_iana_toggle` → date +
+timezone pair; `version`/audit fields never exported), labels resolved
+through `EntityExportConfig.dictResolver` — the service wires its own
+module-namespaced `TranslationsService` there (e.g. crm → `crm.translations`).
+Rows come from `service.stream(query)` — the same filter builder as `list`.
+Templates resolve by convention at `templates/<entity>_export_template.{xlsx,html}`;
+`EntityExportConfig` can override `columns`, `templates`, `entityLabels`.
+Declaring `permissions.export` without `meta` throws at router construction —
+export columns cannot exist without meta.
 
 `EntityServiceLike` is a structural interface — the SDK cannot import
 `@primebrick/dal-pg` (dependency direction is dal → sdk), so dal-pg's

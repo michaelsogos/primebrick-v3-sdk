@@ -212,9 +212,13 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 export class ValidationError extends Error {
-  constructor(message: string) {
+  /** Stable machine code surfaced in the RFC 7807 body — FE error handling
+   *  keys off it (e.g. "VERSION_REQUIRED"), never off the message. */
+  readonly internal_code: string;
+  constructor(message: string, internal_code = "VALIDATION_ERROR") {
     super(message);
     this.name = "ValidationError";
+    this.internal_code = internal_code;
   }
 }
 
@@ -428,7 +432,7 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
         });
       } else if (err instanceof ValidationError) {
         sendRfcError(res, 400, "Validation Error", err.message, {
-          internal_code: "VALIDATION_ERROR",
+          internal_code: err.internal_code,
           instance: path,
           severity: "LOW",
         });
