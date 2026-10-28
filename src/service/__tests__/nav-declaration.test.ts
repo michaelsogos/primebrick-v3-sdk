@@ -256,65 +256,97 @@ describe("R2 — leaf nav hrefs resolve to declared routes or are plural", () =>
   });
 });
 
-describe("page_props.layout — section composition", () => {
-  const sectioned = (layout: unknown) => baseDecl({
+describe("route-level description_key + chrome", () => {
+  const decl = (extra: Record<string, unknown>) => baseDecl({
+    routes: [
+      { route: "/system/job/job-schedules", kind: "list", entity: "job_schedule" },
+      { route: "/system/job/dashboard", kind: "page", ...extra },
+    ],
+  });
+
+  it("accepts a route-level description_key", () => {
+    expect(
+      validateNavDeclaration("job", decl({ description_key: "job.dash.desc" }), "system"),
+    ).toBeNull();
+  });
+
+  it("rejects a non-string description_key", () => {
+    expect(validateNavDeclaration("job", decl({ description_key: 42 }), "system"))
+      .toMatch(/description_key must be a non-empty i18n key/);
+  });
+
+  it("accepts chrome:'host' and chrome:'remote' on a remote route", () => {
+    const remote = {
+      description_key: "job.dash.desc",
+      component_url: "/svc/job/api/v1/module-assets/console-page.js",
+    };
+    expect(validateNavDeclaration("job", decl({ ...remote, chrome: "host" }), "system")).toBeNull();
+    expect(validateNavDeclaration("job", decl({ ...remote, chrome: "remote" }), "system")).toBeNull();
+  });
+
+  it("rejects an invalid chrome value and chrome:'remote' without component_url", () => {
+    expect(validateNavDeclaration("job", decl({ chrome: "none" }), "system"))
+      .toMatch(/chrome must be 'host' or 'remote'/);
+    expect(validateNavDeclaration("job", decl({ chrome: "remote" }), "system"))
+      .toMatch(/chrome:'remote' is only valid on remote routes/);
+  });
+});
+
+describe("page_props.form — entity-form archetype declaration", () => {
+  const formed = (form: unknown) => baseDecl({
     routes: [
       { route: "/system/job/job-schedules", kind: "list", entity: "job_schedule" },
       {
-        route: "/system/job/console",
-        kind: "page",
-        component_url: "/svc/job/api/v1/module-assets/console-page.js",
-        page_props: { layout },
+        route: "/system/job/rules/create",
+        kind: "create",
+        entity: "job_rule",
+        page_props: { form },
       },
     ],
   });
 
-  it("accepts a grid layout with remote and host sections", () => {
+  it("accepts a well-formed form declaration", () => {
     expect(
-      validateNavDeclaration("job", sectioned({
-        columns: "280px 1fr",
-        gap: "1rem",
-        sections: [
-          { id: "nav", source: "host:entity_table", span: 1 },
-          { id: "main", source: "remote:mountMain", col: 2, row: 1, props: { a: 1 } },
+      validateNavDeclaration("job", formed({
+        fields: [
+          { key: "name", span: 2 },
+          { key: "event_subject", options_source: "census.emits", placeholder_key: "job.ph" },
+          { key: "enabled", default_value: true, required: true },
         ],
+        validators: ["target_matches_lane"],
       }), "system"),
     ).toBeNull();
   });
 
-  it("rejects empty sections and non-object layout", () => {
-    expect(validateNavDeclaration("job", sectioned("grid"), "system"))
-      .toMatch(/layout must be an object/);
-    expect(validateNavDeclaration("job", sectioned({ sections: [] }), "system"))
-      .toMatch(/sections: must be a non-empty array/);
+  it("rejects a non-object form and a non-array fields", () => {
+    expect(validateNavDeclaration("job", formed("x"), "system"))
+      .toMatch(/form must be an object/);
+    expect(validateNavDeclaration("job", formed({ fields: {} }), "system"))
+      .toMatch(/fields: must be a non-empty array/);
   });
 
-  it("rejects malformed source and duplicate ids", () => {
-    expect(
-      validateNavDeclaration("job", sectioned({
-        sections: [{ id: "a", source: "chunk:mountX" }],
-      }), "system"),
-    ).toMatch(/source must be 'remote:<export>' or 'host:<key>'/);
-    expect(
-      validateNavDeclaration("job", sectioned({
-        sections: [
-          { id: "a", source: "remote:mountA" },
-          { id: "a", source: "remote:mountB" },
-        ],
-      }), "system"),
-    ).toMatch(/duplicate section id/);
+  it("rejects unknown form keys and unknown placement keys", () => {
+    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a" }], bogus: 1 }), "system"))
+      .toMatch(/unknown key 'bogus'/);
+    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", bogus: 1 }] }), "system"))
+      .toMatch(/unknown placement key 'bogus'/);
   });
 
-  it("rejects non-positive-integer placement", () => {
-    expect(
-      validateNavDeclaration("job", sectioned({
-        sections: [{ id: "a", source: "remote:mountA", span: 0 }],
-      }), "system"),
-    ).toMatch(/span must be a positive integer/);
-    expect(
-      validateNavDeclaration("job", sectioned({
-        sections: [{ id: "a", source: "remote:mountA", col: 1.5 }],
-      }), "system"),
-    ).toMatch(/col must be a positive integer/);
+  it("rejects missing/duplicate keys and bad placement values", () => {
+    expect(validateNavDeclaration("job", formed({ fields: [{ span: 2 }] }), "system"))
+      .toMatch(/'key' is required/);
+    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a" }, { key: "a" }] }), "system"))
+      .toMatch(/duplicate field placement/);
+    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", span: 0 }] }), "system"))
+      .toMatch(/span must be a positive integer/);
+    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", required: "yes" }] }), "system"))
+      .toMatch(/required must be a boolean/);
+  });
+
+  it("rejects an unknown options_source and non-string validators", () => {
+    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", options_source: "api" }] }), "system"))
+      .toMatch(/options_source must be one of census\.emits/);
+    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a" }], validators: [42] }), "system"))
+      .toMatch(/validators: must be an array of non-empty validator keys/);
   });
 });

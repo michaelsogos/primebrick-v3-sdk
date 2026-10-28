@@ -75,53 +75,85 @@ function isPluralLeaf(leaf: string): boolean {
 const DETAIL_LEAF_RE = /^\[[a-zA-Z0-9_]+\]$/;
 
 /**
- * Section `source` grammar — `remote:<export>` names a mount export of the
- * page's own chunk; `host:<key>` names a host-registered section component.
- * The name part follows the JS identifier rule on both sides so a remote
- * source is always callable and a host key always registry-shaped.
+ * Positive-integer check on the wire type — the ext-json codec decodes
+ * every JSON integer as `bigint`, so declared integers arrive as `2n`,
+ * never `2`. Accepts both shapes within safe range.
  */
-const SECTION_SOURCE_RE = /^(remote|host):[A-Za-z_$][\w$]*$/;
+function isPositiveWireInt(v: unknown): boolean {
+  if (typeof v === "number") return Number.isInteger(v) && v >= 1;
+  if (typeof v === "bigint") return v >= 1n && v <= BigInt(Number.MAX_SAFE_INTEGER);
+  return false;
+}
 
 /**
- * Validate `page_props.layout` — the section-composition contract. Grid is
- * the single layout archetype: `columns`/`rows`/`gap` are CSS strings,
- * `sections` is a non-empty ordered list whose `source` selects the mount
- * target and `span`/`col`/`row` place it inside the grid.
+ * Validate `page_props.form` — the entity-form archetype declaration:
+ * `fields` is the ordered placement list (every `key` must be a string —
+ * the host resolves it against served meta.columns and fails on drift),
+ * `validators` names host-implemented cross-field rules. Placement keys
+ * are a CLOSED set — an unknown key is a declaration bug, rejected here.
  */
-function validatePageLayout(layout: unknown, path: string): string | null {
-  if (!layout || typeof layout !== "object" || Array.isArray(layout)) {
-    return `${path}: layout must be an object {columns?, rows?, gap?, sections}`;
+const FORM_FIELD_KEYS = new Set([
+  "key", "col", "span", "row_span", "section",
+  "default_value", "placeholder_key", "required", "readonly",
+  "widget", "options_source",
+]);
+const FORM_FIELD_OPTIONS_SOURCES = new Set(["census.emits"]);
+
+function validateFormPage(form: unknown, path: string): string | null {
+  if (!form || typeof form !== "object" || Array.isArray(form)) {
+    return `${path}: form must be an object {fields, validators?}`;
   }
-  const l = layout as Record<string, unknown>;
-  for (const k of ["columns", "rows", "gap"] as const) {
-    if (l[k] !== undefined && typeof l[k] !== "string") {
-      return `${path}.${k}: must be a CSS string (e.g. 'repeat(3, 1fr)', '280px 1fr', '1.5rem')`;
+  const f = form as Record<string, unknown>;
+  for (const k of Object.keys(f)) {
+    if (k !== "fields" && k !== "validators") {
+      return `${path}: unknown key '${k}' — closed contract {fields, validators?}`;
     }
   }
-  if (!Array.isArray(l["sections"]) || (l["sections"] as unknown[]).length === 0) {
-    return `${path}.sections: must be a non-empty array of section declarations`;
+  if (!Array.isArray(f["fields"]) || (f["fields"] as unknown[]).length === 0) {
+    return `${path}.fields: must be a non-empty array of field placements`;
   }
   const seen = new Set<string>();
-  for (let i = 0; i < (l["sections"] as unknown[]).length; i++) {
-    const s = (l["sections"] as unknown[])[i];
-    const sp = `${path}.sections[${i}]`;
-    if (!s || typeof s !== "object" || Array.isArray(s)) {
-      return `${sp}: section must be an object {id, source, props?, span?, col?, row?}`;
+  for (let i = 0; i < (f["fields"] as unknown[]).length; i++) {
+    const fp = (f["fields"] as unknown[])[i];
+    const fpp = `${path}.fields[${i}]`;
+    if (!fp || typeof fp !== "object" || Array.isArray(fp)) {
+      return `${fpp}: field placement must be an object {key, …}`;
     }
-    const sd = s as Record<string, unknown>;
-    if (typeof sd["id"] !== "string" || !sd["id"]) return `${sp}: missing section id`;
-    if (seen.has(sd["id"] as string)) return `${sp}: duplicate section id '${sd["id"]}'`;
-    seen.add(sd["id"] as string);
-    if (typeof sd["source"] !== "string" || !SECTION_SOURCE_RE.test(sd["source"] as string)) {
-      return `${sp} ('${sd["id"]}'): source must be 'remote:<export>' or 'host:<key>' (JS-identifier name)`;
-    }
-    if (sd["props"] !== undefined && (typeof sd["props"] !== "object" || sd["props"] === null || Array.isArray(sd["props"]))) {
-      return `${sp} ('${sd["id"]}'): props must be a plain object`;
-    }
-    for (const k of ["span", "col", "row"] as const) {
-      if (sd[k] !== undefined && (!Number.isInteger(sd[k]) || (sd[k] as number) < 1)) {
-        return `${sp} ('${sd["id"]}'): ${k} must be a positive integer (grid placement)`;
+    const pd = fp as Record<string, unknown>;
+    for (const k of Object.keys(pd)) {
+      if (!FORM_FIELD_KEYS.has(k)) {
+        return `${fpp}: unknown placement key '${k}' — closed set`;
       }
+    }
+    if (typeof pd["key"] !== "string" || !pd["key"]) {
+      return `${fpp}: 'key' is required — the entity column the field binds`;
+    }
+    if (seen.has(pd["key"] as string)) {
+      return `${fpp} ('${pd["key"]}'): duplicate field placement`;
+    }
+    seen.add(pd["key"] as string);
+    for (const k of ["col", "span", "row_span"] as const) {
+      if (pd[k] !== undefined && !isPositiveWireInt(pd[k])) {
+        return `${fpp} ('${pd["key"]}'): ${k} must be a positive integer (grid placement)`;
+      }
+    }
+    for (const k of ["required", "readonly"] as const) {
+      if (pd[k] !== undefined && typeof pd[k] !== "boolean") {
+        return `${fpp} ('${pd["key"]}'): ${k} must be a boolean`;
+      }
+    }
+    for (const k of ["section", "placeholder_key", "widget"] as const) {
+      if (pd[k] !== undefined && typeof pd[k] !== "string") {
+        return `${fpp} ('${pd["key"]}'): ${k} must be a string`;
+      }
+    }
+    if (pd["options_source"] !== undefined && !FORM_FIELD_OPTIONS_SOURCES.has(pd["options_source"] as string)) {
+      return `${fpp} ('${pd["key"]}'): options_source must be one of ${[...FORM_FIELD_OPTIONS_SOURCES].join(", ")}`;
+    }
+  }
+  if (f["validators"] !== undefined) {
+    if (!Array.isArray(f["validators"]) || !(f["validators"] as unknown[]).every((v) => typeof v === "string" && v)) {
+      return `${path}.validators: must be an array of non-empty validator keys`;
     }
   }
   return null;
@@ -338,14 +370,23 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
       if (rd["component_url"] !== undefined && typeof rd["component_url"] !== "string") {
         return `endpoints.nav.routes[${i}]: component_url must be a string`;
       }
+      if (rd["description_key"] !== undefined && (typeof rd["description_key"] !== "string" || !rd["description_key"])) {
+        return `endpoints.nav.routes[${i}]: description_key must be a non-empty i18n key`;
+      }
+      if (rd["chrome"] !== undefined && rd["chrome"] !== "host" && rd["chrome"] !== "remote") {
+        return `endpoints.nav.routes[${i}]: chrome must be 'host' or 'remote'`;
+      }
+      if (rd["chrome"] === "remote" && typeof rd["component_url"] !== "string") {
+        return `endpoints.nav.routes[${i}]: chrome:'remote' is only valid on remote routes (component_url required)`;
+      }
       if (rd["page_props"] !== undefined) {
         if (!rd["page_props"] || typeof rd["page_props"] !== "object" || Array.isArray(rd["page_props"])) {
           return `endpoints.nav.routes[${i}]: page_props must be an object`;
         }
         const pp = rd["page_props"] as Record<string, unknown>;
-        if (pp["layout"] !== undefined) {
-          const layoutErr = validatePageLayout(pp["layout"], `endpoints.nav.routes[${i}].page_props.layout`);
-          if (layoutErr) return layoutErr;
+        if (pp["form"] !== undefined) {
+          const formErr = validateFormPage(pp["form"], `endpoints.nav.routes[${i}].page_props.form`);
+          if (formErr) return formErr;
         }
       }
       const routeAccessErr = validateNoItemAccess(rd, `endpoints.nav.routes[${i}]`);
