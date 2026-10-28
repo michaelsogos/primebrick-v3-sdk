@@ -1577,7 +1577,7 @@ and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
 | last_health_check_at | `Date` |  |
 | is_enabled | `boolean` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 
 ### `ListFilterParamsOptions`
 
@@ -1651,7 +1651,7 @@ Route declaration: which action/resource the token must authorize.
 | serviceDisplayName | `string` | Human-readable name shown in service registry (e.g. "Email Sender"). |
 | serviceDescription | `string` | Service description for service registry. |
 | icon | `string` | Icon name for service registry (e.g. "mail"). |
-| iconType | `"url" \| "svg" \| "base64" \| "icon"` | Icon type for service registry. |
+| iconType | `"url" \| "base64" \| "icon"` | Icon type for service registry. |
 | isBehindScaler | `boolean` | Whether the service is behind a scaler (default false). |
 | serviceVersion | `string` | Service version — if omitted, reads from package.json in CWD. |
 | envSchema | `EnvSchema` | Environment variable schema — validated via requireEnv. |
@@ -1705,6 +1705,12 @@ replaces: each module presents its own nav.
 page under a shared prefix like `/system/jobs` belongs to THIS module,
 not to the module owning `/system`). `component_url` route fields are
 self-described by the service (e.g. `/svc/<code>/api/v1/module-assets/…`). |
+| events | `ModuleEventsDecl` | Module emitted-event self-declaration — `events.emits` lists the NATS
+subjects THIS service publishes as domain events (wildcards allowed).
+Persisted verbatim in `service_registry.endpoints.events`, served on
+`/modules` — the decoupled vocabulary subject-pickers (job rules,
+triggers) resolve options from. Subscriptions stay internal and are
+never declared. |
 | partOf | `string` | ROOT LEVEL this module is part of (`service_registry.part_of`) —
 'system' for platform services, 'crm' for the CRM domain, … Combined
 with the service code it derives the module's FE route prefix
@@ -2115,7 +2121,7 @@ tests only. |
 | nats_connected | `boolean` |  |
 | checks | `Record<string, ServiceHealthCheck>` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
 it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
 system.client_shield_registry, service_registry.pkg_name, log messages). |
@@ -2136,7 +2142,7 @@ system.client_shield_registry, service_registry.pkg_name, log messages). |
 | nats_connected | `boolean` |  |
 | checks | `Record<string, ServiceHealthCheck>` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
 it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
 system.client_shield_registry, service_registry.pkg_name, log messages). |
@@ -2212,7 +2218,7 @@ namespace by every UI surface (fallback: raw `name`). |
 | service_version | `string` |  |
 | is_behind_scaler | `boolean` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 | clientKey | `string` | This service's own client key (module config `service_client_shield_key`) — paired with
 the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent
 in `service.register`; the raw key never leaves the service. |
@@ -2643,6 +2649,14 @@ on the wire (`non_deleted` → `EXCLUDED`, `deleted` → `ONLY`,
 
 **Type:** `"non_deleted" \| "deleted" \| "all"`
 
+### `EmitDecl`
+
+One published subject — the ConfigEntry display anatomy mirrored:
+`label_key` = short translated display name (primary line), `description_key`
+= human description (small secondary line), `subject` = the raw key (mono
+line). Both keys point at translations in the EMITTING module's namespace
+(`<ns>.events.<name>`); pickers render label + desc + subject.
+
 ### `EntityActionSentinel`
 
 Sentinel gates a route may declare instead of concrete permissions.
@@ -2688,6 +2702,24 @@ option is always active — there is no "clear" affordance. Declared in
 ### `FilterPresetOption`
 
 A single selectable option of a table filter preset.
+
+### `FormFieldPlacement`
+
+One field's placement + policy inside an entity form — PAGE-domain
+metadata: it positions a field the ENTITY owns; it never redefines the
+field's type or validation (those come from `meta.columns` — class-derived
+constraints + authored `format`).
+
+`key` MUST exist in the served `meta.columns` — the host archetype
+validates at render time and fails loudly on drift.
+
+### `FormPageDecl`
+
+`page_props.form` — the entity-form page declaration. `fields` is the
+ORDERED placement list: only declared keys render (absent columns are
+simply not editable on this surface). `validators` names closed-vocab
+cross-field rules implemented host-side (e.g. `target_matches_lane`) —
+the host rejects unknown validator keys.
 
 ### `GenerateDocsFn`
 
@@ -2777,6 +2809,19 @@ implicit index signature, keeping `MetaColumn` assignable to
 `Record<string, unknown>` — host/remotes pass columns through generic
 cell-snippet args typed as `Record<string, unknown>`.
 
+### `MetaColumnFormat`
+
+Authored field-format vocabulary — the SEMANTIC input contract of a
+column: which control archetype a form renderer must use and which
+validation chain `buildEntityFormSchema` applies. Absent → the renderer
+falls back to `type` (text→text input, boolean→switch, badge→options).
+
+Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
+compile error — the US→FE option boundary is enforced by the type.
+New formats are additive literals (never breaking).
+
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time"`
+
 ### `MetaColumnType`
 
 UI column renderer type. NOTE: this is the UI type, not the DB type —
@@ -2805,6 +2850,8 @@ retries `requestFn` with the action-authorization token. The promise
 resolves with the final Response — success or failure.
 
 **Type:** `(requestFn: (token: string \| null) => Promise<Response>, context: { action: string; target_resource: string }) => Promise<Response>`
+
+### `ModuleEventsDecl`
 
 ### `ModuleHostBase`
 
@@ -2909,13 +2956,6 @@ host a foreign mount record.
 
 **Type:** `(el: HTMLElement, ctx: ModulePageHost) => unknown`
 
-### `MountSectionFn`
-
-A chunk's section-mount export — same host ctx as `mountPage`, plus the
-section's own declaration (`id`, `props`, placement) as third argument.
-
-**Type:** `(el: HTMLElement, ctx: ModulePageHost, section: PageSectionDecl) => unknown`
-
 ### `MountSheetFn`
 
 The sheet chunk's entry contract — `export function mountSheet(el, ctx)`.
@@ -2957,15 +2997,6 @@ the remote cannot smuggle an undeclared panel.
 
 **Type:** `(panelKey: string, props: Record<string, unknown>, options: Record<string, unknown>) => void`
 
-### `PageLayoutDecl`
-
-Spatial arrangement of a page's sections — ONE archetype: CSS grid.
-A vertical stack is the degenerate case (`columns` defaults to `"1fr"`,
-sections auto-flow in declaration order); a split is `columns: "280px
-1fr"`; a dashboard is `columns: "repeat(3, 1fr)"` + per-section `span`.
-New container classes, when genuinely needed, arrive as new optional
-fields — the contract never grows a second placement vocabulary.
-
 ### `PageRouteComponentFormat`
 
 Remote component delivery format. Extensible — new literals are additive
@@ -2990,21 +3021,7 @@ Page archetype vocabulary — what the route renders, regardless of delivery.
 
 ### `PageRouteProps`
 
-`page_props` — free-form per-route metadata with a typed `layout` axis.
-
-### `PageSectionDecl`
-
-One mountable block inside a `layout` — placement is grid-cell based.
-
-### `PageSectionSource`
-
-Section mount target — `remote:<export>` = a named mount export of the
-page's own chunk (`mod.mountModels(el, ctx, section)`); `host:<key>` = a
-component registered in the host's section registry. The `remote:` form is
-the default for module-owned blocks; `host:` composes host-owned building
-blocks without shipping a chunk at all.
-
-**Type:** `templateLiteral \| templateLiteral`
+`page_props` — free-form per-route metadata with a typed `form` axis.
 
 ### `Permission`
 
@@ -3404,7 +3421,7 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
                                       pass. Use for high-risk non-CRUD
                                       operations (e.g. admin change-password).
 
-**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
+**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_EMAIL_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_EMAIL_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
 
 | Field | Value |
 |-------|-------|
@@ -3529,20 +3546,20 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
 | EMAILSENDER_PROVIDER_RESTORE_BULK | "emailsender.provider.restore.bulk" |
 | EMAILSENDER_PROVIDER_DUPLICATE_SINGLE | "emailsender.provider.duplicate.single" |
 | EMAILSENDER_PROVIDER_DUPLICATE_BULK | "emailsender.provider.duplicate.bulk" |
-| EMAILSENDER_TEMPLATE_READ_ALL | "emailsender.email_template.read.all" |
-| EMAILSENDER_TEMPLATE_READ_SINGLE | "emailsender.email_template.read.single" |
-| EMAILSENDER_TEMPLATE_READ_AUDIT | "emailsender.email_template.read.audit" |
-| EMAILSENDER_TEMPLATE_EXPORT | "emailsender.email_template.export" |
-| EMAILSENDER_TEMPLATE_CREATE_SINGLE | "emailsender.email_template.create.single" |
-| EMAILSENDER_TEMPLATE_CREATE_BULK | "emailsender.email_template.create.bulk" |
-| EMAILSENDER_TEMPLATE_UPDATE_SINGLE | "emailsender.email_template.update.single" |
-| EMAILSENDER_TEMPLATE_UPDATE_BULK | "emailsender.email_template.update.bulk" |
-| EMAILSENDER_TEMPLATE_DELETE_SINGLE | "emailsender.email_template.delete.single" |
-| EMAILSENDER_TEMPLATE_DELETE_BULK | "emailsender.email_template.delete.bulk" |
-| EMAILSENDER_TEMPLATE_RESTORE_SINGLE | "emailsender.email_template.restore.single" |
-| EMAILSENDER_TEMPLATE_RESTORE_BULK | "emailsender.email_template.restore.bulk" |
-| EMAILSENDER_TEMPLATE_DUPLICATE_SINGLE | "emailsender.email_template.duplicate.single" |
-| EMAILSENDER_TEMPLATE_DUPLICATE_BULK | "emailsender.email_template.duplicate.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_READ_ALL | "emailsender.email_template.read.all" |
+| EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE | "emailsender.email_template.read.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT | "emailsender.email_template.read.audit" |
+| EMAILSENDER_EMAIL_TEMPLATE_EXPORT | "emailsender.email_template.export" |
+| EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE | "emailsender.email_template.create.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK | "emailsender.email_template.create.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE | "emailsender.email_template.update.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK | "emailsender.email_template.update.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE | "emailsender.email_template.delete.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK | "emailsender.email_template.delete.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE | "emailsender.email_template.restore.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK | "emailsender.email_template.restore.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE | "emailsender.email_template.duplicate.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK | "emailsender.email_template.duplicate.bulk" |
 | EMAILSENDER_SEND | "emailsender.send" |
 | EMAILSENDER_LOG_CREATE_SINGLE | "emailsender.log.create.single" |
 
@@ -5671,6 +5688,13 @@ Pure process.env — no DB dependency.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | schema | `EnvSchema` |  |
+
+### `validateEventsDeclaration(code, decl): string \| null`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| decl | `unknown` |  |
 
 ### `validateNavDeclaration(code, decl, partOf): string \| null`
 

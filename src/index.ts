@@ -91,6 +91,7 @@ export {
   PAGE_ROUTE_KINDS,
   SINGULAR_NAV_ALLOWLIST,
 } from "./service/nav-declaration.js";
+export { validateEventsDeclaration } from "./service/events-declaration.js";
 export {
   DOCS_PACK_CAPABILITY,
   DOCS_PACK_SCHEMA_VERSION,
