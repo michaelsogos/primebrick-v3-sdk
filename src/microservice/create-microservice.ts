@@ -108,7 +108,7 @@ import {
   brandRouteHandler,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
-import type { ModuleNavDeclaration } from "@primebrick/core";
+import type { ModuleNavDeclaration, ModuleEventsDecl } from "@primebrick/core";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
 import {
   runDbMigrationStep,
@@ -129,7 +129,7 @@ export interface MicroserviceOptions {
   /** Icon name for service registry (e.g. "mail"). */
   icon?: string;
   /** Icon type for service registry. */
-  iconType?: "url" | "svg" | "base64" | "icon";
+  iconType?: "url" | "base64" | "icon";
   /** Whether the service is behind a scaler (default false). */
   isBehindScaler?: boolean;
   /** Service version — if omitted, reads from package.json in CWD. */
@@ -239,6 +239,16 @@ export interface MicroserviceOptions {
    * self-described by the service (e.g. `/svc/<code>/api/v1/module-assets/…`).
    */
   nav?: ModuleNavDeclaration;
+
+  /**
+   * Module emitted-event self-declaration — `events.emits` lists the NATS
+   * subjects THIS service publishes as domain events (wildcards allowed).
+   * Persisted verbatim in `service_registry.endpoints.events`, served on
+   * `/modules` — the decoupled vocabulary subject-pickers (job rules,
+   * triggers) resolve options from. Subscriptions stay internal and are
+   * never declared.
+   */
+  events?: ModuleEventsDecl;
 
   /**
    * ROOT LEVEL this module is part of (`service_registry.part_of`) —
@@ -643,6 +653,13 @@ export async function createMicroservice(
   // merges endpoints.nav into module meta + routes census.
   if (options.nav) {
     registrarEndpoints.nav = options.nav;
+  }
+
+  // Module emitted-event self-declaration — verbatim object riding the same
+  // channel as nav: persisted in service_registry.endpoints.events, served
+  // on /modules. Domain subject pickers resolve options from the census.
+  if (options.events) {
+    registrarEndpoints.events = options.events;
   }
 
   // Docs pack dir — shared between the registrar (capability) and the

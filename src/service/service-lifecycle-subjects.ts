@@ -47,7 +47,7 @@ export interface ServiceHeartbeatPayload {
   nats_connected: boolean;
   checks: Record<string, ServiceHealthCheck>;
   icon?: string;
-  icon_type?: 'url' | 'svg' | 'base64' | 'icon';
+  icon_type?: 'url' | 'base64' | 'icon';
   /**
    * Package name from the service's package.json — with `service_version`
    * it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
