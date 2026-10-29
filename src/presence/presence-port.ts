@@ -49,6 +49,13 @@ export interface PresencePort {
   getSnapshot(entityType: string, entityUuid: string): Promise<PresenceSnapshot>;
 
   /**
+   * Stamp `edited_at = editedAt` on a user's presence entry (server-side save
+   * hook). No-op if the user has no live entry — the field only makes sense
+   * for users still present on the entity.
+   */
+  markEdited(entityType: string, entityUuid: string, userUuid: string, editedAt: number): Promise<void>;
+
+  /**
    * Set the "changed" marker for an entity (server-side save hook).
    * Overwrites any existing marker. TTL is `ttlMs` (default 300000 = 5 min).
    */

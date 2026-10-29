@@ -655,6 +655,19 @@ Called on SSE connect (snapshot event) and on GET presence.
 | entityType | `string` |  |
 | entityUuid | `string` |  |
 
+#### `RedisPresencePort.markEdited(entityType, entityUuid, userUuid, editedAt): Promise<void>`
+
+Stamp `edited_at = editedAt` on a user's presence entry (server-side save
+hook). No-op if the user has no live entry — the field only makes sense
+for users still present on the entity.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| entityType | `string` |  |
+| entityUuid | `string` |  |
+| userUuid | `string` |  |
+| editedAt | `number` |  |
+
 #### `RedisPresencePort.setChanged(marker, ttlMs): Promise<void>`
 
 Set the "changed" marker for an entity (server-side save hook).
@@ -1916,6 +1929,11 @@ One entry per (entity_type, entity_uuid, user_uuid).
 | field | `string` | EDITING only — the field being edited. |
 | value | `unknown` | EDITING only — the current draft value of the field. |
 | last_seen_at | `number` | Epoch ms of the last signal/heartbeat from this user. |
+| edited_at | `number` | Epoch ms of this user's last save on the entity — stamped server-side by
+the audit hook when it publishes `EntityChangedMarker` for `changed_by`.
+Absent until the user's first save while present. The FE compares it to a
+5-minute window (and to the client's own mount time) to render the
+"recently saved" affordance. |
 | tab_count | `number` | Number of open tabs for this user on this entity (deduped by session_id). |
 
 ### `PresencePort`

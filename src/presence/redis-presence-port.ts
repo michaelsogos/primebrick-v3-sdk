@@ -159,6 +159,15 @@ export class RedisPresencePort implements PresencePort {
     };
   }
 
+  async markEdited(entityType: string, entityUuid: string, userUuid: string, editedAt: number): Promise<void> {
+    const usersKey = this.usersKey(entityType, entityUuid);
+    const raw = await this.redis.hGet(usersKey, userUuid);
+    if (!raw) return; // user not present — nothing to stamp
+    const entry = extJsonParse(raw) as PresenceEntry;
+    entry.edited_at = editedAt;
+    await this.redis.hSet(usersKey, userUuid, extJsonStringify(entry));
+  }
+
   async setChanged(marker: EntityChangedMarker, ttlMs: number = CHANGED_TTL_MS): Promise<void> {
     const changedKey = this.changedKey(marker.entity_type, marker.entity_uuid);
     await this.redis.set(changedKey, extJsonStringify(marker), { PX: ttlMs });
