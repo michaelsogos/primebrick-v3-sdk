@@ -29,16 +29,19 @@ export interface PresencePort {
   upsertEditing(entityType: string, entityUuid: string, entry: PresenceEntry): Promise<void>;
 
   /**
-   * Remove a user entirely from an entity's presence (LEAVE).
-   * Removes from the users hash, the editors hash, and deletes the tabs set.
-   * No-op if the user was not present.
+   * Remove one tab session from an entity's presence (LEAVE).
+   * Removes the session's entry from the users/editors hashes and drops the
+   * sessionId from the tabs set — other sessions of the same user keep
+   * their entries. When `sessionId` is omitted, all sessions of the user
+   * are removed (whole-user leave).
    */
-  remove(entityType: string, entityUuid: string, userUuid: string): Promise<void>;
+  remove(entityType: string, entityUuid: string, userUuid: string, sessionId?: string): Promise<void>;
 
   /**
-   * Refresh the TTL for a user's presence on an entity (HEARTBEAT).
-   * Updates `last_seen_at` on the entry. No-op if the user is not present
-   * (heartbeat is only sent by tabs that previously sent READING/EDITING).
+   * Refresh the TTL for one tab session's presence on an entity (HEARTBEAT).
+   * Updates `last_seen_at` on that session's entry. No-op if the session is
+   * not present (heartbeat is only sent by tabs that previously sent
+   * READING/EDITING).
    */
   heartbeat(entityType: string, entityUuid: string, userUuid: string, sessionId: string): Promise<void>;
 

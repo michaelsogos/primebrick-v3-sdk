@@ -332,6 +332,10 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
           idpCode: user.idp_code,
           idpOrg: user.idp_org,
           idpUsername: user.idp_username,
+          clientSessionId:
+            typeof req.headers["x-client-session"] === "string"
+              ? (req.headers["x-client-session"] as string)
+              : undefined,
         };
         return await runWithSession(session, run);
       }

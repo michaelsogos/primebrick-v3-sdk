@@ -24,7 +24,7 @@ export { Permission, isPermissionSentinel, listNonSentinelPermissions, matchesWi
 export { isAccessGranted, isAccessKey, accessLeafKey, accessSheetKey, isAccessGrantLegal } from "./access.js";
 
 // Session context
-export { runWithSession, getSession, requireActor, runAsSystem, systemAuthUser, SYSTEM_ACTOR, type Session } from "./session-context.js";
+export { runWithSession, getSession, getClientSessionId, requireActor, runAsSystem, systemAuthUser, SYSTEM_ACTOR, type Session } from "./session-context.js";
 
 // Ports
 export { type AuthConfigPort } from "./ports/auth-config-port.js";

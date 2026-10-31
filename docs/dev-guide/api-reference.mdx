@@ -620,23 +620,27 @@ The `field` and `value` from the entry are stored.
 | entityUuid | `string` |  |
 | entry | `PresenceEntry` |  |
 
-#### `RedisPresencePort.remove(entityType, entityUuid, userUuid): Promise<void>`
+#### `RedisPresencePort.remove(entityType, entityUuid, userUuid, sessionId): Promise<void>`
 
-Remove a user entirely from an entity's presence (LEAVE).
-Removes from the users hash, the editors hash, and deletes the tabs set.
-No-op if the user was not present.
+Remove one tab session from an entity's presence (LEAVE).
+Removes the session's entry from the users/editors hashes and drops the
+sessionId from the tabs set — other sessions of the same user keep
+their entries. When `sessionId` is omitted, all sessions of the user
+are removed (whole-user leave).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | entityType | `string` |  |
 | entityUuid | `string` |  |
 | userUuid | `string` |  |
+| sessionId | `string` |  |
 
 #### `RedisPresencePort.heartbeat(entityType, entityUuid, userUuid, sessionId): Promise<void>`
 
-Refresh the TTL for a user's presence on an entity (HEARTBEAT).
-Updates `last_seen_at` on the entry. No-op if the user is not present
-(heartbeat is only sent by tabs that previously sent READING/EDITING).
+Refresh the TTL for one tab session's presence on an entity (HEARTBEAT).
+Updates `last_seen_at` on that session's entry. No-op if the session is
+not present (heartbeat is only sent by tabs that previously sent
+READING/EDITING).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -1292,6 +1296,11 @@ most recent change without scanning the audit log.
 | version | `number` | The new `version` after the save. |
 | audit_log_id | `number` | The `audit_log_id` of the change (for the GET audit/:auditLogId diff endpoint). |
 | changed_by | `string` | user_uuid of the writer. |
+| changed_by_session | `string` | Tab session of the writer — stamped from `AuditParams.sessionId`, which
+the FE sends as `X-Client-Session` on writes. A save is "self" (silently
+realign, no stale/chip) only when `changed_by` AND `changed_by_session`
+both match this client; a save from another tab of the same user is
+foreign for merge/conflict purposes. |
 | changed_at | `number` | Epoch ms of the save. |
 
 ### `EntityExportConfig`
@@ -1631,6 +1640,30 @@ a structured `tags` array. |
 | status | `number` |  |
 | body | `Rfc7807Body` |  |
 
+### `MarkerAuditParams`
+
+Structural mirror of dal-pg `AuditParams` (SDK cannot import
+`@primebrick/dal-pg` — see src/http/entity-router.ts for the same
+convention). Structurally assignable from the real `AuditParams`:
+`action` arrives as dal's string-enum `AuditAction`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| entityClassName | `string` |  |
+| tableName | `string` |  |
+| entityId | `bigint` |  |
+| entityUuid | `string` |  |
+| action | `string` |  |
+| changedAt | `Date` |  |
+| version | `number` |  |
+| changedBy | `string` |  |
+| delta | `Record<string, { old: unknown; new: unknown }>` |  |
+
+### `MarkerAuditPort`
+
+Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
+inserted audit row id (used for the marker's `audit_log_id`).
+
 ### `MfaStepUpSpec`
 
 Route declaration: which action/resource the token must authorize.
@@ -1910,6 +1943,9 @@ Consumed by the BE SSE bridge and forwarded to connected FE clients.
 | Field | Type | Description |
 |-------|------|-------------|
 | user_uuid | `string` | The user whose presence changed. |
+| session_id | `string` | Tab session that emitted the signal — used by SSE subscribers to exclude
+only echoes of their own session (another tab of the same user is NOT
+excluded). Absent on synthetic deltas (e.g. `__expired__` LEAVEs). |
 | action | `PresenceAction` | The action that triggered this delta. |
 | entry | `PresenceEntry \| null` | The updated entry (for READING/EDITING/HEARTBEAT), or null (for LEAVE). |
 | emitted_at | `number` | Epoch ms of the delta (for dedup / ordering on the FE). |
@@ -1935,6 +1971,11 @@ Absent until the user's first save while present. The FE compares it to a
 5-minute window (and to the client's own mount time) to render the
 "recently saved" affordance. |
 | tab_count | `number` | Number of open tabs for this user on this entity (deduped by session_id). |
+| session_id | `string` | Tab session that produced this entry (FE-generated uuid, sent as
+`PresenceSignal.session_id`). Presence entries are keyed
+`user_uuid:session_id` — two tabs of the same user are distinct entries,
+so a same-user second tab is visible to the first tab as a different
+session ("you — other tab"). |
 
 ### `PresencePort`
 
@@ -2338,6 +2379,11 @@ inside services. May be empty for `"system"` callers. |
 | isVerified | `boolean` | Email verification status from IDP. `null` for `"system"`. |
 | emailVerified | `boolean` | Email verification status (email-specific). `null` for `"system"`. |
 | issuer | `string` | IDP issuer URL (from `iss` claim). `null` for `"system"`. |
+| clientSessionId | `string` | FE tab-session id — populated from the `X-Client-Session` request header
+by the auth middleware. Used by the collaboration layer to stamp
+`EntityChangedMarker.changed_by_session`, so a client can distinguish
+"a save from my own tab" (silent realign) from "a save from another tab
+of the same user" (foreign change → merge/conflict). |
 
 ### `SharedConfig`
 
@@ -4649,6 +4695,11 @@ Used by `CacheKeyBuilder.forRowFromMeta` as the first resolution step.
 |-----------|------|-------------|
 | ctor | `(args: any[]) => any` |  |
 
+### `getClientSessionId(): string \| undefined`
+
+Read the FE tab-session id (`X-Client-Session` header) for the current
+request, or `undefined` when absent / outside an HTTP scope.
+
 ### `getClientShieldSecretSlot(): ClientShieldSecretSlot \| null`
 
 ### `getCurrencyInfo(code): CurrencyInfo \| null`
@@ -5004,6 +5055,13 @@ identically — validation of existence is the remote build's job.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | config | `EntityRouterConfig<TEntity>` |  |
+
+### `makeMarkerAuditPort(inner, entityType): MarkerAuditPort`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| inner | `MarkerAuditPort` |  |
+| entityType | `string` |  |
 
 ### `makeNatsRequestRoute(routes, deps): Promise<Subscription[]>`
 

@@ -393,6 +393,11 @@ export * from "./presence/types.js";
 export { type PresencePort } from "./presence/presence-port.js";
 export { RedisPresencePort } from "./presence/redis-presence-port.js";
 export {
+  makeMarkerAuditPort,
+  type MarkerAuditPort,
+  type MarkerAuditParams,
+} from "./presence/marker-audit-port.js";
+export {
   presenceSubject,
   entityChangedSubject,
   publishPresence,
