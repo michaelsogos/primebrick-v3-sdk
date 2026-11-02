@@ -26643,7 +26643,7 @@
 				"summary": [
 					{
 						"kind": "text",
-						"text": "RBAC registry — single source of truth for permissions and role mappings.\n\nDesign:\n  - Each HTTP action declares the EXACT permission(s) it requires\n    (e.g. "
+						"text": "RBAC registry — single source of truth for permissions and role mappings.\r\n\r\nDesign:\r\n  - Each HTTP action declares the EXACT permission(s) it requires\r\n    (e.g. "
 					},
 					{
 						"kind": "code",
@@ -26659,7 +26659,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "). The endpoint,\n    not the role, determines what is needed.\n  - Role → Permission mappings are stored in the "
+						"text": "). The endpoint,\r\n    not the role, determines what is needed.\r\n  - Role → Permission mappings are stored in the "
 					},
 					{
 						"kind": "code",
@@ -26667,7 +26667,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " table (database).\n    The auth middleware loads these mappings at startup and expands a user's\n    roles into a flat "
+						"text": " table (database).\r\n    The auth middleware loads these mappings at startup and expands a user's\r\n    roles into a flat "
 					},
 					{
 						"kind": "code",
@@ -26675,7 +26675,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " once per request.\n  - The RBAC middleware evaluates the array with **OR** semantics by default\n    (any-of). Use "
+						"text": " once per request.\r\n  - The RBAC middleware evaluates the array with **OR** semantics by default\r\n    (any-of). Use "
 					},
 					{
 						"kind": "code",
@@ -26683,7 +26683,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " for AND semantics.\n  - Roles marked with "
+						"text": " for AND semantics.\r\n  - Roles marked with "
 					},
 					{
 						"kind": "code",
@@ -26691,7 +26691,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " in the database grant ALL permissions\n    (super-user wildcard).\n  - API keys marked with "
+						"text": " in the database grant ALL permissions\r\n    (super-user wildcard).\r\n  - API keys marked with "
 					},
 					{
 						"kind": "code",
@@ -26699,7 +26699,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " bypass all permission checks\n    and set the actor to \"system\" for audit fields.\n\nThree pseudo-permissions exist as sentinels handled directly by the middleware\n(they are NOT stored in "
+						"text": " bypass all permission checks\r\n    and set the actor to \"system\" for audit fields.\r\n\r\nThree pseudo-permissions exist as sentinels handled directly by the middleware\r\n(they are NOT stored in "
 					},
 					{
 						"kind": "code",
@@ -26707,7 +26707,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "):\n\n  - "
+						"text": "):\r\n\r\n  - "
 					},
 					{
 						"kind": "code",
@@ -26715,7 +26715,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "             → endpoint reachable without a JWT.\n  - "
+						"text": "             → endpoint reachable without a JWT.\r\n  - "
 					},
 					{
 						"kind": "code",
@@ -26723,7 +26723,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " → any caller with a valid identity\n                                      passes, regardless of roles.\n  - "
+						"text": " → any caller with a valid identity\r\n                                      passes, regardless of roles.\r\n  - "
 					},
 					{
 						"kind": "code",
@@ -26739,7 +26739,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "\n                                      pass. Use for high-risk non-CRUD\n                                      operations (e.g. admin change-password)."
+						"text": "\r\n                                      pass. Use for high-risk non-CRUD\r\n                                      operations (e.g. admin change-password)."
 					}
 				]
 			},
@@ -29971,7 +29971,7 @@
 				"summary": [
 					{
 						"kind": "text",
-						"text": "RBAC registry — single source of truth for permissions and role mappings.\n\nDesign:\n  - Each HTTP action declares the EXACT permission(s) it requires\n    (e.g. "
+						"text": "RBAC registry — single source of truth for permissions and role mappings.\r\n\r\nDesign:\r\n  - Each HTTP action declares the EXACT permission(s) it requires\r\n    (e.g. "
 					},
 					{
 						"kind": "code",
@@ -29987,7 +29987,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "). The endpoint,\n    not the role, determines what is needed.\n  - Role → Permission mappings are stored in the "
+						"text": "). The endpoint,\r\n    not the role, determines what is needed.\r\n  - Role → Permission mappings are stored in the "
 					},
 					{
 						"kind": "code",
@@ -29995,7 +29995,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " table (database).\n    The auth middleware loads these mappings at startup and expands a user's\n    roles into a flat "
+						"text": " table (database).\r\n    The auth middleware loads these mappings at startup and expands a user's\r\n    roles into a flat "
 					},
 					{
 						"kind": "code",
@@ -30003,7 +30003,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " once per request.\n  - The RBAC middleware evaluates the array with **OR** semantics by default\n    (any-of). Use "
+						"text": " once per request.\r\n  - The RBAC middleware evaluates the array with **OR** semantics by default\r\n    (any-of). Use "
 					},
 					{
 						"kind": "code",
@@ -30011,7 +30011,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " for AND semantics.\n  - Roles marked with "
+						"text": " for AND semantics.\r\n  - Roles marked with "
 					},
 					{
 						"kind": "code",
@@ -30019,7 +30019,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " in the database grant ALL permissions\n    (super-user wildcard).\n  - API keys marked with "
+						"text": " in the database grant ALL permissions\r\n    (super-user wildcard).\r\n  - API keys marked with "
 					},
 					{
 						"kind": "code",
@@ -30027,7 +30027,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " bypass all permission checks\n    and set the actor to \"system\" for audit fields.\n\nThree pseudo-permissions exist as sentinels handled directly by the middleware\n(they are NOT stored in "
+						"text": " bypass all permission checks\r\n    and set the actor to \"system\" for audit fields.\r\n\r\nThree pseudo-permissions exist as sentinels handled directly by the middleware\r\n(they are NOT stored in "
 					},
 					{
 						"kind": "code",
@@ -30035,7 +30035,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "):\n\n  - "
+						"text": "):\r\n\r\n  - "
 					},
 					{
 						"kind": "code",
@@ -30043,7 +30043,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "             → endpoint reachable without a JWT.\n  - "
+						"text": "             → endpoint reachable without a JWT.\r\n  - "
 					},
 					{
 						"kind": "code",
@@ -30051,7 +30051,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " → any caller with a valid identity\n                                      passes, regardless of roles.\n  - "
+						"text": " → any caller with a valid identity\r\n                                      passes, regardless of roles.\r\n  - "
 					},
 					{
 						"kind": "code",
@@ -30067,7 +30067,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "\n                                      pass. Use for high-risk non-CRUD\n                                      operations (e.g. admin change-password)."
+						"text": "\r\n                                      pass. Use for high-risk non-CRUD\r\n                                      operations (e.g. admin change-password)."
 					}
 				]
 			},
@@ -30140,7 +30140,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " when the given permission is a sentinel (PUBLIC / AUTHENTICATED_USER /\nAUTHENTICATED_ADMIN) handled directly by the rbac middleware rather than by\nrole expansion."
+								"text": " when the given permission is a sentinel (PUBLIC / AUTHENTICATED_USER /\r\nAUTHENTICATED_ADMIN) handled directly by the rbac middleware rather than by\r\nrole expansion."
 							}
 						]
 					},
@@ -30197,7 +30197,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Returns all non-sentinel permission strings (i.e. the real RBAC permissions,\nexcluding PUBLIC / AUTHENTICATED_USER / AUTHENTICATED_ADMIN).\nUsed by the BE to build the permissions catalog for the FE role-management UI."
+								"text": "Returns all non-sentinel permission strings (i.e. the real RBAC permissions,\r\nexcluding PUBLIC / AUTHENTICATED_USER / AUTHENTICATED_ADMIN).\r\nUsed by the BE to build the permissions catalog for the FE role-management UI."
 							}
 						]
 					},
@@ -30339,7 +30339,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Check if a permission is granted given a set of user permissions.\nSupports wildcard patterns in user permissions."
+								"text": "Check if a permission is granted given a set of user permissions.\r\nSupports wildcard patterns in user permissions."
 							}
 						],
 						"blockTags": [
@@ -30446,7 +30446,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Expand a list of role names into patterns and admin status.\nThis function queries the "
+								"text": "Expand a list of role names into patterns and admin status.\r\nThis function queries the "
 							},
 							{
 								"kind": "code",
@@ -30454,7 +30454,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " table to resolve roles to permissions.\nRoles marked with "
+								"text": " table to resolve roles to permissions.\r\nRoles marked with "
 							},
 							{
 								"kind": "code",
@@ -66349,7 +66349,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "DAL init callback — called first, before everything else.\nThe SDK is DB-agnostic so the consumer provides this.\nTypically reads DATABASE_URL / DB_SCHEMA from env and calls getDal()."
+								"text": "DAL init callback — called first, before everything else.\r\nThe SDK is DB-agnostic so the consumer provides this.\r\nTypically reads DATABASE_URL / DB_SCHEMA from env and calls getDal()."
 							}
 						]
 					},
@@ -66405,7 +66405,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", rendered\nvia "
+								"text": ", rendered\r\nvia "
 							},
 							{
 								"kind": "code",
@@ -66421,7 +66421,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "). Keeps the\nSDK DB-agnostic: the service supplies a probe, e.g.\n"
+								"text": "). Keeps the\r\nSDK DB-agnostic: the service supplies a probe, e.g.\r\n"
 							},
 							{
 								"kind": "code",
@@ -66573,7 +66573,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "DAL close callback — called during graceful shutdown.\nThe SDK is DB-agnostic so the consumer provides this.\nTypically "
+								"text": "DAL close callback — called during graceful shutdown.\r\nThe SDK is DB-agnostic so the consumer provides this.\r\nTypically "
 							},
 							{
 								"kind": "code",
@@ -66639,7 +66639,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Factory for ConfigRepositoryPort — called after initDal.\nReads config rows from the microservice's config table."
+								"text": "Factory for ConfigRepositoryPort — called after initDal.\r\nReads config rows from the microservice's config table."
 							}
 						]
 					},
@@ -66687,7 +66687,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Factory for AuthConfigPort — called after ConfigLoader is created.\nReceives the ConfigLoader so it can read auth-related config keys."
+								"text": "Factory for AuthConfigPort — called after ConfigLoader is created.\r\nReceives the ConfigLoader so it can read auth-related config keys."
 							}
 						]
 					},
@@ -66752,7 +66752,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Factory for ApiKeyPort — called after auth config is loaded.\nOptional — only needed if the microservice uses API key auth (e.g. webhooks).\nStandard wiring: "
+								"text": "Factory for ApiKeyPort — called after auth config is loaded.\r\nOptional — only needed if the microservice uses API key auth (e.g. webhooks).\r\nStandard wiring: "
 							},
 							{
 								"kind": "code",
@@ -66760,7 +66760,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\n— microservices NEVER read "
+								"text": "\r\n— microservices NEVER read "
 							},
 							{
 								"kind": "code",
@@ -66768,7 +66768,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " directly; resolution goes\nthrough the governed BE route "
+								"text": " directly; resolution goes\r\nthrough the governed BE route "
 							},
 							{
 								"kind": "code",
@@ -66776,7 +66776,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ". The factory runs\nbefore the SDK cache port is set, so pass "
+								"text": ". The factory runs\r\nbefore the SDK cache port is set, so pass "
 							},
 							{
 								"kind": "code",
@@ -66832,7 +66832,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Factory for HealthCheckPort — called after initDal.\nAdapts the DB pool to the SDK's HealthCheckPort interface."
+								"text": "Factory for HealthCheckPort — called after initDal.\r\nAdapts the DB pool to the SDK's HealthCheckPort interface."
 							}
 						]
 					},
@@ -66882,7 +66882,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Custom route handler — MUST be produced by an approved factory\n("
+								"text": "Custom route handler — MUST be produced by an approved factory\r\n("
 							},
 							{
 								"kind": "code",
@@ -66906,7 +66906,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ").\nArbitrary handlers are rejected at startup: the middleware chain\n(auth → RBAC → validation → RFC 7807) is not optional.\nIf omitted, only the /health endpoint is served."
+								"text": ").\r\nArbitrary handlers are rejected at startup: the middleware chain\r\n(auth → RBAC → validation → RFC 7807) is not optional.\r\nIf omitted, only the /health endpoint is served."
 							}
 						]
 					},
@@ -67021,7 +67021,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Override the docs-pack dir served/declared by this service.\nDefault: "
+								"text": "Override the docs-pack dir served/declared by this service.\r\nDefault: "
 							},
 							{
 								"kind": "code",
@@ -67037,7 +67037,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\nin the service's build script."
+								"text": "\r\nin the service's build script."
 							}
 						]
 					},
@@ -67066,7 +67066,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Paths exempt from the client-identity gate — only for services with a\ngenuinely public surface (e.g. the webhook ingress, whose callers are\nexternal providers). Everything else is gated by default."
+								"text": "Paths exempt from the client-identity gate — only for services with a\r\ngenuinely public surface (e.g. the webhook ingress, whose callers are\r\nexternal providers). Everything else is gated by default."
 							}
 						]
 					},
@@ -67104,7 +67104,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Auth dependency setters — called after auth config is loaded.\nEach setter receives (authConfig, apiKeyPort?) and typically wires\nauth dependencies into route handlers (e.g. setAuthDependencies(cfg, apiKeyPort))."
+								"text": "Auth dependency setters — called after auth config is loaded.\r\nEach setter receives (authConfig, apiKeyPort?) and typically wires\r\nauth dependencies into route handlers (e.g. setAuthDependencies(cfg, apiKeyPort))."
 							}
 						]
 					},
@@ -67185,7 +67185,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Service-specific endpoints (relative paths, e.g. { webhook: \"/webhook\" }).\nThe health endpoint is added automatically.\nFull URLs are built as "
+								"text": "Service-specific endpoints (relative paths, e.g. { webhook: \"/webhook\" }).\r\nThe health endpoint is added automatically.\r\nFull URLs are built as "
 							},
 							{
 								"kind": "code",
@@ -67238,7 +67238,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Module navigation self-declaration — the wiring that lets THIS module\nown its FE pages. Persisted verbatim in "
+								"text": "Module navigation self-declaration — the wiring that lets THIS module\r\nown its FE pages. Persisted verbatim in "
 							},
 							{
 								"kind": "code",
@@ -67246,7 +67246,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\nvia "
+								"text": "\r\nvia "
 							},
 							{
 								"kind": "code",
@@ -67262,7 +67262,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ",\n"
+								"text": ",\r\n"
 							},
 							{
 								"kind": "code",
@@ -67270,7 +67270,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (route_prefixes) and the routes census. Declaring pages\ninside another module's static nav registry is the anti-pattern this\nreplaces: each module presents its own nav.\n\n"
+								"text": " (route_prefixes) and the routes census. Declaring pages\r\ninside another module's static nav registry is the anti-pattern this\r\nreplaces: each module presents its own nav.\r\n\r\n"
 							},
 							{
 								"kind": "code",
@@ -67278,7 +67278,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " resolve the active module (longest match wins — a\npage under a shared prefix like "
+								"text": " resolve the active module (longest match wins — a\r\npage under a shared prefix like "
 							},
 							{
 								"kind": "code",
@@ -67286,7 +67286,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " belongs to THIS module,\nnot to the module owning "
+								"text": " belongs to THIS module,\r\nnot to the module owning "
 							},
 							{
 								"kind": "code",
@@ -67302,7 +67302,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " route fields are\nself-described by the service (e.g. "
+								"text": " route fields are\r\nself-described by the service (e.g. "
 							},
 							{
 								"kind": "code",
@@ -67349,7 +67349,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " lists the NATS\nsubjects THIS service publishes as domain events (wildcards allowed).\nPersisted verbatim in "
+								"text": " lists the NATS\r\nsubjects THIS service publishes as domain events (wildcards allowed).\r\nPersisted verbatim in "
 							},
 							{
 								"kind": "code",
@@ -67357,7 +67357,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", served on\n"
+								"text": ", served on\r\n"
 							},
 							{
 								"kind": "code",
@@ -67365,7 +67365,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " — the decoupled vocabulary subject-pickers (job rules,\ntriggers) resolve options from. Subscriptions stay internal and are\nnever declared."
+								"text": " — the decoupled vocabulary subject-pickers (job rules,\r\ntriggers) resolve options from. Subscriptions stay internal and are\r\nnever declared."
 							}
 						]
 					},
@@ -67402,7 +67402,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ") —\n'system' for platform services, 'crm' for the CRM domain, … Combined\nwith the service code it derives the module's FE route prefix\n"
+								"text": ") —\r\n'system' for platform services, 'crm' for the CRM domain, … Combined\r\nwith the service code it derives the module's FE route prefix\r\n"
 							},
 							{
 								"kind": "code",
@@ -67410,7 +67410,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "; the BE rejects registration whose declared\nroute_prefixes/nav/routes live outside it. No default — a module\nstates its level explicitly."
+								"text": "; the BE rejects registration whose declared\r\nroute_prefixes/nav/routes live outside it. No default — a module\r\nstates its level explicitly."
 							}
 						]
 					},
@@ -67447,7 +67447,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " declares\nthis service as the landing module of "
+								"text": " declares\r\nthis service as the landing module of "
 							},
 							{
 								"kind": "code",
@@ -67455,7 +67455,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (app select → this\nmodule → its nav[0].href). At most one holder per root: the BE keeps\nthe existing winner on conflict (claim stored as "
+								"text": " (app select → this\r\nmodule → its nav[0].href). At most one holder per root: the BE keeps\r\nthe existing winner on conflict (claim stored as "
 							},
 							{
 								"kind": "code",
@@ -67463,7 +67463,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", warn-logged,\nregistration still succeeds). Declaring "
+								"text": ", warn-logged,\r\nregistration still succeeds). Declaring "
 							},
 							{
 								"kind": "code",
@@ -67471,7 +67471,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "/omitting never\ndowngrades an admin-set flag."
+								"text": "/omitting never\r\ndowngrades an admin-set flag."
 							}
 						]
 					},
@@ -67508,7 +67508,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\nin service.register and resolved by every UI surface (breadcrumbs,\napp launcher, module menus) against this service's own translation\nnamespace. Fallback when absent/unresolved: the raw "
+								"text": "\r\nin service.register and resolved by every UI surface (breadcrumbs,\r\napp launcher, module menus) against this service's own translation\r\nnamespace. Fallback when absent/unresolved: the raw "
 							},
 							{
 								"kind": "code",
@@ -67545,7 +67545,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Custom health checks beyond DB — added to the HealthCheck constructor.\nNATS check is added automatically if not provided."
+								"text": "Custom health checks beyond DB — added to the HealthCheck constructor.\r\nNATS check is added automatically if not provided."
 							}
 						]
 					},
@@ -67631,7 +67631,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", before\nConfigLoader and any other table read. When set, the service owns its\nschema patches ("
+								"text": ", before\r\nConfigLoader and any other table read. When set, the service owns its\r\nschema patches ("
 							},
 							{
 								"kind": "code",
@@ -67639,7 +67639,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " + signed MANIFEST.json) and applies\nthem before registration. A critical failure boots the service in\nDEGRADED mode: only "
+								"text": " + signed MANIFEST.json) and applies\r\nthem before registration. A critical failure boots the service in\r\nDEGRADED mode: only "
 							},
 							{
 								"kind": "code",
@@ -67647,7 +67647,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " + the db-migration admin routes answer,\ndomain traffic gets 503, heartbeat reports "
+								"text": " + the db-migration admin routes answer,\r\ndomain traffic gets 503, heartbeat reports "
 							},
 							{
 								"kind": "code",
@@ -67686,7 +67686,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Callback fired after everything is wired (NATS subscriptions, business\nlogic init, etc.). Receives the full MicroserviceContext.\nSKIPPED entirely when the service booted degraded (migration failure)."
+								"text": "Callback fired after everything is wired (NATS subscriptions, business\r\nlogic init, etc.). Receives the full MicroserviceContext.\r\nSKIPPED entirely when the service booted degraded (migration failure)."
 							}
 						]
 					},
@@ -68210,7 +68210,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Read service version from the deployed package.json — resolved by\nwalking up from the entry file ("
+								"text": "Read service version from the deployed package.json — resolved by\r\nwalking up from the entry file ("
 							},
 							{
 								"kind": "code",
@@ -68218,7 +68218,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "), so it is\ncwd-independent and always the same package as the service identity."
+								"text": "), so it is\r\ncwd-independent and always the same package as the service identity."
 							}
 						]
 					},
@@ -68262,7 +68262,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Bootstrap a Primebrick microservice with minimal boilerplate.\n\nOrchestrates: env validation → DAL init → config load → auth config →\nNATS connect → service register → HTTP server → graceful shutdown → onReady.\n\nReturns a MicroserviceContext with all wired components for the consumer\nto use in service-specific logic (NATS subscriptions, custom endpoints, etc.)."
+								"text": "Bootstrap a Primebrick microservice with minimal boilerplate.\r\n\r\nOrchestrates: env validation → DAL init → config load → auth config →\r\nNATS connect → service register → HTTP server → graceful shutdown → onReady.\r\n\r\nReturns a MicroserviceContext with all wired components for the consumer\r\nto use in service-specific logic (NATS subscriptions, custom endpoints, etc.)."
 							}
 						],
 						"blockTags": [
@@ -68271,7 +68271,7 @@
 								"content": [
 									{
 										"kind": "text",
-										"text": "if any critical step fails (DAL init, NATS connect). Non-critical\n        steps (config load, auth config load) log warnings and continue."
+										"text": "if any critical step fails (DAL init, NATS connect). Non-critical\r\n        steps (config load, auth config load) log warnings and continue."
 									}
 								]
 							}
@@ -77148,7 +77148,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " (SDK cannot import\n"
+						"text": " (SDK cannot import\r\n"
 					},
 					{
 						"kind": "code",
@@ -77156,7 +77156,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " — see src/http/entity-router.ts for the same\nconvention). Structurally assignable from the real "
+						"text": " — see src/http/entity-router.ts for the same\r\nconvention). Structurally assignable from the real "
 					},
 					{
 						"kind": "code",
@@ -77164,7 +77164,7 @@
 					},
 					{
 						"kind": "text",
-						"text": ":\n"
+						"text": ":\r\n"
 					},
 					{
 						"kind": "code",
@@ -77485,7 +77485,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " returns the\ninserted audit row id (used for the marker's "
+						"text": " returns the\r\ninserted audit row id (used for the marker's "
 					},
 					{
 						"kind": "code",
@@ -80947,7 +80947,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " declaration — returns an error string or\n"
+								"text": " declaration — returns an error string or\r\n"
 							},
 							{
 								"kind": "code",
@@ -80963,7 +80963,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", enforced\nat "
+								"text": ", enforced\r\nat "
 							},
 							{
 								"kind": "code",
@@ -83853,7 +83853,7 @@
 				"summary": [
 					{
 						"kind": "text",
-						"text": "NATS subjects and payload types for microservice lifecycle events.\n\nMicroservices publish these events via NATS. The BE subscribes and\npersists the state to the "
+						"text": "NATS subjects and payload types for microservice lifecycle events.\r\n\r\nMicroservices publish these events via NATS. The BE subscribes and\r\npersists the state to the "
 					},
 					{
 						"kind": "code",
@@ -83861,7 +83861,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " table.\n\nFlow:\n  - On startup: microservice publishes "
+						"text": " table.\r\n\r\nFlow:\r\n  - On startup: microservice publishes "
 					},
 					{
 						"kind": "code",
@@ -83869,7 +83869,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "\n  - Every 30s: microservice publishes "
+						"text": "\r\n  - Every 30s: microservice publishes "
 					},
 					{
 						"kind": "code",
@@ -83877,7 +83877,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "\n  - On graceful shutdown: microservice publishes "
+						"text": "\r\n  - On graceful shutdown: microservice publishes "
 					},
 					{
 						"kind": "code",
@@ -83885,7 +83885,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "\n  - On NATS reconnect: microservice publishes immediate "
+						"text": "\r\n  - On NATS reconnect: microservice publishes immediate "
 					},
 					{
 						"kind": "code",
@@ -83893,7 +83893,7 @@
 					},
 					{
 						"kind": "text",
-						"text": "\n\nThe BE also publishes "
+						"text": "\r\n\r\nThe BE also publishes "
 					},
 					{
 						"kind": "code",
@@ -83901,7 +83901,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " internally (from the stale-detection\njob) when a service's heartbeat is older than the stale threshold. This is\nNOT published by microservices — it is a BE-internal event."
+						"text": " internally (from the stale-detection\r\njob) when a service's heartbeat is older than the stale threshold. This is\r\nNOT published by microservices — it is a BE-internal event."
 					}
 				]
 			},
@@ -84022,7 +84022,7 @@
 								"summary": [
 									{
 										"kind": "text",
-										"text": "Published BY the BE once its lifecycle subscriber is up (startup).\nRegistered services re-send "
+										"text": "Published BY the BE once its lifecycle subscriber is up (startup).\r\nRegistered services re-send "
 									},
 									{
 										"kind": "code",
@@ -84030,7 +84030,7 @@
 									},
 									{
 										"kind": "text",
-										"text": " — a gateway restart is\nthe moment that sanitizes service continuity (endpoints, capabilities,\nOpenAPI rediscovery). Fire-and-forget: not a poll, the BE never asks."
+										"text": " — a gateway restart is\r\nthe moment that sanitizes service continuity (endpoints, capabilities,\r\nOpenAPI rediscovery). Fire-and-forget: not a poll, the BE never asks."
 									}
 								]
 							},
@@ -84450,7 +84450,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\nit forms the canonical identity "
+								"text": "\r\nit forms the canonical identity "
 							},
 							{
 								"kind": "code",
@@ -84458,7 +84458,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (ua_prefix in\nsystem.client_shield_registry, service_registry.pkg_name, log messages)."
+								"text": " (ua_prefix in\r\nsystem.client_shield_registry, service_registry.pkg_name, log messages)."
 							}
 						]
 					},
@@ -84917,7 +84917,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\nit forms the canonical identity "
+								"text": "\r\nit forms the canonical identity "
 							},
 							{
 								"kind": "code",
@@ -84925,7 +84925,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (ua_prefix in\nsystem.client_shield_registry, service_registry.pkg_name, log messages)."
+								"text": " (ua_prefix in\r\nsystem.client_shield_registry, service_registry.pkg_name, log messages)."
 							}
 						]
 					},
@@ -85000,7 +85000,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ") — e.g. 'system' for\nplatform services, 'crm' for the CRM domain. Persisted in\n"
+								"text": ") — e.g. 'system' for\r\nplatform services, 'crm' for the CRM domain. Persisted in\r\n"
 							},
 							{
 								"kind": "code",
@@ -85016,7 +85016,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " it derives the\nmodule's FE route prefix "
+								"text": " it derives the\r\nmodule's FE route prefix "
 							},
 							{
 								"kind": "code",
@@ -85024,7 +85024,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " — every declared\nroute_prefixes entry, nav href and routes entry must live under it\n(enforced by the BE at registration)."
+								"text": " — every declared\r\nroute_prefixes entry, nav href and routes entry must live under it\r\n(enforced by the BE at registration)."
 							}
 						]
 					},
@@ -85061,7 +85061,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " declares\nthis module as the landing app module of "
+								"text": " declares\r\nthis module as the landing app module of "
 							},
 							{
 								"kind": "code",
@@ -85069,7 +85069,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (sidebar selects it\nwhen the app is chosen → its nav[0].href). The BE applies keep-winner:\na claim colliding with a different holder is stored as "
+								"text": " (sidebar selects it\r\nwhen the app is chosen → its nav[0].href). The BE applies keep-winner:\r\na claim colliding with a different holder is stored as "
 							},
 							{
 								"kind": "code",
@@ -85077,7 +85077,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", never\nrejected. "
+								"text": ", never\r\nrejected. "
 							},
 							{
 								"kind": "code",
@@ -85085,7 +85085,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "/absent never downgrades — an admin-set default\nsurvives reboots."
+								"text": "/absent never downgrades — an admin-set default\r\nsurvives reboots."
 							}
 						]
 					},
@@ -85114,7 +85114,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "i18n key for the module's localized display name — resolved by the FE\nagainst this service's OWN translation namespace (same contract as\nnav[].label_key). Persisted in "
+								"text": "i18n key for the module's localized display name — resolved by the FE\r\nagainst this service's OWN translation namespace (same contract as\r\nnav[].label_key). Persisted in "
 							},
 							{
 								"kind": "code",
@@ -85122,7 +85122,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "; every UI\nsurface (breadcrumbs, app launcher, module menus) renders it, falling\nback to the raw "
+								"text": "; every UI\r\nsurface (breadcrumbs, app launcher, module menus) renders it, falling\r\nback to the raw "
 							},
 							{
 								"kind": "code",
@@ -85159,7 +85159,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "sha256 of the service's client shield key (module config\n"
+								"text": "sha256 of the service's client shield key (module config\r\n"
 							},
 							{
 								"kind": "code",
@@ -85167,7 +85167,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "). The raw key NEVER travels — the BE\nstores only this hash in client_shield_registry and verifies inbound\n"
+								"text": "). The raw key NEVER travels — the BE\r\nstores only this hash in client_shield_registry and verifies inbound\r\n"
 							},
 							{
 								"kind": "code",
@@ -85212,7 +85212,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " means the hash was\nproduced from "
+								"text": " means the hash was\r\nproduced from "
 							},
 							{
 								"kind": "code",
@@ -85220,7 +85220,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " — the\nBE stores "
+								"text": " — the\r\nBE stores "
 							},
 							{
 								"kind": "code",
@@ -85228,7 +85228,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " on the row and a rotate endpoint bumps it,\ntriggering re-registration with the next derived key. 'static' rows\ncarry a service-configured key and rotate only by admin action."
+								"text": " on the row and a rotate endpoint bumps it,\r\ntriggering re-registration with the next derived key. 'static' rows\r\ncarry a service-configured key and rotate only by admin action."
 							}
 						]
 					},
@@ -85287,7 +85287,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Capabilities declared in the service's package.json\n("
+								"text": "Capabilities declared in the service's package.json\r\n("
 							},
 							{
 								"kind": "code",
@@ -85295,7 +85295,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", snake_case lowercase) — e.g.\n"
+								"text": ", snake_case lowercase) — e.g.\r\n"
 							},
 							{
 								"kind": "code",
@@ -85311,7 +85311,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ". Persisted by the BE in\n"
+								"text": ". Persisted by the BE in\r\n"
 							},
 							{
 								"kind": "code",
@@ -85319,7 +85319,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " and refreshed at every registration,\nso the registry always reflects the deployed artifact."
+								"text": " and refreshed at every registration,\r\nso the registry always reflects the deployed artifact."
 							}
 						]
 					},
@@ -85359,7 +85359,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " env list\n(validated by "
+								"text": " env list\r\n(validated by "
 							},
 							{
 								"kind": "code",
@@ -85367,7 +85367,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "). The first schema is the owned one.\nPersisted in "
+								"text": "). The first schema is the owned one.\r\nPersisted in "
 							},
 							{
 								"kind": "code",
@@ -85375,7 +85375,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ": the BE rejects registration\nwhen a claimed schema is owned by a different code, or is one of the\nplatform schemas (the BE's own "
+								"text": ": the BE rejects registration\r\nwhen a claimed schema is owned by a different code, or is one of the\r\nplatform schemas (the BE's own "
 							},
 							{
 								"kind": "code",
@@ -85383,7 +85383,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", e.g.\npublic/system/custom). The claim survives offline/stale rows and is\nreleased only by "
+								"text": ", e.g.\r\npublic/system/custom). The claim survives offline/stale rows and is\r\nreleased only by "
 							},
 							{
 								"kind": "code",
@@ -85431,7 +85431,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " was resolved (B3 — static service identity):\n"
+								"text": " was resolved (B3 — static service identity):\r\n"
 							},
 							{
 								"kind": "code",
@@ -85455,7 +85455,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " prefix;\n              the BE re-derives and rejects on mismatch.\n"
+								"text": " prefix;\r\n              the BE re-derives and rejects on mismatch.\r\n"
 							},
 							{
 								"kind": "code",
@@ -85471,7 +85471,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " declared in the service's\n              package.json; the BE accepts any valid code.\nAbsent (legacy payloads) is treated as "
+								"text": " declared in the service's\r\n              package.json; the BE accepts any valid code.\r\nAbsent (legacy payloads) is treated as "
 							},
 							{
 								"kind": "code",
@@ -85479,7 +85479,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " — a code that does\nnot match its package name must be declared in the artifact."
+								"text": " — a code that does\r\nnot match its package name must be declared in the artifact."
 							}
 						]
 					},
@@ -85700,7 +85700,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " — published by the BE's stale-detection job\nwhen a service's "
+						"text": " — published by the BE's stale-detection job\r\nwhen a service's "
 					},
 					{
 						"kind": "code",
@@ -85708,7 +85708,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " exceeds the stale threshold.\n\nThis is NOT published by microservices. It is a BE-internal event that\nallows all BE instances (and their SSE clients) to learn about stale\nservices in real time."
+						"text": " exceeds the stale threshold.\r\n\r\nThis is NOT published by microservices. It is a BE-internal event that\r\nallows all BE instances (and their SSE clients) to learn about stale\r\nservices in real time."
 					}
 				]
 			},
@@ -85936,7 +85936,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Root level this module is part of (e.g. 'system', 'crm') — sent as\n"
+								"text": "Root level this module is part of (e.g. 'system', 'crm') — sent as\r\n"
 							},
 							{
 								"kind": "code",
@@ -85944,7 +85944,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " in service.register; the module's FE routes must live under\n"
+								"text": " in service.register; the module's FE routes must live under\r\n"
 							},
 							{
 								"kind": "code",
@@ -85997,7 +85997,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " asks the BE to mark this\nservice as its root level's landing module. Keep-winner on conflict;\nabsent/false never downgrades a stored flag."
+								"text": " asks the BE to mark this\r\nservice as its root level's landing module. Keep-winner on conflict;\r\nabsent/false never downgrades a stored flag."
 							}
 						]
 					},
@@ -86034,7 +86034,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\nin service.register; resolved against this service's own translation\nnamespace by every UI surface (fallback: raw "
+								"text": "\r\nin service.register; resolved against this service's own translation\r\nnamespace by every UI surface (fallback: raw "
 							},
 							{
 								"kind": "code",
@@ -86281,7 +86281,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ") — paired with\nthe UA prefix in "
+								"text": ") — paired with\r\nthe UA prefix in "
 							},
 							{
 								"kind": "code",
@@ -86289,7 +86289,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ". Only its sha256 hash is sent\nin "
+								"text": ". Only its sha256 hash is sent\r\nin "
 							},
 							{
 								"kind": "code",
@@ -86326,7 +86326,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Derived-key mode (B14): the service's derivation secret (module config\n"
+								"text": "Derived-key mode (B14): the service's derivation secret (module config\r\n"
 							},
 							{
 								"kind": "code",
@@ -86342,7 +86342,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\nmaterializes the key as "
+								"text": "\r\nmaterializes the key as "
 							},
 							{
 								"kind": "code",
@@ -86350,7 +86350,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " for the\ngeneration the BE advertises — the row becomes "
+								"text": " for the\r\ngeneration the BE advertises — the row becomes "
 							},
 							{
 								"kind": "code",
@@ -86358,7 +86358,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " and\na BE-side rotate (generation bump) auto-triggers re-registration with\nthe newly derived key. No key material rests in config or on disk."
+								"text": " and\r\na BE-side rotate (generation bump) auto-triggers re-registration with\r\nthe newly derived key. No key material rests in config or on disk."
 							}
 						]
 					},
@@ -86395,7 +86395,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " from the client-shield\nregistry snapshot (wired by create-microservice). Required for derived\nmode; unused otherwise."
+								"text": " from the client-shield\r\nregistry snapshot (wired by create-microservice). Required for derived\r\nmode; unused otherwise."
 							}
 						]
 					},
@@ -86443,7 +86443,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Shared slot (wired by create-microservice): the registrar writes the\ngeneration of each ACKED register so outbound calls keep deriving the\nacked key while the post-rotation handshake completes (zero-gap)."
+								"text": "Shared slot (wired by create-microservice): the registrar writes the\r\ngeneration of each ACKED register so outbound calls keep deriving the\r\nacked key while the post-rotation handshake completes (zero-gap)."
 							}
 						]
 					},
@@ -86517,7 +86517,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ") — used only\nas a log tag on lifecycle messages so the target of registration and\nheartbeats is visible on the service's stdout."
+								"text": ") — used only\r\nas a log tag on lifecycle messages so the target of registration and\r\nheartbeats is visible on the service's stdout."
 							}
 						]
 					},
@@ -86554,7 +86554,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "). When it\ncontains a manifest.json, the "
+								"text": "). When it\r\ncontains a manifest.json, the "
 							},
 							{
 								"kind": "code",
@@ -86562,7 +86562,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " capability is added to the\nregistration automatically — no package.json edit needed."
+								"text": " capability is added to the\r\nregistration automatically — no package.json edit needed."
 							}
 						]
 					},
@@ -86599,7 +86599,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " list\n(validated by "
+								"text": " list\r\n(validated by "
 							},
 							{
 								"kind": "code",
@@ -86607,7 +86607,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", first = owned schema). Sent in\n"
+								"text": ", first = owned schema). Sent in\r\n"
 							},
 							{
 								"kind": "code",
@@ -86623,7 +86623,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " so the\nBE can enforce one-module-one-schema ("
+								"text": " so the\r\nBE can enforce one-module-one-schema ("
 							},
 							{
 								"kind": "code",
@@ -86679,7 +86679,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " when package.json\ndeclares an explicit "
+								"text": " when package.json\r\ndeclares an explicit "
 							},
 							{
 								"kind": "code",
@@ -86695,7 +86695,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (package name\nminus "
+								"text": " (package name\r\nminus "
 							},
 							{
 								"kind": "code",
@@ -86703,7 +86703,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "). Wired by create-microservice — the BE\nre-derives "
+								"text": "). Wired by create-microservice — the BE\r\nre-derives "
 							},
 							{
 								"kind": "code",
@@ -86787,7 +86787,7 @@
 				"summary": [
 					{
 						"kind": "text",
-						"text": "Health check function — returns the result of local health checks\n(DB ping, NATS connectivity, etc.). The microservice injects this\nso the registrar can include health status in heartbeats."
+						"text": "Health check function — returns the result of local health checks\r\n(DB ping, NATS connectivity, etc.). The microservice injects this\r\nso the registrar can include health status in heartbeats."
 					}
 				]
 			},
@@ -86918,7 +86918,7 @@
 				"summary": [
 					{
 						"kind": "text",
-						"text": "Registers a microservice via NATS lifecycle events and maintains\na heartbeat.\n\nNATS-based: publishes to service.register / service.heartbeat /\nservice.unregister subjects. The BE subscribes and persists to the\n"
+						"text": "Registers a microservice via NATS lifecycle events and maintains\r\na heartbeat.\r\n\r\nNATS-based: publishes to service.register / service.heartbeat /\r\nservice.unregister subjects. The BE subscribes and persists to the\r\n"
 					},
 					{
 						"kind": "code",
@@ -86926,7 +86926,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " table. The microservice never touches the DB directly.\n\nThe healthCheckFn is called on each heartbeat to include the current\nhealth status (HTTP + NATS + custom checks)."
+						"text": " table. The microservice never touches the DB directly.\r\n\r\nThe healthCheckFn is called on each heartbeat to include the current\r\nhealth status (HTTP + NATS + custom checks)."
 					}
 				]
 			},
@@ -87139,7 +87139,7 @@
 								"summary": [
 									{
 										"kind": "text",
-										"text": "Derived-key mode (B14): invoked by the client-shield registry after a\nreload that changed row material. "
+										"text": "Derived-key mode (B14): invoked by the client-shield registry after a\r\nreload that changed row material. "
 									},
 									{
 										"kind": "code",
@@ -87147,7 +87147,7 @@
 									},
 									{
 										"kind": "text",
-										"text": " is the generation\nthe BE snapshot now advertises for this service — when the BE bumped it\n(rotate endpoint), re-register with the newly derived key."
+										"text": " is the generation\r\nthe BE snapshot now advertises for this service — when the BE bumped it\r\n(rotate endpoint), re-register with the newly derived key."
 									}
 								]
 							},
@@ -87300,7 +87300,7 @@
 								"summary": [
 									{
 										"kind": "text",
-										"text": "Start the heartbeat loop. The first heartbeat is sent immediately —\nthe register ack already proved the BE is listening, so there's no\nreason to wait a full interval before the BE sees fresh health data."
+										"text": "Start the heartbeat loop. The first heartbeat is sent immediately —\r\nthe register ack already proved the BE is listening, so there's no\r\nreason to wait a full interval before the BE sees fresh health data."
 									}
 								]
 							},
@@ -87415,7 +87415,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " table.\n\nSelf-contained interface — NO decorators, NO IAuditableEntity.\nThe SDK is DB-agnostic; the consumer keeps their own decorated\nentity class (e.g. ServiceRegistryEntity with @Entity/@Column from\n@primebrick/dal-pg) and maps it to/from this interface in their adapter.\n\nPreviously duplicated in emailsender (service_registry_entity.ts:1-54)\nand BE (service_registry_entity.ts:1-42). Now the shared shape lives here."
+						"text": " table.\r\n\r\nSelf-contained interface — NO decorators, NO IAuditableEntity.\r\nThe SDK is DB-agnostic; the consumer keeps their own decorated\r\nentity class (e.g. ServiceRegistryEntity with @Entity/@Column from\r\n@primebrick/dal-pg) and maps it to/from this interface in their adapter.\r\n\r\nPreviously duplicated in emailsender (service_registry_entity.ts:1-54)\r\nand BE (service_registry_entity.ts:1-42). Now the shared shape lives here."
 					}
 				]
 			},
@@ -94165,7 +94165,7 @@
 		}
 	],
 	"packageName": "@primebrick/sdk",
-	"packageVersion": "3.2.0",
+	"packageVersion": "3.3.0",
 	"symbolIdMap": {
 		"0": {
 			"packageName": "@primebrick/sdk",
