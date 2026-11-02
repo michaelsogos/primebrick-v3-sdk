@@ -37,7 +37,7 @@ wire the service's own logic.
 
 <Mermaid chart={`flowchart LR
   FE[Frontend] -->|HTTPS| BE[Backend gateway]
-  BE -->|/ws/:code/* proxy<br/>resolved identity + shield| US[Microservice HTTP]
+  BE -->|/svc/:code/* proxy<br/>resolved identity + shield| US[Microservice HTTP]
   BE <-->|NATS pub/sub| BUS[(NATS fabric)]
   US <-->|register · heartbeat · secret.get| BUS
   US --> PG[(own DB schema)]

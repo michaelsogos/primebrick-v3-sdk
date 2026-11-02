@@ -183,12 +183,29 @@ writer.send({
 });
 ```
 
-### 6. Keep-alive
+### 6. Keep-alive (liveness tick)
 
-Send a comment every 15 seconds to keep the TCP connection alive and detect
-disconnected clients (write fails on broken sockets):
+Send a comment on a fixed cadence to keep the TCP connection alive and detect
+disconnected clients (write fails on broken sockets). For streams that back a
+TTL'd resource (e.g. presence), the tick also refreshes that TTL server-side —
+the tick IS the liveness mechanism, so clients never need a heartbeat while
+the stream is open.
+
+**Approved TTL → keep-alive scales** (picked by data type; any other scale
+requires explicit approval before use):
+
+| Resource TTL | Keep-alive tick |
+|--------------|-----------------|
+| 30s | 20s |
+| 60s | 45s |
+
+Streams with no TTL-backed state (pure fanout, e.g. service events) use the
+15s transport keep-alive below — it is TCP hygiene only, not a liveness tick.
 
 ```ts
+// TTL-backed stream: cadence from the approved table above
+const keepAlive = setInterval(() => writer.comment("keep-alive"), KEEPALIVE_MS);
+// Pure transport stream (no TTL): 15s hygiene comment
 const keepAlive = setInterval(() => writer.comment("keep-alive"), 15_000);
 ```
 
@@ -196,7 +213,8 @@ const keepAlive = setInterval(() => writer.comment("keep-alive"), 15_000);
 
 1. **Connect**: auth middleware validates → `createSseWriter` sets headers →
    send `snapshot` → subscribe to `SseEventBus`
-2. **Stream**: forward bus events to client + keep-alive every 15s
+2. **Stream**: forward bus events to client + keep-alive on the cadence of
+   section 6 (15s transport, or the approved TTL scale)
 3. **Disconnect** (`req.on('close')`): unsubscribe from bus, clear keep-alive
    interval, close writer
 4. **Graceful shutdown** (SIGTERM): emit `error` event with
@@ -206,7 +224,7 @@ const keepAlive = setInterval(() => writer.comment("keep-alive"), 15_000);
 
 Set `server.timeout = 300_000` (5 minutes) on the HTTP server. This is a
 socket inactivity timeout — it resets on every `res.write()`, so active SSE
-connections with 15s keep-alive never hit it. It only fires when no data flows
+connections with keep-alive never hit it. It only fires when no data flows
 for 5 minutes (zombie connections), allowing the server to reclaim resources.
 
 **Never set `server.timeout = 0`.** Zero timeout means connections never

@@ -9,7 +9,7 @@ import { ValidationError } from "../http/rpc-router.js";
  *                          derivation); a config row survives only as a
  *                          drift tripwire checked at boot.
  *   - `service_base_url` — the discovery coordinate published in
- *                          service_registry (`/ws/<code>` proxy target).
+ *                          service_registry (`/svc/<code>` proxy target).
  *                          Provisioned by deployment, not edited at
  *                          runtime: a mid-flight change re-registers the
  *                          service at a new URL and orphans the old one.

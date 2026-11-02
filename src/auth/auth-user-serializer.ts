@@ -27,6 +27,7 @@ const DEFAULT_HEADER_NAMES = {
   permissions: "x-user-permissions",
   is_admin: "x-user-is-admin",
   is_system: "x-user-is-system",
+  locale: "x-user-locale",
 } as const;
 
 /**
@@ -50,6 +51,7 @@ export function serializeAuthUserToHeaders(
     permissions: h.permissions ?? DEFAULT_HEADER_NAMES.permissions,
     is_admin: h.is_admin ?? DEFAULT_HEADER_NAMES.is_admin,
     is_system: h.is_system ?? DEFAULT_HEADER_NAMES.is_system,
+    locale: h.locale ?? DEFAULT_HEADER_NAMES.locale,
   };
 
   const headers: Record<string, string> = {};
@@ -64,6 +66,7 @@ export function serializeAuthUserToHeaders(
   headers[names.permissions] = Array.from(user.permissions).join(",");
   headers[names.is_admin] = String(user.isAdmin);
   headers[names.is_system] = String(user.isSystem);
+  if (user.locale) headers[names.locale] = user.locale;
 
   // Gateway secret header for anti-spoofing — the rotating engine's current
   // value wins over the static config fallback (see auth/client-shield-secret.ts).
@@ -95,6 +98,7 @@ export function deserializeAuthUserFromHeaders(
     permissions: h.permissions ?? DEFAULT_HEADER_NAMES.permissions,
     is_admin: h.is_admin ?? DEFAULT_HEADER_NAMES.is_admin,
     is_system: h.is_system ?? DEFAULT_HEADER_NAMES.is_system,
+    locale: h.locale ?? DEFAULT_HEADER_NAMES.locale,
   };
 
   const id = headers.getHeader(names.user_id) ?? "";
@@ -109,10 +113,12 @@ export function deserializeAuthUserFromHeaders(
   const permissions = new Set(permsStr ? permsStr.split(",").filter(Boolean) : []);
   const isAdmin = headers.getHeader(names.is_admin) === "true";
   const isSystem = headers.getHeader(names.is_system) === "true";
+  const locale = headers.getHeader(names.locale) ?? undefined;
 
   return {
     id,
     idp_code: idpCode,
+    locale,
     email,
     name,
     roles,

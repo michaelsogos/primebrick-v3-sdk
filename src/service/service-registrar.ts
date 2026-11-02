@@ -44,7 +44,7 @@ export interface ServiceRegistrarConfig {
   service_version?: string;
   is_behind_scaler?: boolean;
   icon?: string;
-  icon_type?: 'url' | 'svg' | 'base64' | 'icon';
+  icon_type?: 'url' | 'base64' | 'icon';
   /**
    * This service's own client key (module config `service_client_shield_key`) — paired with
    * the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent

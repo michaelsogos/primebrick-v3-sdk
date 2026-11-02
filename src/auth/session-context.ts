@@ -63,6 +63,15 @@ export interface Session {
 
   /** IDP issuer URL (from `iss` claim). `null` for `"system"`. */
   issuer?: string;
+
+  /**
+   * FE tab-session id — populated from the `X-Client-Session` request header
+   * by the auth middleware. Used by the collaboration layer to stamp
+   * `EntityChangedMarker.changed_by_session`, so a client can distinguish
+   * "a save from my own tab" (silent realign) from "a save from another tab
+   * of the same user" (foreign change → merge/conflict).
+   */
+  clientSessionId?: string;
 }
 
 const als = new AsyncLocalStorage<Session>();
@@ -84,6 +93,14 @@ export function runWithSession<T>(session: Session, fn: () => T): T {
  */
 export function getSession(): Session | undefined {
   return als.getStore();
+}
+
+/**
+ * Read the FE tab-session id (`X-Client-Session` header) for the current
+ * request, or `undefined` when absent / outside an HTTP scope.
+ */
+export function getClientSessionId(): string | undefined {
+  return als.getStore()?.clientSessionId;
 }
 
 /**

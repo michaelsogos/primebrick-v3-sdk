@@ -70,7 +70,10 @@ exported from the package root: `import type { PresenceSignal, PresenceEntry, ..
 ### `PresenceSignal` — client → BE
 
 The wire payload for `POST /api/v1/entities/:entity/:uuid/presence`. Sent by
-the FE on open, on field focus, on field blur, on heartbeat, and on close.
+the FE on open, on field focus, on field blur, and on close. `HEARTBEAT` is
+sent only while the SSE stream is down — when SSE is open, the server's
+45s keep-alive tick refreshes the presence TTL itself (SSE-driven liveness,
+see `sse-standard.mdx` §6).
 
 ```typescript
 import type { PresenceSignal } from "@primebrick/sdk";
@@ -88,7 +91,7 @@ const signal: PresenceSignal = {
 |----------|---------|--------------|
 | `READING` | User opened the entity | Upsert READING entry; clear from editors if was EDITING |
 | `EDITING` | User is editing a field | Upsert EDITING entry with `field` + `value` |
-| `HEARTBEAT` | Keep-alive | Refresh Redis TTL; update `last_seen_at`; no status change |
+| `HEARTBEAT` | Fallback liveness (SSE down only) | Refresh Redis TTL; update `last_seen_at`; no status change |
 | `LEAVE` | User closed the tab / navigated away | Remove the user entirely (if last tab) |
 
 ### `PresenceEntry` — stored in Redis
@@ -204,9 +207,9 @@ Uses `node-redis` (the `redis` npm package, v6.x) — the same client the
 
 | Key | Type | TTL | Purpose |
 |-----|------|-----|---------|
-| `presence:{type}:{uuid}:users` | Hash | 30s | field = `userUuid`, value = JSON `PresenceEntry` (READING or EDITING) |
-| `presence:{type}:{uuid}:editors` | Hash | 30s | field = `userUuid`, value = JSON `{ field, value, since }` |
-| `presence:{type}:{uuid}:tabs:{userUuid}` | Set | 30s | members = `sessionId` strings. `tab_count = scard` |
+| `presence:{type}:{uuid}:users` | Hash | 60s | field = `userUuid`, value = JSON `PresenceEntry` (READING or EDITING) |
+| `presence:{type}:{uuid}:editors` | Hash | 60s | field = `userUuid`, value = JSON `{ field, value, since }` |
+| `presence:{type}:{uuid}:tabs:{userUuid}` | Set | 60s | members = `sessionId` strings. `tab_count = scard` |
 | `presence:{type}:{uuid}:changed` | String | 5min | value = JSON `EntityChangedMarker` |
 
 A user is in `users` with status EDITING **and** in `editors` while editing.
@@ -219,13 +222,15 @@ set is empty, remove the user from `users` and `editors`.
 import { RedisPresencePort, createRedisClient } from "@primebrick/sdk";
 
 const redis = await createRedisClient("redis://127.0.0.1:6379");
-const presencePort = new RedisPresencePort(redis);          // default 30s TTL
-// or: new RedisPresencePort(redis, 60_000);                 // custom 60s TTL
+const presencePort = new RedisPresencePort(redis);          // default 60s TTL
+// or: new RedisPresencePort(redis, 30_000);                 // custom 30s TTL
+// TTL and keep-alive cadence come in approved pairs — see sse-standard.mdx §6.
 ```
 
-The TTL is refreshed by every signal (READING/EDITING) and every HEARTBEAT.
-If a client stops sending signals, its entry expires automatically after the
-TTL window — no cleanup job needed.
+The TTL is refreshed by every signal (READING/EDITING), by the SSE keep-alive
+tick while the stream is open, and by HEARTBEAT when SSE is down. If a client
+stops all of them, its entry expires automatically after the TTL window — no
+cleanup job needed.
 
 ## NATS™ subject builders
 
@@ -297,10 +302,10 @@ the API returns 200 — the FE simply shows no other users.
 
 There is no cleanup job. Presence entries expire automatically:
 
-- The `users` and `editors` hashes have a 30s TTL, refreshed by every signal
-  and heartbeat. If a client stops sending signals (browser crash, network
-  loss), its entry expires after 30s.
-- The `tabs` set has a 30s TTL per user. On LEAVE of a tab, `srem` removes that
+- The `users` and `editors` hashes have a 60s TTL, refreshed by every signal,
+  by the SSE keep-alive tick, and by fallback heartbeats. If a client stops
+  all of them (browser crash, network loss), its entry expires after 60s.
+- The `tabs` set has a 60s TTL per user. On LEAVE of a tab, `srem` removes that
   sessionId; if the set is empty, the user is removed from `users` and
   `editors`.
 - The `changed` marker has a 5-minute TTL. Late-joining clients see the most

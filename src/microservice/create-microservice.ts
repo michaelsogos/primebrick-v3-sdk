@@ -108,7 +108,7 @@ import {
   brandRouteHandler,
 } from "../index.js";
 import type { TelemetryConfig } from "../telemetry/otel.js";
-import type { ModuleNavDeclaration } from "@primebrick/core";
+import type { ModuleNavDeclaration, ModuleEventsDecl } from "@primebrick/core";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
 import {
   runDbMigrationStep,
@@ -116,6 +116,7 @@ import {
   type MigrationBootState,
 } from "./db-migration-step.js";
 import { makeDbMigrationRouteHandler, MIGRATION_ROUTE_PREFIX } from "../http/migration-routes.js";
+import { snapshotCallables } from "../nats/callable-registry.js";
 
 // ─── Options ───────────────────────────────────────────────────────────────
 
@@ -129,7 +130,7 @@ export interface MicroserviceOptions {
   /** Icon name for service registry (e.g. "mail"). */
   icon?: string;
   /** Icon type for service registry. */
-  iconType?: "url" | "svg" | "base64" | "icon";
+  iconType?: "url" | "base64" | "icon";
   /** Whether the service is behind a scaler (default false). */
   isBehindScaler?: boolean;
   /** Service version — if omitted, reads from package.json in CWD. */
@@ -236,9 +237,19 @@ export interface MicroserviceOptions {
    * `route_prefixes` resolve the active module (longest match wins — a
    * page under a shared prefix like `/system/jobs` belongs to THIS module,
    * not to the module owning `/system`). `component_url` route fields are
-   * self-described by the service (e.g. `/ws/<code>/api/v1/module-assets/…`).
+   * self-described by the service (e.g. `/svc/<code>/api/v1/module-assets/…`).
    */
   nav?: ModuleNavDeclaration;
+
+  /**
+   * Module emitted-event self-declaration — `events.emits` lists the NATS
+   * subjects THIS service publishes as domain events (wildcards allowed).
+   * Persisted verbatim in `service_registry.endpoints.events`, served on
+   * `/modules` — the decoupled vocabulary subject-pickers (job rules,
+   * triggers) resolve options from. Subscriptions stay internal and are
+   * never declared.
+   */
+  events?: ModuleEventsDecl;
 
   /**
    * ROOT LEVEL this module is part of (`service_registry.part_of`) —
@@ -645,6 +656,13 @@ export async function createMicroservice(
     registrarEndpoints.nav = options.nav;
   }
 
+  // Module emitted-event self-declaration — verbatim object riding the same
+  // channel as nav: persisted in service_registry.endpoints.events, served
+  // on /modules. Domain subject pickers resolve options from the census.
+  if (options.events) {
+    registrarEndpoints.events = options.events;
+  }
+
   // Docs pack dir — shared between the registrar (capability) and the
   // auto-mounted serving route below. One detection, one source of truth.
   const docsPackDir = options.docsPackDir ?? join(process.cwd(), "dist", "docs-pack");
@@ -848,6 +866,17 @@ export async function createMicroservice(
       `Service '${options.serviceName}' booted DEGRADED (db migration failed) — domain routes 503, onReady skipped. Remediate via ${MIGRATION_ROUTE_PREFIX}/* (admin).`,
       { tags: ["core", "db-migration"], error: migrationState.lastError },
     );
+  }
+
+  // 11. Callable census — makeNatsRoutes subscriptions run inside onReady,
+  // AFTER the initial register() (NATS routes need a live connection). Any
+  // route declared with payload_schema was collected by the callable
+  // registry; a second register carries endpoints.callables to the
+  // gateway so rule/scheduling pickers see real, subscribed destinations.
+  const callables = snapshotCallables();
+  if (callables.length > 0) {
+    registrarEndpoints.callables = { callables };
+    await registrar.register();
   }
 
   return ctx;
