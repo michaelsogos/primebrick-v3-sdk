@@ -221,7 +221,13 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
       w.attrs.id === field || w.attrs["bind:value"] === field || w.attrs["bind:checked"] === field);
     if (direct) return pretty(direct.tag);
     const i = facts.widgets.findIndex((w) => w.tag === "FormField" && w.attrs.name === field);
-    const next = facts.widgets.slice(i + 1).find((w) => w.tag !== "FormField");
+    if (i === -1) return undefined;
+    // the field's own widget is the first non-FormField INSIDE it — the
+    // search must stop at the next FormField, never cross into it
+    const stop = facts.widgets.findIndex((w, k) => k > i && w.tag === "FormField");
+    const next = facts.widgets
+      .slice(i + 1, stop === -1 ? undefined : stop)
+      .find((w) => w.tag !== "FormField");
     return pretty(next?.tag);
   };
 

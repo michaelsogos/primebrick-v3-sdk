@@ -186,14 +186,18 @@ function walkTemplate(node: any, out: { widgets: SveltePageFacts["widgets"] }): 
   if (!node || typeof node !== "object") return;
   if (Array.isArray(node)) { for (const c of node) walkTemplate(c, out); return; }
   if (node.type === "Component" || node.type === "RegularElement" || node.type === "InlineComponent") {
-    const tag = node.name;
+    // member-tags normalize to their leaf: <Password.PasswordInput> →
+    // "PasswordInput" — the vocabulary works on component identities
+    const tag = String(node.name).split(".").pop() ?? node.name;
     if (WIDGET_TAGS.includes(tag)) {
+      const exprName = (e: { name?: string; property?: { name?: string }; value?: unknown } | undefined) =>
+        e?.name ?? e?.property?.name ?? e?.value;
       const attrs: Record<string, unknown> = {};
       for (const a of node.attributes ?? []) {
         if (a.type === "Attribute") {
           const v = a.value;
-          attrs[a.name] = Array.isArray(v) ? (v[0]?.data ?? v[0]?.expression?.name ?? v[0]?.expression?.value ?? true) : (v?.name ?? true);
-        } else if (a.type === "BindDirective") attrs["bind:" + a.name] = a.expression?.name;
+          attrs[a.name] = Array.isArray(v) ? (v[0]?.data ?? exprName(v[0]?.expression) ?? true) : (v?.name ?? true);
+        } else if (a.type === "BindDirective") attrs["bind:" + a.name] = exprName(a.expression);
       }
       out.widgets.push({ tag, attrs });
     }
