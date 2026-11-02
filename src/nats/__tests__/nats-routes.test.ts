@@ -138,6 +138,70 @@ describe("makeNatsRequestRoute (correlation reply)", () => {
   });
 });
 
+describe("payload_schema contract ({schema, parse})", () => {
+  const contract = {
+    schema: {
+      type: "object",
+      required: ["to"],
+      properties: { to: { type: "string", format: "email" } },
+      additionalProperties: false,
+    },
+    parse: (raw: unknown) => {
+      const o = raw as { to?: unknown };
+      if (typeof o?.to !== "string" || !o.to.includes("@")) {
+        throw new Error("to: invalid email address");
+      }
+      return { to: o.to as string };
+    },
+  };
+
+  it("runs parse on every message — invalid payload gets VALIDATION_ERROR, handler never runs", async () => {
+    const spy = vi.fn();
+    const msg = fakeMsg({ to: "not-an-email" }, { reply: "_INBOX.3" }) as Msg & { _responses: Uint8Array[] };
+    const { conn } = fakeConnection([msg]);
+    await makeNatsRequestRoute(
+      [{ subject: "svc.send", permissions: ["test.do"], payload_schema: contract, handler: async () => { spy(); return {}; } }],
+      { serviceCode: "svc", connection: conn },
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).not.toHaveBeenCalled();
+    const res = JSON.parse(new TextDecoder().decode(msg._responses[0]));
+    expect(res.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("handler receives the PARSED value; a further validate() runs after the contract", async () => {
+    const spy = vi.fn();
+    const good = fakeMsg({ to: "a@b.c", dropped: 1 }, { reply: "_INBOX.4" });
+    const { conn } = fakeConnection([good]);
+    await makeNatsRequestRoute<{ to: string }>(
+      [{
+        subject: "svc.send",
+        permissions: ["test.do"],
+        payload_schema: contract,
+        validate: (parsed) => ({ ...parsed, to: parsed.to.toUpperCase() }),
+        handler: async ({ request }) => { spy(request); return { ok: true }; },
+      }],
+      { serviceCode: "svc", connection: conn },
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).toHaveBeenCalledWith({ to: "A@B.C" });
+  });
+
+  it("pub routes drop invalid payloads (warn, no handler)", async () => {
+    const spy = vi.fn();
+    const bad = fakeMsg({ to: "nope" });
+    const ok = fakeMsg({ to: "a@b.c" });
+    const { conn } = fakeConnection([bad, ok]);
+    await makeNatsRoutes(
+      [{ subject: "x.y", permissions: ["test.do"], payload_schema: contract, handler: async ({ request }) => spy(request) }],
+      { serviceCode: "svc", connection: conn },
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ to: "a@b.c" });
+  });
+});
+
 describe("callNats", () => {
   it("publishes with a private reply inbox and resolves with the response", async () => {
     // fake conn: when the request lands on "svc.get", deliver a reply on the inbox

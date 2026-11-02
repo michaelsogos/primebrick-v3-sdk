@@ -179,6 +179,7 @@ export {
   makeNatsRoutes,
   makeNatsRequestRoute,
   callNats,
+  type CallablePayloadContract,
   type NatsRoute,
   type NatsRequestRoute,
   type NatsRouteContext,
@@ -244,6 +245,10 @@ export {
   type EntityServiceLike,
   type EntityActionMeta,
 } from "./http/entity-router.js";
+export {
+  entityFieldValidator,
+  type EntityFieldValidatorOptions,
+} from "./http/entity-field-validator.js";
 export {
   streamEntityExport,
   defaultExportColumns,

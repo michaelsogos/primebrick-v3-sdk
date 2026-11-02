@@ -1031,6 +1031,24 @@ HTTP response metadata for cached endpoints.
 | etag | `string` |  |
 | cached | `boolean` | True if the data came from Redis cache (vs fresh DB read). |
 
+### `CallablePayloadContract`
+
+The callable payload contract — ONE declaration, both faces:
+  - `schema`: the JSON Schema served to the census/FE/docs
+    (typically `z.toJSONSchema(zodSchema)`);
+  - `parse`:  the runtime validator bound to the SAME declaration
+    (typically `zodSchema.parse`) — MANDATORY, runs on every message
+    before the handler.
+
+A callable cannot list itself in `endpoints.callables` without runtime
+validation — the field carries both, so an unvalidated contract is
+undeclarable (enforcement over verification; no lint needed).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| schema | `Record<string, unknown>` |  |
+| parse | `(raw: unknown) => TReq` |  |
+
 ### `CensusOption`
 
 | Field | Type | Description |
@@ -1043,6 +1061,13 @@ HTTP response metadata for cached endpoints.
 | permissions | `typeOperator` |  |
 | payload_schema | `Record<string, unknown>` |  |
 | entity | `{ key: string; entity: string; table: string }` |  |
+
+### `CheckEntityFieldsOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| partial | `boolean` | `partial: true` — update semantics: only present keys validated,
+ absent required fields skipped. Default false (create semantics). |
 
 ### `ClientKeyMaterial`
 
@@ -1387,6 +1412,13 @@ foreign for merge/conflict purposes. |
 | locale | `string` |  |
 | timezone | `string` |  |
 
+### `EntityFieldValidatorOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| partial | `boolean` | Update semantics — only present keys validated, absent required
+ fields skipped. Default false (create). |
+
 ### `EntityMeta`
 
 Static entity meta — the shape every `*.meta.ts` file MUST satisfy.
@@ -1584,6 +1616,17 @@ Minimum evaluated shape — matches `EntityRouteDecl`/`EntityRouterConfig`.
 |-------|------|-------------|
 | tag | `string` |  |
 | attrs | `Record<string, unknown>` |  |
+
+### `FieldIssue`
+
+A single validation finding. `path` is the entity field key (or a
+ dotted sub-path inside a JSON-Schema check).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| path | `string` |  |
+| code | `"required" \| "invalid_type" \| "too_small" \| "too_big" \| "invalid_string" \| "invalid_json" \| "schema_mismatch" \| "not_in_vocab"` |  |
+| message | `string` |  |
 
 ### `GatewayConfig`
 
@@ -1948,8 +1991,10 @@ Structural mirror of dal-pg's MigrationRunResult — no dal import.
 | rbacMode | `"any" \| "all"` |  |
 | verify | `NatsRouteVerify` | Service-identity verification — see NatsRoute.verify. |
 | enrollment | `boolean` | Enrollment channel — see NatsRoute.enrollment. |
-| validate | `(raw: unknown) => TReq` |  |
-| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema) — see NatsRoute.payload_schema.
+| validate | `(raw: TReq) => TReq` | Extra payload validator — runs AFTER the `payload_schema` contract
+ parse (see NatsRoute.validate). |
+| payload_schema | `CallablePayloadContract<TReq>` | Request payload contract — `{schema, parse}` (see
+CallablePayloadContract / NatsRoute.payload_schema).
 `request`-kind callables additionally let the caller capture the reply
 (execution outcome for run-recording). |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
@@ -1974,10 +2019,14 @@ client-shield check entirely (it must do the equivalent check itself,
 typically with `allowNewPrefix`). Only legal on routes whose purpose
 is first-time client enrollment (service.register): everywhere else a
 skipped L1 is a security hole and the flag must never be set. |
-| validate | `(raw: unknown) => TReq` | Payload validator — throws on invalid shape (zod .parse or manual). |
-| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema). Declaring it lists the route in
-`endpoints.callables` — the census schedulers/rule-forms consume. Omit
-for private routes: a callable without a contract is not mappable. |
+| validate | `(raw: TReq) => TReq` | Extra payload validator — runs AFTER the `payload_schema` contract
+ parse, for checks the emitted JSON Schema cannot express (or any
+ route carrying no contract). Throws on invalid shape. |
+| payload_schema | `CallablePayloadContract<TReq>` | Request payload contract — `{schema, parse}` (see
+CallablePayloadContract). Declaring it lists the route in
+`endpoints.callables` — the census schedulers/rule-forms consume —
+AND wires the mandatory runtime validation. Omit for private routes:
+a callable without a contract is not mappable. |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
 | description_key | `string` |  |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<void>` | The ONE service call. |
@@ -3174,7 +3223,7 @@ Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
 compile error — the US→FE option boundary is enforced by the type.
 New formats are additive literals (never breaking).
 
-**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time"`
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "slug" \| "no_space"`
 
 ### `MetaColumnType`
 
@@ -3714,6 +3763,26 @@ Canonical header carrying the rotating client-shield secret on s2s calls.
 
 **Type:** `"x-client-shield-secret"`
 
+### `DOTTED_GLOB_RE`
+
+`dotted_glob` — dotted_key where a whole segment may be the `*`
+ wildcard (`access.system.*`, `access.crm.*`).
+
+**Type:** `RegExp`
+
+### `DOTTED_KEY_RE`
+
+`dotted_key` — dot-separated snake_key segments (`customer.read.all`).
+
+**Type:** `RegExp`
+
+### `EMAIL_REGEX`
+
+Email — same RFC-5322-simplified regex the config validator and the FE
+ refine use (documented shared in `sdk/src/config/config-validator.ts`).
+
+**Type:** `RegExp`
+
 ### `fromPG`
 
 Alias of `dec()` — parse a PostgreSQL `numeric`/`decimal` text value.
@@ -3729,6 +3798,67 @@ Alias of `dec()` — parse a PostgreSQL `numeric`/`decimal` text value.
 Alias of `dec()` — tolerates the `"…d"` wire suffix.
 
 **Type:** `typeof dec`
+
+### `IDENTIFIER_RE`
+
+`identifier` — edge-alphanumeric machine id: `[a-z0-9]` at both ends,
+ internal `.`/`_`/`-` allowed (`micha-test-rule-1`, `e2e-callable-dispatch`).
+
+**Type:** `RegExp`
+
+### `isClockTime`
+
+`HH:MM`/`HH:MM:SS` 24h clock.
+
+**Type:** `(v: string) => boolean`
+
+### `isColorHex`
+
+`#RGB`/`#RRGGBB`/`#RRGGBBAA` hex color.
+
+**Type:** `(v: string) => boolean`
+
+### `isDateTime`
+
+Parseable ISO/RFC3339 datetime.
+
+**Type:** `(v: string) => boolean`
+
+### `isDottedGlob`
+
+**Type:** `(v: string) => boolean`
+
+### `isDottedKey`
+
+**Type:** `(v: string) => boolean`
+
+### `isEmail`
+
+**Type:** `(v: string) => boolean`
+
+### `isIdentifier`
+
+**Type:** `(v: string) => boolean`
+
+### `isNoSpace`
+
+**Type:** `(v: string) => boolean`
+
+### `isPhone`
+
+`+`/`00` optional E.164-ish phone — intentionally permissive (the FE
+ libphonenumber check is richer; server-side stays non-rejecting on
+ format-only signals it cannot verify).
+
+**Type:** `(v: string) => boolean`
+
+### `isSlug`
+
+**Type:** `(v: string) => boolean`
+
+### `isSnakeKey`
+
+**Type:** `(v: string) => boolean`
 
 ### `JOB_SCHEDULE_HEADERS`
 
@@ -3786,6 +3916,12 @@ TextMapCarrier over NATS MsgHdrs (Map&#60;string, string[]&#62; wrapper).
 | get | "" |
 | set | "" |
 | keys | "" |
+
+### `NO_SPACE_RE`
+
+`no_space` — any non-whitespace token (UA prefixes, client names).
+
+**Type:** `RegExp`
 
 ### `NUMERIC_MIN_SIG_DIGITS`
 
@@ -4120,6 +4256,20 @@ diff, never an accident.
 
 **Type:** `Set<string>`
 
+### `SLUG_RE`
+
+`slug` — letter-leading, internal `-` allowed (`test-role`,
+ `administrators`). Superset of snake_key by the hyphen.
+
+**Type:** `RegExp`
+
+### `SNAKE_KEY_RE`
+
+`snake_key` — snake_case key starting with a letter (`favorite_pages`,
+ `oidc_issuer_url`). Digit-leading values are rejected.
+
+**Type:** `RegExp`
+
 ### `SSE_HEADERS`
 
 SSE response headers per the Primebrick SSE standard.
@@ -4184,6 +4334,12 @@ Capability matrix keyed by ConfigType. Frozen at module init — treat as
 immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 
 **Type:** `Record<ConfigType, TypeCapabilities>`
+
+### `UUID_REGEX`
+
+UUID (any version) — matches zod/JSON-Schema `format:"uuid"`.
+
+**Type:** `RegExp`
 
 ### `VENDOR_BLOCKED_PACKAGES`
 
@@ -4508,6 +4664,36 @@ Smallest integer `>= d`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `checkEntityFields(meta, entity, opts): FieldIssue[]`
+
+Validate a wire entity object against `meta.columns`.
+Required = `nullable === false` AND client-writable — `audited`
+columns and `meta.uid` (server-generated identity) are system-managed
+(filled server-side) and never arrive on the wire, so an absent one is
+NOT a violation. A PRESENT empty value still fails `nullable === false`
+— clients must not send managed fields at all. Mirrors the form, where
+required only ever applies to declared placements
+(`placement.required ?? nullable`).
+Unknown entity keys are ignored — system columns (`uuid`, `version`)
+need no column.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+| entity | `Record<string, unknown>` |  |
+| opts | `CheckEntityFieldsOptions` |  |
+
+### `checkFieldValue(col, value, path): FieldIssue[]`
+
+Validate one column's wire value (JSON fields already parsed).
+ `required` handled by the caller (`checkEntityFields`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `MetaColumn` |  |
+| value | `unknown` |  |
+| path | `string` |  |
 
 ### `checkRbac(user, requiredPermissions, mode): RbacResult`
 
@@ -4926,6 +5112,13 @@ convention used by existing specs) and secured with bearerAuth+apiKey.
 |-----------|------|-------------|
 | entity | `string` |  |
 | opts | `{ ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema }` |  |
+
+### `entityFieldValidator(meta, opts): (body: unknown) => { entity: Record<string, unknown> }`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+| opts | `EntityFieldValidatorOptions` |  |
 
 ### `entityPaths(prefix, listLeaf, detailParam): { list: string; create: string; detail: string }`
 
@@ -5532,6 +5725,14 @@ refuses to mount anything else at startup.
 |-----------|------|-------------|
 | h | `unknown` |  |
 
+### `isIsoDate(v): boolean`
+
+`YYYY-MM-DD` with real calendar semantics.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `string` |  |
+
 ### `isPeriodic(d): boolean`
 
 `true` when the value was produced by a truncated non-terminating division.
@@ -5569,6 +5770,48 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | value | `string` |  |
+
+### `isValidNatsSubject(subject): boolean`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| subject | `unknown` |  |
+
+### `isValidScheduleSpec(raw): boolean`
+
+`schedule_spec` grammar: `@every <n>[smhd]`, `@at <RFC3339>` or a
+ 5-field cron — the NATS `Nats-Schedule` header contract. Pure; the UI
+ interpreter (`parseScheduleSpec`/`nextScheduleRuns`) keeps croner.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `unknown` |  |
+
+### `isValidUrl(v): boolean`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `string` |  |
+
+### `jobTriggerShapeIssues(entity): FieldIssue[]`
+
+`event_subject`/`schedule_spec` are mutually mandatory (at least one);
+`execution_context: "user"` requires an event source to forward auth
+headers from. Pure — shared by the FE `job_trigger_shape` validator and
+the service-side `assertTriggerShape`. On `partial` (update), fields not
+present in `entity` are treated from the merged record the caller passes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| entity | `Record<string, unknown>` |  |
+
+### `jsonSchemaCheck(value, schema, path): FieldIssue[]`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| value | `unknown` |  |
+| schema | `Record<string, unknown>` |  |
+| path | `string` |  |
 
 ### `keyNamespaceOf(key): string \| null`
 
@@ -5668,7 +5911,7 @@ into the message loop — fire-and-forget has no caller to answer to.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| routes | `NatsRoute<unknown>[]` |  |
+| routes | `NatsRoute<TReq>[]` |  |
 | deps | `NatsRouterDeps` |  |
 
 ### `makeOpenApiHandler(spec): RouteHandler`
@@ -5872,6 +6115,21 @@ Two dispatch shapes are supported:
 | entrySource | `string` |  |
 | opts | `{ component_url_routes: string[]; sheet_keys: string[] }` |  |
 | ts | `typeof ts` |  |
+
+### `payloadMapConformance(map, callableSchema): FieldIssue[]`
+
+Conformance of a `payload_map` document against the callable's emitted
+`payload_schema`. Reports:
+  - every `required` prop not satisfied by a map entry nor covered by
+    `x_inject`/`x_semantic` (declaration-materialized at fire time);
+  - every `const` (leaf, list item, map value, fallback) failing the
+    prop's portable JSON-Schema constraints.
+`path`/`meta` values resolve at runtime — structurally unverifiable here.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| map | `Record<string, unknown> \| PayloadMap \| null \| undefined` |  |
+| callableSchema | `Record<string, unknown>` |  |
 
 ### `pgDivScale(a, b): number`
 
