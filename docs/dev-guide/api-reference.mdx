@@ -2040,7 +2040,9 @@ session ("you — other tab"). |
 ### `PresenceSignal`
 
 Wire payload for `POST /api/v1/entities/:entity/:uuid/presence`.
-Sent by the FE on open, on field focus, on field blur, on heartbeat, and on close.
+Sent by the FE on open, on field focus, on field blur, and on close — `HEARTBEAT`
+is fallback-only while the SSE stream is down (the 45s server keep-alive tick
+already refreshes the TTL when the stream is open; see `sse-standard.mdx` §6).
 
 | Field | Type | Description |
 |-------|------|-------------|

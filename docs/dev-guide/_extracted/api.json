@@ -80924,7 +80924,8 @@
 				{
 					"fileName": "primebrick-v3-sdk/src/service/callables-declaration.ts",
 					"line": 169,
-					"character": 16
+					"character": 16,
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/service/callables-declaration.ts#L169"
 				}
 			],
 			"signatures": [
@@ -80978,7 +80979,8 @@
 						{
 							"fileName": "primebrick-v3-sdk/src/service/callables-declaration.ts",
 							"line": 169,
-							"character": 16
+							"character": 16,
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/service/callables-declaration.ts#L169"
 						}
 					],
 					"parameters": [

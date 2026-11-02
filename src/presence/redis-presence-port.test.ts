@@ -109,7 +109,7 @@ describe("RedisPresencePort — session-keyed entries", () => {
 
   it("snapshot filters entries whose last_seen_at is stale", async () => {
     const stale = entry(USER, "sess-dead");
-    stale.last_seen_at = Date.now() - 60_000; // beyond the 30s TTL
+    stale.last_seen_at = Date.now() - 90_000; // beyond the 60s TTL
     await port.upsertReading(E, U, stale);
     await port.upsertReading(E, U, entry(USER, "sess-live"));
     const snap = await port.getSnapshot(E, U);

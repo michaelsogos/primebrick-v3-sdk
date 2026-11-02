@@ -10,17 +10,17 @@
  * - Hash `presence:{entityType}:{entityUuid}:users`
  *     field = `${userUuid}:${sessionId}` (one entry per TAB SESSION — two
  *     tabs of the same user are distinct entries), value = JSON
- *     `PresenceEntry` (status READING or EDITING). TTL 30s (refreshed by
- *     every signal + heartbeat).
+ *     `PresenceEntry` (status READING or EDITING). TTL 60s (refreshed by
+ *     every signal, the SSE liveness tick, and fallback heartbeats).
  *
  * - Hash `presence:{entityType}:{entityUuid}:editors`
  *     field = `${userUuid}:${sessionId}`, value = JSON `{ field, value, since }`.
- *     TTL 30s. A session is in `users` with status EDITING AND in `editors`
+ *     TTL 60s. A session is in `users` with status EDITING AND in `editors`
  *     while editing; LEAVE removes that session's fields from both.
  *
  * - Set `presence:{entityType}:{entityUuid}:tabs:{userUuid}`
  *     members = sessionId strings. `tab_count = scard`.
- *     TTL 30s. On LEAVE of a tab, `srem` that sessionId only — the user's
+ *     TTL 60s. On LEAVE of a tab, `srem` that sessionId only — the user's
  *     other tabs keep their entries.
  *
  * - String `presence:{entityType}:{entityUuid}:changed`
@@ -40,8 +40,8 @@ import type { PresencePort } from "./presence-port.js";
 import type { PresenceEntry, PresenceSnapshot, EntityChangedMarker } from "./types.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 
-/** Default TTL for presence hashes/sets: 30 seconds. */
-const PRESENCE_TTL_MS = 30_000;
+/** Default TTL for presence hashes/sets: 60 seconds. */
+const PRESENCE_TTL_MS = 60_000;
 /** Default TTL for the "changed" marker: 5 minutes. */
 const CHANGED_TTL_MS = 300_000;
 
