@@ -43,6 +43,12 @@
  */
 
 import { extJsonStringify } from "../json/ext-json.js";
+import { STANDARD_OPS, type EntityMeta } from "@primebrick/core";
+import {
+  streamEntityExport,
+  type EntityExportConfig,
+  type EntityExportQuery,
+} from "./entity-export.js";
 import {
   makeRpcRouter,
   ValidationError,
@@ -68,11 +74,14 @@ export interface EntityServiceLike<TEntity = unknown> {
   bulkDelete(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   bulkRestore(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   audit(uuid: string, page: number, limit: number): Promise<unknown>;
+  /** Row stream for `export` — the SAME query/filter contract as `list`. */
+  stream(query: Record<string, unknown>): AsyncIterable<Record<string, unknown>>;
 }
 
 export type EntityAction =
   | "meta"
   | "list"
+  | "export"
   | "create"
   | "duplicate"
   | "bulkDelete"
@@ -84,26 +93,10 @@ export type EntityAction =
   | "restore"
   | "audit";
 
-/** Canonical op vocabulary emitted in `meta.actions` — identical to the BE. */
-const STANDARD_OPS = [
-  "list",
-  "meta",
-  "get",
-  "create.single",
-  "update.single",
-  "delete.single",
-  "purge.single",
-  "restore.single",
-  "read.audit",
-  "export",
-  "delete.bulk",
-  "restore.bulk",
-  "duplicate.bulk",
-] as const;
-
 const ACTION_TO_OP: Record<EntityAction, string> = {
   meta: "meta",
   list: "list",
+  export: "export",
   get: "get",
   create: "create.single",
   update: "update.single",
@@ -134,7 +127,7 @@ export interface EntityRouterConfig<TEntity = unknown> {
   /** Static entity meta — served by GET /meta with derived
    *  `display_name` + `actions` + `collaboration`. When omitted, the meta
    *  route is not registered even if `permissions.meta` is set. */
-  meta?: Record<string, unknown> & { display_field?: string; actions_overrides?: Record<string, { enabled?: boolean }> };
+  meta?: EntityMeta;
   /** The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
    *  in the meta response (the BE derives it from entity persistence meta;
    *  the SDK cannot inspect decorators, so the caller declares it). */
@@ -152,11 +145,18 @@ export interface EntityRouterConfig<TEntity = unknown> {
     updateBody?: (body: unknown) => { entity: Record<string, unknown> };
     auditQuery?: (query: Record<string, unknown>) => { page: number; limit: number };
     duplicateBody?: (body: unknown) => { uuids: string[] };
+    /** Export query — extends the `listQuery` contract with
+     *  `file_type`/`locale`/`timezone`. */
+    exportQuery?: (query: Record<string, unknown>) => EntityExportQuery;
   };
   /** `duplicate` is ON by default (BE E.8): registers with the conventional
    *  `<entity>.duplicate.bulk` permission when not declared. `false`
    *  disables the route entirely. */
   duplicate?: false;
+  /** Export behaviour — column allowlist, template overrides, label
+   *  resolution. Requires `permissions.export` (the route) and `meta`
+   *  (the column driver). See `entity-export.ts`. */
+  export?: EntityExportConfig;
   /** Async per-action guards invoked before the service call — the US
    *  replacement for Express action middlewares (MFA step-up, B9). */
   guards?: Partial<Record<EntityAction, (ctx: RpcRouteContext) => void | Promise<void>>>;
@@ -267,6 +267,7 @@ function requireVersion(query: URLSearchParams): number {
   if (!Number.isInteger(n) || n < 0) {
     throw new ValidationError(
       "Query param 'version' (int) is required for this write",
+      "VERSION_REQUIRED",
     );
   }
   return n;
@@ -280,6 +281,18 @@ function requireUuidParam(ctx: RpcRouteContext): string {
     throw new ValidationError("Request validation failed");
   }
   return uuid;
+}
+
+/** Schema validators are plain `(raw) => T` functions — consumers wire
+ *  `zodSchema.parse` directly, whose ZodError must surface as HTTP 400,
+ *  not an unhandled 500. Any non-ValidationError throw is wrapped. */
+function runValidator<T>(fn: (input: never) => T, input: unknown): T {
+  try {
+    return fn(input as never);
+  } catch (e) {
+    if (e instanceof ValidationError) throw e;
+    throw new ValidationError(e instanceof Error ? e.message : String(e));
+  }
 }
 
 function parseBulkItems(body: unknown): Array<{ uuid: string; version: number }> {
@@ -372,6 +385,14 @@ export function makeEntityRouter<TEntity = unknown>(
   const service = config.service;
   const registered = new Set<EntityAction>();
 
+  // `export` columns derive from `meta` — declaring the permission without
+  // the meta is a config error, fail fast at construction.
+  if (config.permissions.export && !config.meta) {
+    throw new Error(
+      `entity-router[${config.entityName}]: permissions.export requires "meta" — export columns derive from it`,
+    );
+  }
+
   const guard = (a: EntityAction) => config.guards?.[a];
   const runGuard = async (a: EntityAction, ctx: RpcRouteContext) => {
     await guard(a)?.(ctx);
@@ -410,8 +431,35 @@ export function makeEntityRouter<TEntity = unknown>(
     path: `${base}/list`,
     handler: async (ctx) => {
       const parsed = parseBracketQuery(ctx.query);
-      const q = config.schemas?.listQuery ? config.schemas.listQuery(parsed) : parsed;
+      const q = config.schemas?.listQuery
+        ? runValidator(config.schemas.listQuery, parsed)
+        : parsed;
       return service.list(q);
+    },
+  });
+
+  push("export", {
+    method: "GET",
+    path: `${base}/export`,
+    handler: async (ctx) => {
+      await runGuard("export", ctx);
+      const parsed = parseBracketQuery(ctx.query);
+      const q = config.schemas?.exportQuery
+        ? runValidator(config.schemas.exportQuery, parsed)
+        : (parsed as EntityExportQuery);
+      if (q.file_type !== "csv" && q.file_type !== "xlsx" && q.file_type !== "html") {
+        throw new ValidationError("Query param 'file_type' must be csv|xlsx|html");
+      }
+      await streamEntityExport(
+        {
+          entityName: config.entityName,
+          meta: config.meta!,
+          stream: (qq) => service.stream(qq),
+          export: config.export,
+        },
+        q,
+        ctx.res,
+      );
     },
   });
 
@@ -530,7 +578,7 @@ export function makeEntityRouter<TEntity = unknown>(
       const uuid = requireUuidParam(ctx);
       const parsed = parseBracketQuery(ctx.query);
       const q = config.schemas?.auditQuery
-        ? config.schemas.auditQuery(parsed)
+        ? runValidator(config.schemas.auditQuery, parsed)
         : {
             page: Math.max(1, Number(parsed.page) || 1),
             limit: Math.min(50, Math.max(1, Number(parsed.limit) || 50)),

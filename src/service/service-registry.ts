@@ -23,5 +23,5 @@ export interface IServiceRegistry {
   last_health_check_at?: Date;
   is_enabled?: boolean;
   icon?: string;
-  icon_type?: 'url' | 'svg' | 'base64' | 'icon';
+  icon_type?: 'url' | 'base64' | 'icon';
 }

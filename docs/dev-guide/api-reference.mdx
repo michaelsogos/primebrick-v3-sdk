@@ -620,23 +620,27 @@ The `field` and `value` from the entry are stored.
 | entityUuid | `string` |  |
 | entry | `PresenceEntry` |  |
 
-#### `RedisPresencePort.remove(entityType, entityUuid, userUuid): Promise<void>`
+#### `RedisPresencePort.remove(entityType, entityUuid, userUuid, sessionId): Promise<void>`
 
-Remove a user entirely from an entity's presence (LEAVE).
-Removes from the users hash, the editors hash, and deletes the tabs set.
-No-op if the user was not present.
+Remove one tab session from an entity's presence (LEAVE).
+Removes the session's entry from the users/editors hashes and drops the
+sessionId from the tabs set — other sessions of the same user keep
+their entries. When `sessionId` is omitted, all sessions of the user
+are removed (whole-user leave).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | entityType | `string` |  |
 | entityUuid | `string` |  |
 | userUuid | `string` |  |
+| sessionId | `string` |  |
 
 #### `RedisPresencePort.heartbeat(entityType, entityUuid, userUuid, sessionId): Promise<void>`
 
-Refresh the TTL for a user's presence on an entity (HEARTBEAT).
-Updates `last_seen_at` on the entry. No-op if the user is not present
-(heartbeat is only sent by tabs that previously sent READING/EDITING).
+Refresh the TTL for one tab session's presence on an entity (HEARTBEAT).
+Updates `last_seen_at` on that session's entry. No-op if the session is
+not present (heartbeat is only sent by tabs that previously sent
+READING/EDITING).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -654,6 +658,19 @@ Called on SSE connect (snapshot event) and on GET presence.
 |-----------|------|-------------|
 | entityType | `string` |  |
 | entityUuid | `string` |  |
+
+#### `RedisPresencePort.markEdited(entityType, entityUuid, userUuid, editedAt): Promise<void>`
+
+Stamp `edited_at = editedAt` on a user's presence entry (server-side save
+hook). No-op if the user has no live entry — the field only makes sense
+for users still present on the entity.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| entityType | `string` |  |
+| entityUuid | `string` |  |
+| userUuid | `string` |  |
+| editedAt | `number` |  |
 
 #### `RedisPresencePort.setChanged(marker, ttlMs): Promise<void>`
 
@@ -874,11 +891,17 @@ Cache-first; falls back to DB on miss.
 
 ### `ValidationError`
 
-#### `ValidationError(message)`
+| Property | Type | Description |
+|----------|------|-------------|
+| internal_code | `string` | Stable machine code surfaced in the RFC 7807 body — FE error handling
+ keys off it (e.g. "VERSION_REQUIRED"), never off the message. |
+
+#### `ValidationError(message, internal_code)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | message | `string` |  |
+| internal_code | `string` |  |
 
 ## Interfaces
 
@@ -1273,7 +1296,33 @@ most recent change without scanning the audit log.
 | version | `number` | The new `version` after the save. |
 | audit_log_id | `number` | The `audit_log_id` of the change (for the GET audit/:auditLogId diff endpoint). |
 | changed_by | `string` | user_uuid of the writer. |
+| changed_by_session | `string` | Tab session of the writer — stamped from `AuditParams.sessionId`, which
+the FE sends as `X-Client-Session` on writes. A save is "self" (silently
+realign, no stale/chip) only when `changed_by` AND `changed_by_session`
+both match this client; a save from another tab of the same user is
+foreign for merge/conflict purposes. |
 | changed_at | `number` | Epoch ms of the save. |
+
+### `EntityExportConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| columns | `string[]` | Explicit export column allowlist (order preserved). Default: derived
+ from meta (see header comment). |
+| templates | `{ xlsx: string; html: string }` | Template overrides — default `<cwd>/templates/<entity>_export_template.<ext>`. |
+| entityLabels | `{ singular: string; plural: string }` | Entity display labels — default: resolved from
+ `<entities_ns>.entities.<entity>.{singular,plural}` translation keys. |
+| dictResolver | `(locale: string) => Promise<Record<string, string> \| null>` | Locale-aware dictionary resolver — the service wires its own
+ `TranslationsService` (module-qualified table) here. Return `null`
+ for "no dictionary" (labels fall back to humanized keys). |
+
+### `EntityExportQuery`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| file_type | `ExportFileType` |  |
+| locale | `string` |  |
+| timezone | `string` |  |
 
 ### `EntityMeta`
 
@@ -1293,8 +1342,8 @@ namespace write boundary (see `translation-keys.ts`) guarantees the
 keys actually live in that module's `<code>.translations` schema. |
 | title_key | `string` | Optional i18n key overriding the canonical page title.
 When absent, list/create/edit titles are built from the generic
-`system.entities.page_title.{list\|create\|edit}` templates interpolated
-with `system.entities.<translation_key>.{plural\|singular}`.
+`system.entities.page_title.{list|create|edit}` templates interpolated
+with `system.entities.<translation_key>.{plural|singular}`.
 Set only for custom pages needing a bespoke title — CRUD entity metas
 must not declare it. |
 | uid | `string` | Field key holding the entity primary key (usually `uuid`). |
@@ -1323,13 +1372,13 @@ Entity declaration for `makeServiceRoutes`. `spec` only shapes the
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
 | permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
-| meta | `Record<string, unknown> & { display_field: string; actions_overrides: Record<string, { enabled: boolean }> }` | Static entity meta — served by GET /meta with derived
+| meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
 | auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
  in the meta response (the BE derives it from entity persistence meta;
  the SDK cannot inspect decorators, so the caller declares it). |
-| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] } }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
+| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] }; exportQuery: (query: Record<string, unknown>) => EntityExportQuery }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
 receive the parsed bracket-notation query object; `createBody`/
 `updateBody`/`duplicateBody` receive the parsed JSON body and MUST
 validate the `{entity}` envelope (strict — reject `translations`).
@@ -1337,6 +1386,9 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
  `<entity>.duplicate.bulk` permission when not declared. `false`
  disables the route entirely. |
+| export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
+ resolution. Requires `permissions.export` (the route) and `meta`
+ (the column driver). See `entity-export.ts`. |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 | spec | `{ tag: string; label: string; listResponse: JsonSchema }` |  |
@@ -1348,13 +1400,13 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
 | permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
-| meta | `Record<string, unknown> & { display_field: string; actions_overrides: Record<string, { enabled: boolean }> }` | Static entity meta — served by GET /meta with derived
+| meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
 | auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
  in the meta response (the BE derives it from entity persistence meta;
  the SDK cannot inspect decorators, so the caller declares it). |
-| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] } }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
+| schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] }; exportQuery: (query: Record<string, unknown>) => EntityExportQuery }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
 receive the parsed bracket-notation query object; `createBody`/
 `updateBody`/`duplicateBody` receive the parsed JSON body and MUST
 validate the `{entity}` envelope (strict — reject `translations`).
@@ -1362,6 +1414,9 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
  `<entity>.duplicate.bulk` permission when not declared. `false`
  disables the route entirely. |
+| export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
+ resolution. Requires `permissions.export` (the route) and `meta`
+ (the column driver). See `entity-export.ts`. |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 
@@ -1377,6 +1432,43 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | errors | `string[]` |  |
 | env | `Record<string, string \| undefined>` |  |
 
+### `ExportConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| locale | `string` |  |
+| defaultTimezone | `string` |  |
+| entity | `ExportEntity` |  |
+| translations | `ExportTranslations` |  |
+| fieldMapping | `ExportFieldMapping` |  |
+| metadata | `ExportMetadata` |  |
+| data | `Record<string, unknown>[] \| AsyncIterable<Record<string, unknown>, any, any>` |  |
+
+### `ExportFieldMapping`
+
+### `ExportFieldMetadata`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| type | `"string" \| "number" \| "date" \| "datetime" \| "currency" \| "percentage"` |  |
+| precision | `number \| "seconds"` |  |
+| timezoneField | `string` |  |
+| currencyField | `string` |  |
+
+### `ExportOutputPaths`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| excelOutputPath | `string` |  |
+| csvOutputPath | `string` |  |
+
+### `ExportOutputStreams`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| excelStream | `WritableStream` |  |
+| csvStream | `WritableStream` |  |
+
 ### `GatewayConfig`
 
 Gateway configuration (GATEWAY mode).
@@ -1387,7 +1479,7 @@ Gateway configuration (GATEWAY mode).
 | secret_header_name | `string` |  |
 | public_secret | `string` |  |
 | public_secret_header_name | `string` |  |
-| headers | `{ user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string }` |  |
+| headers | `{ user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string; locale: string }` |  |
 
 ### `GeneratedDoc`
 
@@ -1507,7 +1599,7 @@ and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
 | last_health_check_at | `Date` |  |
 | is_enabled | `boolean` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 
 ### `ListFilterParamsOptions`
 
@@ -1548,6 +1640,30 @@ a structured `tags` array. |
 | status | `number` |  |
 | body | `Rfc7807Body` |  |
 
+### `MarkerAuditParams`
+
+Structural mirror of dal-pg `AuditParams` (SDK cannot import
+`@primebrick/dal-pg` — see src/http/entity-router.ts for the same
+convention). Structurally assignable from the real `AuditParams`:
+`action` arrives as dal's string-enum `AuditAction`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| entityClassName | `string` |  |
+| tableName | `string` |  |
+| entityId | `bigint` |  |
+| entityUuid | `string` |  |
+| action | `string` |  |
+| changedAt | `Date` |  |
+| version | `number` |  |
+| changedBy | `string` |  |
+| delta | `Record<string, { old: unknown; new: unknown }>` |  |
+
+### `MarkerAuditPort`
+
+Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
+inserted audit row id (used for the marker's `audit_log_id`).
+
 ### `MfaStepUpSpec`
 
 Route declaration: which action/resource the token must authorize.
@@ -1581,7 +1697,7 @@ Route declaration: which action/resource the token must authorize.
 | serviceDisplayName | `string` | Human-readable name shown in service registry (e.g. "Email Sender"). |
 | serviceDescription | `string` | Service description for service registry. |
 | icon | `string` | Icon name for service registry (e.g. "mail"). |
-| iconType | `"url" \| "svg" \| "base64" \| "icon"` | Icon type for service registry. |
+| iconType | `"url" \| "base64" \| "icon"` | Icon type for service registry. |
 | isBehindScaler | `boolean` | Whether the service is behind a scaler (default false). |
 | serviceVersion | `string` | Service version — if omitted, reads from package.json in CWD. |
 | envSchema | `EnvSchema` | Environment variable schema — validated via requireEnv. |
@@ -1634,7 +1750,13 @@ replaces: each module presents its own nav.
 `route_prefixes` resolve the active module (longest match wins — a
 page under a shared prefix like `/system/jobs` belongs to THIS module,
 not to the module owning `/system`). `component_url` route fields are
-self-described by the service (e.g. `/ws/<code>/api/v1/module-assets/…`). |
+self-described by the service (e.g. `/svc/<code>/api/v1/module-assets/…`). |
+| events | `ModuleEventsDecl` | Module emitted-event self-declaration — `events.emits` lists the NATS
+subjects THIS service publishes as domain events (wildcards allowed).
+Persisted verbatim in `service_registry.endpoints.events`, served on
+`/modules` — the decoupled vocabulary subject-pickers (job rules,
+triggers) resolve options from. Subscriptions stay internal and are
+never declared. |
 | partOf | `string` | ROOT LEVEL this module is part of (`service_registry.part_of`) —
 'system' for platform services, 'crm' for the CRM domain, … Combined
 with the service code it derives the module's FE route prefix
@@ -1711,6 +1833,11 @@ Structural mirror of dal-pg's MigrationRunResult — no dal import.
 | verify | `NatsRouteVerify` | Service-identity verification — see NatsRoute.verify. |
 | enrollment | `boolean` | Enrollment channel — see NatsRoute.enrollment. |
 | validate | `(raw: unknown) => TReq` |  |
+| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema) — see NatsRoute.payload_schema.
+`request`-kind callables additionally let the caller capture the reply
+(execution outcome for run-recording). |
+| label_key | `string` | i18n keys for the callable census entry (picker label/description). |
+| description_key | `string` |  |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<TRes>` | Returns the reply payload — published to msg.reply. |
 
 ### `NatsRoute`
@@ -1732,6 +1859,11 @@ typically with `allowNewPrefix`). Only legal on routes whose purpose
 is first-time client enrollment (service.register): everywhere else a
 skipped L1 is a security hole and the flag must never be set. |
 | validate | `(raw: unknown) => TReq` | Payload validator — throws on invalid shape (zod .parse or manual). |
+| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema). Declaring it lists the route in
+`endpoints.callables` — the census schedulers/rule-forms consume. Omit
+for private routes: a callable without a contract is not mappable. |
+| label_key | `string` | i18n keys for the callable census entry (picker label/description). |
+| description_key | `string` |  |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<void>` | The ONE service call. |
 
 ### `NatsRouteContext`
@@ -1813,6 +1945,54 @@ snake_case lowercase. Sent in `service.register` → persisted in
 service may carry a code that does not derive from its package name —
 it is part of the shipped artifact, not runtime-editable config. |
 
+### `PayloadInjectContext`
+
+Context the dispatcher reads injector values from.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| session_actor | `string` | Actor uuid riding the due message's forwarded auth headers
+ (`x-user-id`). Absent on the system lane → `session_actor` resolves
+ to undefined and the field is omitted (no invented identity). |
+
+### `PayloadMapContext`
+
+Context the resolver reads meta values from.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| actor_uuid | `string` | Who armed the rule (stored actor). |
+| rule_id | `string` |  |
+| fired_at | `number` | Fire timestamp (epoch ms) — set by the engine at dispatch. |
+| actor_locale | `string` | Locale (BCP-47, e.g. `it-IT`) of the actor whose event triggered the
+ arm — read off the message's auth headers (`x-user-locale`). Absent
+ on the system lane / anonymous events. |
+
+### `PayloadMapKeysHint`
+
+`x_map_keys` shape — `{from:"templateCode", prop:"variables"}`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| from | `string` |  |
+| prop | `string` |  |
+
+### `PayloadOptionsSource`
+
+`x_options` shape — mirrors the `single_select` `type_config` source
+ contract (api_url+verb+fields OR built-in values_source).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| api_url | `string` |  |
+| api_verb | `string` |  |
+| value_field | `string` |  |
+| label_field | `string` |  |
+| values_source | `string` |  |
+| icon | `string` | Lucide icon name rendered on every resolved option (`_icon`). |
+| icon_color | `string` | Color token for the option icon (`_icon_color`). |
+| icon_dashed | `boolean` | Dashed-stroke rendering for the option icon (`_icon_dashed`). |
+
 ### `PresenceDelta`
 
 Delta published on the NATS `presence.{entityType}.{entityUuid}` subject.
@@ -1821,6 +2001,9 @@ Consumed by the BE SSE bridge and forwarded to connected FE clients.
 | Field | Type | Description |
 |-------|------|-------------|
 | user_uuid | `string` | The user whose presence changed. |
+| session_id | `string` | Tab session that emitted the signal — used by SSE subscribers to exclude
+only echoes of their own session (another tab of the same user is NOT
+excluded). Absent on synthetic deltas (e.g. `__expired__` LEAVEs). |
 | action | `PresenceAction` | The action that triggered this delta. |
 | entry | `PresenceEntry \| null` | The updated entry (for READING/EDITING/HEARTBEAT), or null (for LEAVE). |
 | emitted_at | `number` | Epoch ms of the delta (for dedup / ordering on the FE). |
@@ -1840,7 +2023,17 @@ One entry per (entity_type, entity_uuid, user_uuid).
 | field | `string` | EDITING only — the field being edited. |
 | value | `unknown` | EDITING only — the current draft value of the field. |
 | last_seen_at | `number` | Epoch ms of the last signal/heartbeat from this user. |
+| edited_at | `number` | Epoch ms of this user's last save on the entity — stamped server-side by
+the audit hook when it publishes `EntityChangedMarker` for `changed_by`.
+Absent until the user's first save while present. The FE compares it to a
+5-minute window (and to the client's own mount time) to render the
+"recently saved" affordance. |
 | tab_count | `number` | Number of open tabs for this user on this entity (deduped by session_id). |
+| session_id | `string` | Tab session that produced this entry (FE-generated uuid, sent as
+`PresenceSignal.session_id`). Presence entries are keyed
+`user_uuid:session_id` — two tabs of the same user are distinct entries,
+so a same-user second tab is visible to the first tab as a different
+session ("you — other tab"). |
 
 ### `PresencePort`
 
@@ -2045,7 +2238,7 @@ tests only. |
 | nats_connected | `boolean` |  |
 | checks | `Record<string, ServiceHealthCheck>` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
 it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
 system.client_shield_registry, service_registry.pkg_name, log messages). |
@@ -2066,7 +2259,7 @@ system.client_shield_registry, service_registry.pkg_name, log messages). |
 | nats_connected | `boolean` |  |
 | checks | `Record<string, ServiceHealthCheck>` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
 it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
 system.client_shield_registry, service_registry.pkg_name, log messages). |
@@ -2142,7 +2335,7 @@ namespace by every UI surface (fallback: raw `name`). |
 | service_version | `string` |  |
 | is_behind_scaler | `boolean` |  |
 | icon | `string` |  |
-| icon_type | `"url" \| "svg" \| "base64" \| "icon"` |  |
+| icon_type | `"url" \| "base64" \| "icon"` |  |
 | clientKey | `string` | This service's own client key (module config `service_client_shield_key`) — paired with
 the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent
 in `service.register`; the raw key never leaves the service. |
@@ -2244,6 +2437,11 @@ inside services. May be empty for `"system"` callers. |
 | isVerified | `boolean` | Email verification status from IDP. `null` for `"system"`. |
 | emailVerified | `boolean` | Email verification status (email-specific). `null` for `"system"`. |
 | issuer | `string` | IDP issuer URL (from `iss` claim). `null` for `"system"`. |
+| clientSessionId | `string` | FE tab-session id — populated from the `X-Client-Session` request header
+by the auth middleware. Used by the collaboration layer to stamp
+`EntityChangedMarker.changed_by_session`, so a client can distinguish
+"a save from my own tab" (silent realign) from "a save from another tab
+of the same user" (foreign change → merge/conflict). |
 
 ### `SharedConfig`
 
@@ -2505,6 +2703,16 @@ Cache scope — which browser storage the FE should use.
 
 **Type:** `"local" \| "session"`
 
+### `CallableDecl`
+
+`endpoints.callables` entry — a LISTEN subject the service is willing to
+serve as a work destination (schedulers, rules, external callers). Mirror
+axis of `EmitDecl`: emits = what a module publishes, callables = what it
+serves. Auto-collected from `makeNatsRoutes`/`makeNatsRequestRoute` route
+declarations carrying `payload_schema` — the schema IS the listing opt-in
+(a callable without a contract is not mappable). The service declares its
+own domain subject only — nothing in this axis knows scheduling exists.
+
 ### `CleanupFn`
 
 **Type:** `() => Promise<void>`
@@ -2573,6 +2781,14 @@ on the wire (`non_deleted` → `EXCLUDED`, `deleted` → `ONLY`,
 
 **Type:** `"non_deleted" \| "deleted" \| "all"`
 
+### `EmitDecl`
+
+One published subject — the ConfigEntry display anatomy mirrored:
+`label_key` = short translated display name (primary line), `description_key`
+= human description (small secondary line), `subject` = the raw key (mono
+line). Both keys point at translations in the EMITTING module's namespace
+(`<ns>.events.<name>`); pickers render label + desc + subject.
+
 ### `EntityActionSentinel`
 
 Sentinel gates a route may declare instead of concrete permissions.
@@ -2590,6 +2806,10 @@ The served `GET /api/v1/entities/{entity}/meta` response:
 static meta + runtime-injected `display_name`, `actions`, `collaboration`.
 
 **Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta }`
+
+### `ExportFileType`
+
+**Type:** `"xlsx" \| "csv" \| "html"`
 
 ### `FilterCondition`
 
@@ -2614,6 +2834,24 @@ option is always active — there is no "clear" affordance. Declared in
 ### `FilterPresetOption`
 
 A single selectable option of a table filter preset.
+
+### `FormFieldPlacement`
+
+One field's placement + policy inside an entity form — PAGE-domain
+metadata: it positions a field the ENTITY owns; it never redefines the
+field's type or validation (those come from `meta.columns` — class-derived
+constraints + authored `format`).
+
+`key` MUST exist in the served `meta.columns` — the host archetype
+validates at render time and fails loudly on drift.
+
+### `FormPageDecl`
+
+`page_props.form` — the entity-form page declaration. `fields` is the
+ORDERED placement list: only declared keys render (absent columns are
+simply not editable on this surface). `validators` names closed-vocab
+cross-field rules implemented host-side (e.g. `target_matches_lane`) —
+the host rejects unknown validator keys.
 
 ### `GenerateDocsFn`
 
@@ -2691,6 +2929,8 @@ Global connector joining the advanced-filter group.
 
 **Type:** `"debug" \| "info" \| "done" \| "warn" \| "error"`
 
+### `LucideRewriteResult`
+
 ### `MetaColumn`
 
 Entity field descriptor — the root-level `columns` dictionary.
@@ -2700,6 +2940,19 @@ Declared as a type alias (not interface): object literal types get an
 implicit index signature, keeping `MetaColumn` assignable to
 `Record<string, unknown>` — host/remotes pass columns through generic
 cell-snippet args typed as `Record<string, unknown>`.
+
+### `MetaColumnFormat`
+
+Authored field-format vocabulary — the SEMANTIC input contract of a
+column: which control archetype a form renderer must use and which
+validation chain `buildEntityFormSchema` applies. Absent → the renderer
+falls back to `type` (text→text input, boolean→switch, badge→options).
+
+Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
+compile error — the US→FE option boundary is enforced by the type.
+New formats are additive literals (never breaking).
+
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time"`
 
 ### `MetaColumnType`
 
@@ -2729,6 +2982,10 @@ retries `requestFn` with the action-authorization token. The promise
 resolves with the final Response — success or failure.
 
 **Type:** `(requestFn: (token: string \| null) => Promise<Response>, context: { action: string; target_resource: string }) => Promise<Response>`
+
+### `ModuleCallablesDecl`
+
+### `ModuleEventsDecl`
 
 ### `ModuleHostBase`
 
@@ -2823,14 +3080,15 @@ The `esm-mount` chunk's entry contract — `export function mountPage(el, ctx)`.
 May return the `mount()` result (disposed via `unmount()`), a custom dispose
 function, or a promise of either.
 
+NOTE: a raw `mount()` result is only safe when it was registered by the
+SAME svelte module instance that will call `unmount()` on it. Remote
+chunks resolve svelte through the vendor import map while the host runs
+its own bundled copy — two `mounted_components` registries — so chunk
+code MUST go through `mountModuleContent` (or return an equivalent
+dispose closure over the mounting bundle's `unmount`), never hand the
+host a foreign mount record.
+
 **Type:** `(el: HTMLElement, ctx: ModulePageHost) => unknown`
-
-### `MountSectionFn`
-
-A chunk's section-mount export — same host ctx as `mountPage`, plus the
-section's own declaration (`id`, `props`, placement) as third argument.
-
-**Type:** `(el: HTMLElement, ctx: ModulePageHost, section: PageSectionDecl) => unknown`
 
 ### `MountSheetFn`
 
@@ -2873,15 +3131,6 @@ the remote cannot smuggle an undeclared panel.
 
 **Type:** `(panelKey: string, props: Record<string, unknown>, options: Record<string, unknown>) => void`
 
-### `PageLayoutDecl`
-
-Spatial arrangement of a page's sections — ONE archetype: CSS grid.
-A vertical stack is the degenerate case (`columns` defaults to `"1fr"`,
-sections auto-flow in declaration order); a split is `columns: "280px
-1fr"`; a dashboard is `columns: "repeat(3, 1fr)"` + per-section `span`.
-New container classes, when genuinely needed, arrive as new optional
-fields — the contract never grows a second placement vocabulary.
-
 ### `PageRouteComponentFormat`
 
 Remote component delivery format. Extensible — new literals are additive
@@ -2906,21 +3155,67 @@ Page archetype vocabulary — what the route renders, regardless of delivery.
 
 ### `PageRouteProps`
 
-`page_props` — free-form per-route metadata with a typed `layout` axis.
+`page_props` — free-form per-route metadata with a typed `form` axis.
 
-### `PageSectionDecl`
+### `PayloadInjector`
 
-One mountable block inside a `layout` — placement is grid-cell based.
+Fire-time injector vocabulary — values generated by the DISPATCHER at
+republish time (never at arm: a scheduled payload would replay the same
+value every fire otherwise). Declaration-only via `x_inject` /
+`x_semantic` — not a user-picked source kind.
+  - `uuid`          — fresh v4 uuid per dispatch (correlation ids)
+  - `now_iso`       — dispatch instant, ISO 8601
+  - `now_ms`        — dispatch instant, epoch ms
+  - `session_actor` — actor uuid riding the forwarded auth headers
 
-### `PageSectionSource`
+**Type:** `"uuid" \| "now_iso" \| "now_ms" \| "session_actor"`
 
-Section mount target — `remote:<export>` = a named mount export of the
-page's own chunk (`mod.mountModels(el, ctx, section)`); `host:<key>` = a
-component registered in the host's section registry. The `remote:` form is
-the default for module-owned blocks; `host:` composes host-owned building
-blocks without shipping a chunk at all.
+### `PayloadMap`
 
-**Type:** `templateLiteral \| templateLiteral`
+target field key → source declaration. `null`/`{}` = verbatim passthrough.
+
+**Type:** `Record<string, PayloadMapEntry>`
+
+### `PayloadMapEntry`
+
+Where one target field's value comes from.
+
+**Type:** `PayloadMapLeafEntry \| { kind: "inject"; inject: PayloadInjector; fallback: PayloadMapFallbackClause[] } \| { kind: "list"; items: PayloadMapItemEntry[]; fallback: PayloadMapFallbackClause[] } \| { kind: "map"; entries: Record<string, PayloadMapItemEntry>; fallback: PayloadMapFallbackClause[] }`
+
+### `PayloadMapFallbackClause`
+
+Fallback clause — one nesting level, user-sourced kinds only.
+
+**Type:** `{ kind: "const"; value: unknown } \| { kind: "path"; path: string } \| { kind: "meta"; meta: PayloadMapMeta }`
+
+### `PayloadMapItemEntry`
+
+Value allowed inside `list` items / `map` entries — leaf kinds or a
+ declared injector (the marker lands verbatim and the dispatcher
+ resolves it per-fire).
+
+**Type:** `PayloadMapLeafEntry \| { kind: "inject"; inject: PayloadInjector }`
+
+### `PayloadMapLeafEntry`
+
+User-authored source for a single scalar value.
+
+**Type:** `{ kind: "const"; value: unknown; fallback: PayloadMapFallbackClause[] } \| { kind: "path"; path: string; fallback: PayloadMapFallbackClause[] } \| { kind: "meta"; meta: PayloadMapMeta; fallback: PayloadMapFallbackClause[] }`
+
+### `PayloadMapMeta`
+
+**Type:** `"actor_uuid" \| "rule_id" \| "fired_at" \| "actor_locale"`
+
+### `PayloadSemanticSlot`
+
+Semantic slots — declared on BOTH sides (event emits + callable
+ schema) so derivation is a lookup, never a guess:
+  - `entity.uuid`  — uuid of the event's declared entity snapshot
+  - `entity.id`    — numeric id of the declared entity snapshot
+  - `entity.table` — table name declared on the emit
+  - `actor.uuid`   — the session actor riding the event headers
+
+**Type:** `"entity.uuid" \| "entity.id" \| "entity.table" \| "actor.uuid"`
 
 ### `Permission`
 
@@ -3292,6 +3587,68 @@ Mirrors the numeric checks in `config-validator.ts`.
 
 **Type:** `Set<string>`
 
+### `PAYLOAD_INJECT_MARK`
+
+Marker key emitted by `{kind:"inject"}` at arm time — the dispatcher
+ replaces single-key `{$inject:name}` objects with the generated value.
+
+**Type:** `"$inject"`
+
+### `PAYLOAD_INJECTORS`
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_MAP_META_KINDS`
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_OPTIONS_VALUES_SOURCES`
+
+Built-in `values_source` vocabularies — closed registry.
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_SEMANTIC_SLOTS`
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_X_INJECT`
+
+Field whose value the dispatcher MAY generate — names a
+ `PayloadInjector`. Seeded automatically; an explicitly authored
+ entry wins over the declaration.
+
+**Type:** `"x_inject"`
+
+### `PAYLOAD_X_MAP_KEYS`
+
+For `kind:"map"` fields — where the suggested entry keys come from:
+ `{from: <other field>, prop: <row prop>}` reads the selected option's
+ source row property (e.g. a template's `variables` schema).
+
+**Type:** `"x_map_keys"`
+
+### `PAYLOAD_X_NOT_EDITABLE`
+
+Private setter — a platform-owned field that MUST NOT render
+ as a form input (reserved traceability/correlation fields).
+
+**Type:** `"x_not_editable"`
+
+### `PAYLOAD_X_OPTIONS`
+
+Catalog-backed const value — the form renders a ComboSelect fed by
+ the declared source instead of free text.
+
+**Type:** `"x_options"`
+
+### `PAYLOAD_X_SEMANTIC`
+
+Semantic derivation slot — declares what context the field wants so
+ the mapping is a lookup, never a guess.
+
+**Type:** `"x_semantic"`
+
 ### `Permission`
 
 RBAC registry — single source of truth for permissions and role mappings.
@@ -3320,7 +3677,7 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
                                       pass. Use for high-risk non-CRUD
                                       operations (e.g. admin change-password).
 
-**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
+**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_EMAIL_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_EMAIL_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
 
 | Field | Value |
 |-------|-------|
@@ -3445,20 +3802,20 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
 | EMAILSENDER_PROVIDER_RESTORE_BULK | "emailsender.provider.restore.bulk" |
 | EMAILSENDER_PROVIDER_DUPLICATE_SINGLE | "emailsender.provider.duplicate.single" |
 | EMAILSENDER_PROVIDER_DUPLICATE_BULK | "emailsender.provider.duplicate.bulk" |
-| EMAILSENDER_TEMPLATE_READ_ALL | "emailsender.email_template.read.all" |
-| EMAILSENDER_TEMPLATE_READ_SINGLE | "emailsender.email_template.read.single" |
-| EMAILSENDER_TEMPLATE_READ_AUDIT | "emailsender.email_template.read.audit" |
-| EMAILSENDER_TEMPLATE_EXPORT | "emailsender.email_template.export" |
-| EMAILSENDER_TEMPLATE_CREATE_SINGLE | "emailsender.email_template.create.single" |
-| EMAILSENDER_TEMPLATE_CREATE_BULK | "emailsender.email_template.create.bulk" |
-| EMAILSENDER_TEMPLATE_UPDATE_SINGLE | "emailsender.email_template.update.single" |
-| EMAILSENDER_TEMPLATE_UPDATE_BULK | "emailsender.email_template.update.bulk" |
-| EMAILSENDER_TEMPLATE_DELETE_SINGLE | "emailsender.email_template.delete.single" |
-| EMAILSENDER_TEMPLATE_DELETE_BULK | "emailsender.email_template.delete.bulk" |
-| EMAILSENDER_TEMPLATE_RESTORE_SINGLE | "emailsender.email_template.restore.single" |
-| EMAILSENDER_TEMPLATE_RESTORE_BULK | "emailsender.email_template.restore.bulk" |
-| EMAILSENDER_TEMPLATE_DUPLICATE_SINGLE | "emailsender.email_template.duplicate.single" |
-| EMAILSENDER_TEMPLATE_DUPLICATE_BULK | "emailsender.email_template.duplicate.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_READ_ALL | "emailsender.email_template.read.all" |
+| EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE | "emailsender.email_template.read.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT | "emailsender.email_template.read.audit" |
+| EMAILSENDER_EMAIL_TEMPLATE_EXPORT | "emailsender.email_template.export" |
+| EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE | "emailsender.email_template.create.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK | "emailsender.email_template.create.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE | "emailsender.email_template.update.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK | "emailsender.email_template.update.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE | "emailsender.email_template.delete.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK | "emailsender.email_template.delete.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE | "emailsender.email_template.restore.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK | "emailsender.email_template.restore.bulk" |
+| EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE | "emailsender.email_template.duplicate.single" |
+| EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK | "emailsender.email_template.duplicate.bulk" |
 | EMAILSENDER_SEND | "emailsender.send" |
 | EMAILSENDER_LOG_CREATE_SINGLE | "emailsender.log.create.single" |
 
@@ -3569,7 +3926,7 @@ deployed identity/discovery coordinates, NOT runtime-tunable settings.
                          derivation); a config row survives only as a
                          drift tripwire checked at boot.
   - `service_base_url` — the discovery coordinate published in
-                         service_registry (`/ws/<code>` proxy target).
+                         service_registry (`/svc/<code>` proxy target).
                          Provisioned by deployment, not edited at
                          runtime: a mid-flight change re-registers the
                          service at a new URL and orphans the old one.
@@ -3612,6 +3969,22 @@ Packages that MUST NOT be imported raw inside a remote chunk — they are
 already served through a sanctioned vendor specifier (e.g. transformers is
 vendored behind `@primebrick/ui/vendor/transformers`). A raw import would bundle
 a second runtime copy (split caches, split env config) — reject it.
+
+**Type:** `typeOperator`
+
+### `VENDOR_SPECIFIER_PREFIXES`
+
+Open-ended specifier prefixes — everything under a prefix is a sanctioned
+vendor specifier without central allowlisting per item. Unlike
+VENDOR_SPECIFIERS (one bundle file per specifier), each prefix
+maps to a `/vendor/…/` URL directory: the specifier suffix resolves
+verbatim after the prefix.
+
+`@primebrick/ui/vendor/lucide/icons/` covers every lucide icon file the
+host vendor build emits at `/vendor/icons/lucide/<dist-name>.js` —
+remote chunks never resolve icons through a barrel (a barrel would force
+the whole catalog on every consumer), they emit one specifier per used
+icon. New lucide releases add icons with zero changes to this contract.
 
 **Type:** `typeOperator`
 
@@ -3709,6 +4082,30 @@ own namespace plus the CORE vocabularies (`app`, `system`).
 | params | `URLSearchParams` |  |
 | opts | `ListFilterParamsOptions` |  |
 | startIdx | `number` |  |
+
+### `applyPayloadInjectors(payload, ctx): unknown`
+
+Fire-time pass run by the dispatcher on the armed payload: deep-walks
+and replaces every `{$inject:name}` marker with a freshly generated
+value. Unresolvable injectors (`session_actor` with no session) resolve
+to undefined — the field is omitted, never invented.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| payload | `unknown` |  |
+| ctx | `PayloadInjectContext` |  |
+
+### `applyPayloadMap(map, eventPayload, ctx): unknown`
+
+Apply a payload map: for each declared target field, resolve its entry
+against the source event payload + fire context. `null`/absent map →
+the event payload verbatim (the default passthrough).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| map | `PayloadMap \| null \| undefined` |  |
+| eventPayload | `unknown` |  |
+| ctx | `PayloadMapContext` |  |
 
 ### `assertDbEnv(cwd): DbEnv`
 
@@ -4090,6 +4487,12 @@ Falls back to "EUR" for unknown locales.
 |-----------|------|-------------|
 | lang | `string` |  |
 
+### `defaultExportColumns(meta): MetaColumn[]`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+
 ### `defaultSearchGate(trimmed): boolean`
 
 search-gate — canonical "should this search query hit the server" predicate.
@@ -4303,6 +4706,33 @@ Roles marked with `is_admin=true` bypass all permission checks.
 | roles | `typeOperator` | Role names from the IDP (as extracted from JWT via roles_path) |
 | getRoleMappingFn | `(role: string) => Promise<{ permissions: string[]; is_admin: boolean } \| null>` | Function that returns the mapping for a specific role |
 
+### `exportDataWithTemplate(templatePath, outputPaths, config): Promise<void>`
+
+Export data to Excel and CSV using template-based approach (writes to files)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| templatePath | `string` | Path to Excel template file |
+| outputPaths | `ExportOutputPaths` | Output paths for Excel and CSV |
+| config | `ExportConfig` | Export configuration |
+
+### `exportDataWithTemplateToStream(templatePath, outputStream, fileType, config): Promise<void>`
+
+Export data to Excel, CSV, or HTML using template-based approach (streams to HTTP response)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| templatePath | `string` | Path to template file (Excel for xlsx/csv, HTML for html) |
+| outputStream | `WritableStream` | Output stream for the requested format |
+| fileType | `"xlsx" \| "csv" \| "html"` | File type to export ('xlsx', 'csv', or 'html') |
+| config | `ExportConfig` | Export configuration |
+
+### `exportFieldMetadata(col): ExportFieldMetadata`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `MetaColumn` |  |
+
 ### `extJsonBodyParser(opts): (req: Request, _res: Response, next: NextFunction) => Promise<void>`
 
 Express middleware that parses request bodies with Ext-JSON.
@@ -4445,6 +4875,18 @@ header names configured on this service's AuthConfig are copied.
 |-----------|------|-------------|
 | msg | `{ headers: MsgHdrs }` |  |
 
+### `forwardedActor(msg): { actor_uuid: string; actor_locale: string }`
+
+Read the session actor's identity off an inbound message's auth headers
+— `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47).
+Header names resolve against the configured `gateway.headers` map with
+the serializer defaults. Both absent on system-lane messages — the
+values are reported, never invented.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| msg | `{ headers: MsgHdrs }` |  |
+
 ### `fromBigInt(v, scale): Decimal`
 
 | Parameter | Type | Description |
@@ -4480,6 +4922,11 @@ Used by `CacheKeyBuilder.forRowFromMeta` as the first resolution step.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | ctor | `(args: any[]) => any` |  |
+
+### `getClientSessionId(): string \| undefined`
+
+Read the FE tab-session id (`X-Client-Session` header) for the current
+request, or `undefined` when absent / outside an HTTP scope.
 
 ### `getClientShieldSecretSlot(): ClientShieldSecretSlot \| null`
 
@@ -4575,6 +5022,15 @@ Cache key format: `translations:i18n:{schema}:{language}`
 |-----------|------|-------------|
 | schema | `string` |  |
 | language | `string` |  |
+
+### `ianaHelperFields(meta): Set<string>`
+
+Columns that exist only to carry a record-level IANA timezone for a
+ `datetime_iana_toggle` column — helper data, never a visible export column.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
 
 ### `identityHeaders(identity, capabilities, clientKey): Record<string, string>`
 
@@ -4803,6 +5259,18 @@ logger's mandatory [service#version] tag, so only the URL is needed.
 |-----------|------|-------------|
 | url | `string` | Base URL the service is listening on |
 
+### `lucideIconSpecifier(exportName): string`
+
+CamelCase lucide export name → emitted icon specifier.
+`Cpu` → `@primebrick/ui/vendor/lucide/icons/cpu.js`;
+`CheckCircle2` → `…/check-circle-2.js`. Matches the dist filename
+convention (`dist/icons/<kebab>.js`) so aliases (`alarm-check`) resolve
+identically — validation of existence is the remote build's job.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| exportName | `string` |  |
+
 ### `makeDbMigrationRouteHandler(boot, state): RouteHandler`
 
 | Parameter | Type | Description |
@@ -4815,6 +5283,13 @@ logger's mandatory [service#version] tag, so only the URL is needed.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | config | `EntityRouterConfig<TEntity>` |  |
+
+### `makeMarkerAuditPort(inner, entityType): MarkerAuditPort`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| inner | `MarkerAuditPort` |  |
+| entityType | `string` |  |
 
 ### `makeNatsRequestRoute(routes, deps): Promise<Subscription[]>`
 
@@ -5111,6 +5586,15 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 
 Clear the singleton (for tests or graceful shutdown).
 
+### `resolvePath(payload, path): unknown`
+
+Minimal JSONPath resolver: `$` = root, `$.a.b.c` = nested lookup.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| payload | `unknown` |  |
+| path | `string` |  |
+
 ### `resolvePresetConditions(presets, selections): FilterCondition[]`
 
 Flatten the WHERE conditions of every preset's ACTIVE option — the
@@ -5143,7 +5627,7 @@ deployed artifact, never from runtime-editable config:
   1. package.json `"service_code"` (explicit override)
   2. derived from package name (`primebrick-<code>` → `<code>`)
 
-Everything downstream — service_registry.code, `/ws/<code>` proxy
+Everything downstream — service_registry.code, `/svc/<code>` proxy
 routes, the i18n namespace (`<code>.*`), the NATS/schema ownership
 claim — is generated from this value. A DB `service_code` config row
 may still exist (legacy seeds): it is treated as a drift tripwire —
@@ -5177,6 +5661,20 @@ the OLD endpoint) before the delegate swap.
 | cfg | `TelemetryConfig` |  |
 | serviceName | `string` |  |
 | serviceVersion | `string` |  |
+
+### `rewriteLucideBarrelImports(code): LucideRewriteResult`
+
+Remote-build transform: decomposes named imports of the lucide vendor
+barrel into one bare specifier per icon — the chunk then carries only
+the icons it actually uses. Type imports are stripped (they exist only
+for the compiler, which checks the ORIGINAL source pre-transform).
+
+Non-decomposable forms (`import X`, `import * as X`, `export … from`)
+throw — the barrel surface cannot survive into an emitted chunk.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
 
 ### `round(d, scale, mode): Decimal`
 
@@ -5246,6 +5744,24 @@ Text-physical searchable columns — the scope selector + default
 |-----------|------|-------------|
 | columns | `MetaColumn[]` |  |
 
+### `seedPayloadMapEntries(targetSchema, sourceSchema, sourceEntity, map): PayloadMap`
+
+Derive the DECLARED auto-entries for a callable's payload_schema —
+`x_inject` and `x_semantic` fields materialize `{kind:"inject"}` /
+the semantic suggestion when (and only when) the map doesn't already
+declare an entry. Explicitly authored entries ALWAYS win.
+
+This is a pure data derivation: callers merge it into the form's
+initial/baseline data (or the stored map) so machine-written values
+never masquerade as user edits.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| targetSchema | `Record<string, unknown> \| undefined` |  |
+| sourceSchema | `Record<string, unknown> \| undefined` |  |
+| sourceEntity | `{ key: string; entity: string; table: string } \| undefined` |  |
+| map | `PayloadMap` |  |
+
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
 Serialize a fully resolved AuthUser into a headers object for forwarding
@@ -5274,7 +5790,7 @@ Serialize a typed value back to string for DB storage.
 Service API base of an entity list basePath — strips the trailing
 `/entities/<entity>` segment so service-relative endpoints declared in
 meta (e.g. sparkline `endpoint: "/actions/job-run-stats"`) resolve to
-`/ws/<svc>/api/v1/actions/…` or `/api/v1/actions/…` for BE entities.
+`/svc/<svc>/api/v1/actions/…` or `/api/v1/actions/…` for BE entities.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -5357,6 +5873,14 @@ are up, then `provider.get(ref)` for each consumed secret.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | provider | `SecretProvider` |  |
+
+### `streamEntityExport(opts, query, res): Promise<void>`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| opts | `{ entityName: string; meta: EntityMeta; stream: (query: EntityExportQuery) => AsyncIterable<Record<string, unknown>>; export: EntityExportConfig }` |  |
+| query | `EntityExportQuery` |  |
+| res | `ServerResponse` |  |
 
 ### `strictEq(a, b): boolean`
 
@@ -5473,6 +5997,17 @@ Accessor — returns the capability record for a type.
 |-----------|------|-------------|
 | type | `ConfigType` |  |
 
+### `validateCallablesDeclaration(code, decl): string \| null`
+
+Validate an `endpoints.callables` declaration — returns an error string or
+`null` when valid (same contract as `validateEventsDeclaration`, enforced
+at `service.register` enrollment).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| decl | `unknown` |  |
+
 ### `validateConfigValue(type, type_config, value, config_key): void`
 
 Validate a config value against its type and type_config.validation rules.
@@ -5495,6 +6030,13 @@ Pure process.env — no DB dependency.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | schema | `EnvSchema` |  |
+
+### `validateEventsDeclaration(code, decl): string \| null`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| decl | `unknown` |  |
 
 ### `validateNavDeclaration(code, decl, partOf): string \| null`
 

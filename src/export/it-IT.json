@@ -1,0 +1,11 @@
+{
+  "Customer": "Cliente",
+  "Customers": "Clienti",
+  "report_title": "Report Clienti",
+  "col_id": "ID",
+  "col_name": "Nome",
+  "col_email": "Email",
+  "col_created_at": "Creato il",
+  "col_price": "Prezzo",
+  "col_status": "Stato"
+}

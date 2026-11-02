@@ -81,7 +81,7 @@ export interface ServiceRoutesInput {
 //   `duplicate !== false` (the conventional `<entity>.duplicate.bulk`
 //   permission is auto-assigned). `meta` additionally requires `cfg.meta`.
 const OP_ORDER: EntityAction[] = [
-  "meta", "list", "get", "create", "update", "delete",
+  "meta", "list", "export", "get", "create", "update", "delete",
   "purge", "restore", "audit", "duplicate", "bulkDelete", "bulkRestore",
 ];
 const ACTION_TO_SPEC_OP: Partial<Record<EntityAction, EntityCrudOp>> = {

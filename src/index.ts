@@ -91,6 +91,9 @@ export {
   PAGE_ROUTE_KINDS,
   SINGULAR_NAV_ALLOWLIST,
 } from "./service/nav-declaration.js";
+export { validateEventsDeclaration } from "./service/events-declaration.js";
+export { validateCallablesDeclaration } from "./service/callables-declaration.js";
+export type { CallableDecl } from "./service/callables-declaration.js";
 export {
   DOCS_PACK_CAPABILITY,
   DOCS_PACK_SCHEMA_VERSION,
@@ -152,6 +155,7 @@ export {
   cancelJobSchedule,
   dueLaneVerify,
   forwardAuthHeaders,
+  forwardedActor,
   JOB_SCHEDULE_HEADERS,
   JOB_STREAM_SUBJECTS,
   JOB_SCHEDULE_REQUEST_SUBJECT,
@@ -197,6 +201,26 @@ export {
   type EntityServiceLike,
   type EntityActionMeta,
 } from "./http/entity-router.js";
+export {
+  streamEntityExport,
+  defaultExportColumns,
+  exportFieldMetadata,
+  ianaHelperFields,
+  type EntityExportConfig,
+  type EntityExportQuery,
+} from "./http/entity-export.js";
+export {
+  exportDataWithTemplate,
+  exportDataWithTemplateToStream,
+} from "./export/index.js";
+export type {
+  ExportConfig,
+  ExportFieldMetadata,
+  ExportFieldMapping,
+  ExportFileType,
+  ExportOutputPaths,
+  ExportOutputStreams,
+} from "./export/types.js";
 export {
   mapDalError,
   type MappedDalError,
@@ -371,6 +395,11 @@ export type {
 export * from "./presence/types.js";
 export { type PresencePort } from "./presence/presence-port.js";
 export { RedisPresencePort } from "./presence/redis-presence-port.js";
+export {
+  makeMarkerAuditPort,
+  type MarkerAuditPort,
+  type MarkerAuditParams,
+} from "./presence/marker-audit-port.js";
 export {
   presenceSubject,
   entityChangedSubject,

@@ -55,6 +55,12 @@ export type AuthUser = {
   idp_org: string | null;
   /** IDP username (from `name`, `username`, or `preferred_username` claim). */
   idp_username: string | null;
+  /** User's preferred locale (BCP-47, e.g. `it-IT`) — resolved from the
+   *  `ui_locale` preference by the BE port; rides the serialized headers
+   *  (`x-user-locale`) so downstream services and event pipelines can
+   *  localize without cross-schema reads. Absent for system keys/users
+   *  with no stored preference. */
+  locale?: string;
   /** Raw access token captured in STANDALONE mode for proxy forwarding. undefined in GATEWAY mode. */
   raw_access_token?: string;
 };
@@ -86,6 +92,8 @@ export interface GatewayConfig {
     permissions?: string;
     is_admin?: string;
     is_system?: string;
+    /** Header name carrying the user's preferred locale (BCP-47). */
+    locale?: string;
   };
 }
 
