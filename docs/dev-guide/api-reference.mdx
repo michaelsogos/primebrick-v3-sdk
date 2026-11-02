@@ -5885,6 +5885,15 @@ Read service version from the deployed package.json — resolved by
 walking up from the entry file (`detectPackageIdentity`), so it is
 cwd-independent and always the same package as the service identity.
 
+### `reconcileOrder(generatedDir): { added: string[]; dropped: string[] }`
+
+Reconcile `<generatedDir>/../_order.json` against the `.mdx` files in
+`generatedDir`. Returns the change summary for reporting.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| generatedDir | `string` |  |
+
 ### `requireActor(): string`
 
 Read the current actor (UUID or `"system"`). Throws if no session is in

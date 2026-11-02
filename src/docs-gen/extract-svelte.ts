@@ -97,7 +97,9 @@ function extractScriptFacts(scriptText: string, variant: "host" | "remote", ts: 
         ? callee === "apiFetch" || callee === "apiFetchWithTimeout"
         : callee === "ctx.api" || callee === "ctx.api_fetch" || callee === "apiFetch" || callee === "apiFetchWithTimeout";
       if (isApiCall) {
-        const url = n.arguments[0]?.getText(sf)?.replace(/['"`]/g, "");
+        const url = n.arguments[0]?.getText(sf)?.replace(/['"`]/g, "")
+          .replace(/\$\{[^}]*\}/g, "{param}")
+          .replace(/'\s*\+\s*[\w.\[\]'"]+$/, "{param}");
         const opts = n.arguments[1]?.getText(sf) || "";
         const method = opts.match(/method:\s*['"](\w+)/)?.[1] || "GET";
         if (url?.startsWith("/")) facts.endpoints.push({ method, path: url.split("?")[0] });
@@ -150,10 +152,13 @@ function extractScriptFacts(scriptText: string, variant: "host" | "remote", ts: 
         }
       }
     }
-    // remote sheet props: ctx.sheet.props.<name> reads
-    if (variant === "remote" && ts.isPropertyAccessExpression(n)) {
+    // remote sheet props: ctx.sheet.props.<name> or ['name'] reads
+    if (variant === "remote" && (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n))) {
       const text = n.getText(sf);
-      const m = text.match(/^ctx\.sheet\.props\.(\w+)$/) ?? text.match(/^ctx\.props\.(\w+)$/);
+      const m = text.match(/^ctx\.sheet\.props\.(\w+)$/)
+        ?? text.match(/^ctx\.sheet\.props\[['"`](\w+)['"`]\]$/)
+        ?? text.match(/^ctx\.props\.(\w+)$/)
+        ?? text.match(/^ctx\.props\[['"`](\w+)['"`]\]$/);
       if (m && !facts.sheetProps.includes(m[1])) facts.sheetProps.push(m[1]);
     }
     ts.forEachChild(n, visit);

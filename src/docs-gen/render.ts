@@ -293,7 +293,6 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         if (facts.fields.send_invitation) notes.push("also used for the invitation email");
         break;
     }
-    if (f.widget && WIDGET_PROSE[f.widget]) notes.push(`edited with the ${WIDGET_PROSE[f.widget]}`);
     if (f.options_source) {
       const opts = censusOptionsFor(f.options_source);
       const what = f.options_source === "census.emits" ? "event subjects published by the registered modules" : "callable work subjects declared by the registered modules";
@@ -302,9 +301,9 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         : `offers the ${what}`);
       if (f.allow_create === false) notes.push("only declared values can be selected");
     }
-    if (f.col?.json_schema) notes.push("edited as structured JSON with schema assistance");
+    if (f.col?.json_schema && !f.widget) notes.push("edited as structured JSON with schema assistance");
     if (f.readonly) notes.push("read-only on this page");
-    return [...new Set(notes)].join("; ");
+    return [...new Set(notes.map((n) => n.replace(/\.$/, "")))].join("; ");
   }
 
   // ── documentable precompute ──
@@ -430,10 +429,13 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         out.push(`This ${entSingularT.toLowerCase()} is backed by the identity provider${IDP_NAME ? ` (${IDP_NAME})` : ""} — its identity fields are managed there.\n`);
     }
 
-    // access note — the route is visible under its derived access key
+    // access note — the route is visible under its derived access key;
+    // param segments never extend the leaf key (the leaf is the last
+    // static segment)
     if (ctx.access_namespace) {
-      const leafKey = route.replace(/^\//, "").split("/").slice(2).join(".") || route.split("/").pop() || "";
-      out.push(`The page is visible with the \`${ctx.access_namespace}.${leafKey.replace(/[\{\}]/g, "")}\` grant.\n`);
+      const segs = route.replace(/^\//, "").split("/").filter((s) => s && !/^\{[^}]+\}$|^\[[^\]]+\]$/.test(s));
+      const leafKey = segs.slice(2).join(".") || segs.at(-1) || "";
+      out.push(`The page is visible with the \`${ctx.access_namespace}.${leafKey}\` grant.\n`);
     }
 
     // ── Pages Routes ──
@@ -456,12 +458,21 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     const newBtn = T("system.entities.list.new") ?? "New";
     const allFieldsFor = (doc: DocRoute): [string, FormFieldFacts][] => {
       const facts2 = allFacts(doc);
-      if (doc.form?.fields?.length) return formDeclaredFields(doc, doc.entity ? ctx.metaByEntity[doc.entity] : meta);
-      return Object.entries(facts.fields).map(([n, f]) => [n, { ...f }]);
+      const docMeta = doc.entity ? ctx.metaByEntity[doc.entity] : meta;
+      if (doc.form?.fields?.length) return formDeclaredFields(doc, docMeta);
+      return Object.entries(facts2.fields).map(([n, f]) => [n, { ...f }]);
+    };
+    // label resolution for a field: meta label_key first (the canonical
+    // source — form-decl pages have no page-local i18n keys), then the
+    // page's own keys, then humanize
+    const labelOf = (name: string, f: FormFieldFacts, i18nKeys: string[]): string => {
+      const fromCol = f.col?.label_key ? T(f.col.label_key as string) : undefined;
+      const lbl = fieldLabel(name, i18nKeys);
+      return lbl !== humanize(name).replace(/^idp /i, "") ? lbl : (fromCol ?? lbl);
     };
     const fields = allFieldsFor(r).filter(([, f]) => !(f.fromState && kind === "list"));
     const reqOf = (doc: DocRoute) => allFieldsFor(doc).filter(([, f]) => f.required)
-      .map(([n]) => `**${fieldLabel(n, allFacts(doc).i18nKeys ?? [])}**`);
+      .map(([n, f]) => `**${labelOf(n, f, allFacts(doc).i18nKeys ?? [])}**`);
 
     const grantProc = (l: FieldLink, flag: MetaColumn, srcRoute: string) => {
       const flagLabel = T(flag.label_key as string) ?? humanize(flag.key);
@@ -569,16 +580,26 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         const metaTooltip = col?.tooltip ? T(col.tooltip as string) : undefined;
         const metaLabel = col?.label_key ? T(col.label_key as string) : undefined;
         const tooltip = fieldTooltip(name, facts.i18nKeys) ?? metaTooltip;
-        const notes = [tooltip, fieldNotes(name, f, facts, isCreate), constraintText(f.constraints)].filter(Boolean).join("; ");
+        const joinNotes = (...segs: (string | undefined)[]) =>
+          segs.filter(Boolean).map((s) => (s as string).replace(/\.$/, "")).join("; ");
+        const notes = joinNotes(tooltip, fieldNotes(name, f, facts, isCreate), constraintText(f.constraints));
         const wt = f.widget ? WIDGET_PROSE[f.widget] ?? humanize(f.widget) : widgetType(facts, name);
-        const cell = [wt, notes].filter(Boolean).join(" — ") || "—";
-        const lbl = fieldLabel(name, facts.i18nKeys);
-        const label = lbl !== humanize(name).replace(/^idp /i, "") ? lbl : (metaLabel ?? lbl);
+        const label = labelOf(name, { ...f, col }, facts.i18nKeys);
         const colFormat = col?.format as string | undefined;
-        const fmtProse = colFormat ? FORMAT_PROSE[colFormat] : undefined;
+        // `format:"json"` prose is redundant when a json_schema note already
+        // narrates the structured-editor semantics — keep the richer one
+        const fmtProse = colFormat && !(colFormat === "json" && col?.json_schema)
+          ? FORMAT_PROSE[colFormat] : undefined;
         const fmtNotes = fmtProse && !notes.includes(fmtProse) ? [notes, fmtProse].filter(Boolean).join("; ") : notes;
         out.push(`| **${label}** | ${f.required ? "required" : "optional"} | ${[wt, fmtNotes].filter(Boolean).join(" — ") || "—"} |`);
-        fieldRows.push({ name, f, label, wt, notes: fmtNotes.replace(/\.$/, "").replace(/^./, (c) => c.toLowerCase()), cons: constraintClause(f.constraints, wt) });
+        // digest notes: drop the raw constraintText (the `that …` clause
+        // already narrates it) and strip the trailing period
+        const cons = constraintClause(f.constraints, wt);
+        const digestNotes = [tooltip, fieldNotes(name, f, facts, isCreate)]
+          .filter(Boolean).join("; ")
+          .replace(/\.$/, "")
+          .replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()); // lowercase the lead only for real words — "JSON" stays
+        fieldRows.push({ name, f, label, wt, notes: digestNotes, cons });
       }
       out.push("");
       for (const { label, f, wt, notes, cons } of fieldRows) {

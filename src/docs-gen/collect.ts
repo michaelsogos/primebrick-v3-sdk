@@ -56,8 +56,11 @@ export function collectDocRoutes(nav: ModuleNavDeclaration): DocRoute[] {
   const out: DocRoute[] = [];
   for (const r of nav.routes ?? []) {
     if (r.route.includes("[...") || r.route.includes("*")) continue;
+    // normalize param segments once: `[uuid]` (FE file convention) →
+    // `{uuid}` — the renderer works on a single notation
+    const route = r.route.replace(/\[(\w+)\]/g, "{$1}");
     out.push({
-      route: r.route,
+      route,
       kind: r.kind,
       entity: r.entity,
       label_key: r.label_key,

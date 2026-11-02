@@ -139,6 +139,7 @@ export {
   type CensusOption,
 } from "./docs-gen/collect.js";
 export { generatePageDocs, type RenderContext, type RenderReport } from "./docs-gen/render.js";
+export { reconcileOrder } from "./docs-gen/order.js";
 export type {
   SvelteCompilerPort,
   SveltePageFacts,
