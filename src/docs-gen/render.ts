@@ -318,16 +318,13 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
   for (const [route, r] of routes) {
     const declEntity = r.entity ?? r.facts?.entityDecl?.entity;
     const foreign = !!declEntity && !ctx.metaByEntity[declEntity] && !ctx.capsByEntity[declEntity];
-    const facts = allFacts(r);
-    const hasForm = !!r.form?.fields?.length;
-    const hasListSurface = facts.widgets.some((w) => w.tag === "EntityListTable" || w.tag === "EntityTablePage")
-      || r.kind === "list" || r.kind === "detail" || !!declEntity;
-    const noFacts = !hasForm && !Object.keys(facts.fields).length && !facts.endpoints.length
-      && !facts.navigations.length && !hasListSurface && r.kind === "page";
-    const ok = !foreign && !noFacts;
+    // every DECLARED route is documentable (census is the truth — a route
+    // in the declaration gets a doc even when its source facts are thin);
+    // the only skip is a foreign entity (ownership violation)
+    const ok = !foreign;
     documentable.set(route, ok);
     if (ok) docSlugs.add(slugFor(route));
-    else skipped.push({ route, reason: foreign ? `entity '${declEntity}' owned by another service` : "no extractable facts" });
+    else skipped.push({ route, reason: `entity '${declEntity}' owned by another service` });
   }
 
   // ── cross-entity field links ──

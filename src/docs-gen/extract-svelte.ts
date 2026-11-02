@@ -104,6 +104,12 @@ function extractScriptFacts(scriptText: string, variant: "host" | "remote", ts: 
         const method = opts.match(/method:\s*['"](\w+)/)?.[1] || "GET";
         if (url?.startsWith("/")) facts.endpoints.push({ method, path: url.split("?")[0] });
       }
+      // remote ui-bound helpers — fetch*/reindex*/create*/… calls imported
+      // from @primebrick/ui wrap ctx.api underneath (bindRemoteCtx): they
+      // ARE the page's service operations for doc purposes
+      if (variant === "remote" && /^(fetch|load|reindex|create|update|save|delete|remove|send|trigger|probe|start|stop|run)[A-Z]/.test(callee)) {
+        facts.endpoints.push({ method: "RPC", path: `(via ${callee})` });
+      }
       // persistence via composable methods: roleMappings.create(...) / .update(...)
       const cm = callee.match(/^(\w+)\.(create|update|save|remove|delete|purge)$/);
       if (cm && !["next", "prev", "this", "selected_permissions", "errors"].includes(cm[1])) {
@@ -201,8 +207,9 @@ function extractTemplateFacts(ast: unknown, raw: string, variant: "host" | "remo
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const out: { widgets: SveltePageFacts["widgets"]; i18nKeys: string[] } = { widgets: [], i18nKeys: [] };
   // cheap regex pass for translation keys — reliable and readable.
-  // host pages use $t('…'); remote sources alias ctx.i18n.t to t(…).
-  const re = variant === "host" ? /\$t\('([^']+)'/g : /(?:ctx\.i18n\.t|\bt)\('([^']+)'/g;
+  // host pages use $t('…'); remote sources use ctx.i18n.t(…), its t(…)
+  // alias, or the ui-bound $t(…)/getT(…) via bindRemoteCtx.
+  const re = variant === "host" ? /\$t\('([^']+)'/g : /(?:ctx\.i18n\.t|\$t|\bt)\('([^']+)'/g;
   for (const m of raw.matchAll(re)) out.i18nKeys.push(m[1]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const root = (ast as any).fragment ?? (ast as any).html;
@@ -218,6 +225,12 @@ function extractFacts(raw: string, route: string, variant: "host" | "remote", de
   const scriptText = ast.instance ? raw.slice(ast.instance.content.start, ast.instance.content.end) : "";
   const sfacts = extractScriptFacts(scriptText, variant, deps.ts);
   const tfacts = extractTemplateFacts(ast, raw, variant);
+  // openSheet('<key>') call sites also live in template markup — a raw
+  // pass over the whole source catches both script and template
+  if (variant === "remote") {
+    for (const m of raw.matchAll(/openSheet\(['"`]([\w.]+)['"`]/g))
+      if (!sfacts.sheetOpenings.includes(m[1])) sfacts.sheetOpenings.push(m[1]);
+  }
   // customActionHandlers lives in template markup: {{ change_password: fn, ... }}
   for (const m of raw.matchAll(/customActionHandlers=\{\{([\s\S]*?)\}\}/g))
     for (const k of m[1].matchAll(/^\s*(\w+)\s*:/gm)) sfacts.customActions.push(k[1]);
