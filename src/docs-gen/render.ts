@@ -34,17 +34,24 @@ export interface RenderContext {
   /** Declared sheets. */
   sheets: DocSheet[];
   /** entity → served meta. */
-  metaByEntity: Record<string, Record<string, unknown>>;
+  meta_by_entity: Record<string, Record<string, unknown>>;
   /** entity → caps (perms resolved, stepUp, duplicate, auditable). */
-  capsByEntity: Record<string, EntityCaps>;
+  caps_by_entity: Record<string, EntityCaps>;
   /** BE fallback — extra-scanned routes (empty for us services). */
-  extraRoutes?: ScannedRoute[];
+  extra_routes?: ScannedRoute[];
   /** Permission enum values for the `<entity>.<op>` guess path. */
   perm_values?: Record<string, string>;
   /** Merged translation dict — own schema first (the T() source). */
   translations: Record<string, string>;
   /** Census option vocabularies for `options_source` fields. */
   census_options?: { emits: CensusOption[]; callables: CensusOption[] };
+  /**
+   * Entity names declared by OTHER services' nav/census — the ownership
+   * boundary. A route declaring a foreign entity is skipped (its doc is
+   * the owning service's job); an entity merely lacking local meta/caps
+   * is still local (e.g. BE's own service_registry surface).
+   */
+  foreign_entities?: string[];
   /** Identity-provider display name (config-derived). */
   idp_name?: string;
   /** Access namespace of the module — nav.access (e.g. `access.system.job`). */
@@ -171,7 +178,7 @@ const WIDGET_PROSE: Record<string, string> = {
 export function generatePageDocs(ctx: RenderContext): RenderReport {
   const T = (key?: string) => (key ? ctx.translations[key] : undefined);
   const IDP_NAME = ctx.idp_name;
-  const extraRoutes = ctx.extraRoutes ?? [];
+  const extra_routes = ctx.extra_routes ?? [];
   const permValues = ctx.perm_values ?? {};
   const linkFor = (slug: string) =>
     HANDWRITTEN_SLUGS.has(slug)
@@ -315,12 +322,14 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     const lf = pl.split("/").pop() ?? pl;
     return /\/create$/.test(route) ? lf + "-create" : /\{[^}]+\}$/.test(route) ? lf + "-edit" : lf;
   };
+  const foreignSet = new Set(ctx.foreign_entities ?? []);
   for (const [route, r] of routes) {
     const declEntity = r.entity ?? r.facts?.entityDecl?.entity;
-    const foreign = !!declEntity && !ctx.metaByEntity[declEntity] && !ctx.capsByEntity[declEntity];
-    // every DECLARED route is documentable (census is the truth — a route
-    // in the declaration gets a doc even when its source facts are thin);
-    // the only skip is a foreign entity (ownership violation)
+    // foreign = claimed by ANOTHER service's census — never "missing meta
+    // locally" (a service's own surfaces may legitimately carry no meta)
+    const foreign = !!declEntity && foreignSet.has(declEntity);
+    // every DECLARED route is documentable (census is the truth); the only
+    // skip is a foreign entity (ownership boundary)
     const ok = !foreign;
     documentable.set(route, ok);
     if (ok) docSlugs.add(slugFor(route));
@@ -344,7 +353,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     }
   }
   const adminFlagOf = (relEntity?: string) =>
-    columnsOf(ctx.metaByEntity[relEntity ?? ""]).find((c) =>
+    columnsOf(ctx.meta_by_entity[relEntity ?? ""]).find((c) =>
       ["boolean", "badge"].includes(String(c.type)) && /admin/i.test(`${c.key} ${T(c.label_key as string) ?? ""}`));
 
   // ── sheet references: a page doc links the sheets it opens ──
@@ -362,8 +371,8 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
       ?? facts.endpoints.find((e) => e.path.includes("/entities/"))?.path.match(/entities\/(\w+)/)?.[1]
       ?? facts.endpoints.find((e) => e.method === "POST")?.path.match(/auth\/(\w+)/)?.[1];
     const meta: Record<string, unknown> | undefined =
-      (entity ? ctx.metaByEntity[entity] : undefined)
-      ?? Object.values(ctx.metaByEntity).find((m) =>
+      (entity ? ctx.meta_by_entity[entity] : undefined)
+      ?? Object.values(ctx.meta_by_entity).find((m) =>
         typeof m.translation_key === "string" && m.translation_key.startsWith(entSingular(undefined, parentList.split("/").pop())));
     const isCreate = /\/create$/.test(route);
     const isEdit = /\{[^}]+\}$/.test(route);
@@ -455,7 +464,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     const newBtn = T("system.entities.list.new") ?? "New";
     const allFieldsFor = (doc: DocRoute): [string, FormFieldFacts][] => {
       const facts2 = allFacts(doc);
-      const docMeta = doc.entity ? ctx.metaByEntity[doc.entity] : meta;
+      const docMeta = doc.entity ? ctx.meta_by_entity[doc.entity] : meta;
       if (doc.form?.fields?.length) return formDeclaredFields(doc, docMeta);
       return Object.entries(facts2.fields).map(([n, f]) => [n, { ...f }]);
     };
@@ -530,7 +539,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
       }
       out.push("");
       // detail-page invariants — the archetype owns them, narrate once
-      if (ctx.capsByEntity[capEntity2 ?? ""]?.auditable || metaCols.some((c) => c.audited)) {
+      if (ctx.caps_by_entity[capEntity2 ?? ""]?.auditable || metaCols.some((c) => c.audited)) {
         out.push(`The record opens in read mode first — click **Edit** to modify it. Concurrent edits are protected by optimistic locking: if someone else saves the ${s3} while you are editing it, the page tells you before overwriting their changes. The form warns before discarding unsaved changes.\n`);
       }
     }
@@ -647,7 +656,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     }
 
     // ── actions ──
-    const caps = (entity ?? (meta?.entity as string | undefined)) ? ctx.capsByEntity[entity ?? (meta?.entity as string)] : undefined;
+    const caps = (entity ?? (meta?.entity as string | undefined)) ? ctx.caps_by_entity[entity ?? (meta?.entity as string)] : undefined;
     const capEntity = entity ?? (meta?.entity as string | undefined);
     const overrides = (meta?.actions_overrides ?? {}) as Record<string, { enabled?: boolean }>;
     const eps = facts.endpoints.map((e) => `${e.method} ${e.path}`);
@@ -660,7 +669,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
       ?? (facts.entityDecl?.editAction ? { kind: declNavKind, target: `${parentList}/{uuid}` } as const : undefined)
       ?? (sibs.some((x) => /\{[^}]+\}$/.test(x)) ? { kind: "same-tab" as const, target: `${parentList}/{uuid}` } : undefined);
     const scanHit = (re: RegExp) => caps?.extraScans?.some((p) => eps.some((e) => e.includes(p) && re.test(e)));
-    const scanned = scanRoutes(caps, extraRoutes);
+    const scanned = scanRoutes(caps, extra_routes);
     const scanRoute = (op: string) => scanned.find((x) => routeOp(x, caps?.extraScans) === op);
     const registered: Record<string, boolean> = {
       "create.single": "create" in (caps?.perms ?? {}) || !!scanRoute("create.single") || !!scanHit(/POST/) || has(/POST/) || !!createNav,

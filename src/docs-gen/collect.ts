@@ -9,7 +9,7 @@
  *     DocSheet entries (delivery classified: host-static / archetype /
  *     remote).
  *   - `normalizeEntityContext` — evaluated `EntityRouteDecl`-shaped
- *     objects → `metaByEntity` + `capsByEntity` (permissions already
+ *     objects → `meta_by_entity` + `caps_by_entity` (permissions already
  *     resolved to strings by the service runtime — no enum parsing).
  *   - `scanRouterCaps` — BE router-file fallback when evaluated decls are
  *     not importable (regex scan + permissions.d.ts resolution).
@@ -102,9 +102,9 @@ export interface EvaluatedEntityDecl {
 
 export interface EntityContext {
   /** entity → served meta (columns, table options, display, collaboration). */
-  metaByEntity: Record<string, Record<string, unknown>>;
+  meta_by_entity: Record<string, Record<string, unknown>>;
   /** entity → capabilities (perms already resolved to strings). */
-  capsByEntity: Record<string, EntityCaps>;
+  caps_by_entity: Record<string, EntityCaps>;
 }
 
 /**
@@ -113,15 +113,15 @@ export interface EntityContext {
  * the renderer only narrates step-up, never the guard mechanism).
  */
 export function normalizeEntityContext(decls: EvaluatedEntityDecl[]): EntityContext {
-  const metaByEntity: EntityContext["metaByEntity"] = {};
-  const capsByEntity: EntityContext["capsByEntity"] = {};
+  const meta_by_entity: EntityContext["meta_by_entity"] = {};
+  const caps_by_entity: EntityContext["caps_by_entity"] = {};
   for (const d of decls) {
     const entity = d.entityName ?? d.entity;
     if (!entity) continue;
-    if (d.meta) metaByEntity[entity] = d.meta;
+    if (d.meta) meta_by_entity[entity] = d.meta;
     const stepUp: Record<string, boolean> = { ...(d.stepUp ?? {}) };
     for (const action of Object.keys(d.guards ?? {})) stepUp[action] = true;
-    capsByEntity[entity] = {
+    caps_by_entity[entity] = {
       perms: Object.fromEntries(
         Object.entries(d.permissions ?? {}).map(([k, v]) => [k, [...v]]),
       ),
@@ -131,7 +131,7 @@ export function normalizeEntityContext(decls: EvaluatedEntityDecl[]): EntityCont
       auditable: d.auditable,
     };
   }
-  return { metaByEntity, capsByEntity };
+  return { meta_by_entity, caps_by_entity };
 }
 
 // ── BE router-scan fallback (legacy behavior, moved into the engine) ────
@@ -144,7 +144,7 @@ export interface ScannedRoute {
 }
 
 export interface RouterScanResult {
-  capsByEntity: Record<string, EntityCaps>;
+  caps_by_entity: Record<string, EntityCaps>;
   extraRoutes: ScannedRoute[];
 }
 
@@ -176,7 +176,7 @@ function findRouterFiles(dir: string): string[] {
  * ai/scripts scan, moved into the shared engine.
  */
 export function scanRouterCaps(routerDir: string, permValues: Record<string, string>): RouterScanResult {
-  const capsByEntity: Record<string, EntityCaps> = {};
+  const caps_by_entity: Record<string, EntityCaps> = {};
   const extraRoutes: ScannedRoute[] = [];
   for (const f of findRouterFiles(routerDir)) {
     const src = readFileSync(f, "utf8");
@@ -186,7 +186,7 @@ export function scanRouterCaps(routerDir: string, permValues: Record<string, str
     }
     for (const m of src.matchAll(/entityName:\s*"(\w+)"/g)) {
       const entity = m[1];
-      const caps = capsByEntity[entity] ??= { perms: {}, extraScans: [], duplicate: undefined, stepUp: {} };
+      const caps = caps_by_entity[entity] ??= { perms: {}, extraScans: [], duplicate: undefined, stepUp: {} };
       const permsM = src.slice(m.index).match(/permissions:\s*\{([\s\S]*?)\}/);
       if (permsM)
         for (const pm of permsM[1].matchAll(/(\w+):\s*\[([^\]]*)\]/g))
@@ -200,7 +200,7 @@ export function scanRouterCaps(routerDir: string, permValues: Record<string, str
       for (const sm of src.slice(m.index).matchAll(/prefix:\s*"([^"]+)"/g)) caps.extraScans.push(sm[1]);
     }
   }
-  return { capsByEntity, extraRoutes };
+  return { caps_by_entity, extraRoutes };
 }
 
 /** Map an extra-scanned route to a standard op / `custom:<name>` action. */
@@ -259,6 +259,45 @@ export function collectCensusOptions(
       callables.push({ subject: c.subject, label_key: c.label_key, description_key: c.description_key, service: s.service, kind: c.kind, permissions: c.permissions, payload_schema: c.payload_schema });
   }
   return { emits, callables };
+}
+
+// ── ownership boundary ──────────────────────────────────────────────────
+
+/**
+ * Entities declared by OTHER services' registry nav — the ownership
+ * boundary for the renderer's foreign-skip. Pass the service's own code;
+ * every `endpoints.nav.routes[].entity` of every OTHER service lands in
+ * the set.
+ */
+export function foreignEntitiesFromRegistry(
+  registry: { code: string; endpoints?: Record<string, unknown> }[],
+  ownCode: string,
+): string[] {
+  const out = new Set<string>();
+  for (const r of registry) {
+    if (r.code === ownCode) continue;
+    const nav = (r.endpoints?.nav ?? {}) as { routes?: { entity?: string }[] };
+    for (const route of nav.routes ?? []) if (route.entity) out.add(route.entity);
+  }
+  return [...out];
+}
+
+/**
+ * Route paths claimed by OTHER services' registry nav — used by the
+ * backend generator to subtract service-owned pages from the host-static
+ * route universe (BE documents only what no module declared).
+ */
+export function claimedRoutesFromRegistry(
+  registry: { code: string; endpoints?: Record<string, unknown> }[],
+  ownCode: string,
+): string[] {
+  const out = new Set<string>();
+  for (const r of registry) {
+    if (r.code === ownCode) continue;
+    const nav = (r.endpoints?.nav ?? {}) as { routes?: { route?: string }[] };
+    for (const route of nav.routes ?? []) if (route.route) out.add(route.route);
+  }
+  return [...out];
 }
 
 // ── translation merge ───────────────────────────────────────────────────

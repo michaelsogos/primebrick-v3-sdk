@@ -132,6 +132,8 @@ export {
   scanRoutes,
   collectCensusOptions,
   mergeTranslationScopes,
+  foreignEntitiesFromRegistry,
+  claimedRoutesFromRegistry,
   type EvaluatedEntityDecl,
   type EntityContext,
   type ScannedRoute,

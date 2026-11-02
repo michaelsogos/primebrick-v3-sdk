@@ -72,8 +72,8 @@ function ctx(outDir: string): RenderContext {
     service_code: "job",
     routes: ROUTES,
     sheets: SHEETS,
-    metaByEntity: { job_rule: JOB_META },
-    capsByEntity: {
+    meta_by_entity: { job_rule: JOB_META },
+    caps_by_entity: {
       job_rule: {
         perms: {
           meta: ["_authenticated_user"], list: ["_authenticated_user"], get: ["_authenticated_user"],
@@ -154,6 +154,7 @@ describe("generatePageDocs", () => {
     const dir = mkdtempSync(join(tmpdir(), "docsgen-"));
     const c = ctx(dir);
     c.routes = [...ROUTES, { route: "/crm/customers", kind: "list", entity: "customer", delivery: "host-static" }];
+    c.foreign_entities = ["customer"]; // claimed by the crm service's census
     const report = generatePageDocs(c);
     expect(report.skipped).toContainEqual({ route: "/crm/customers", reason: "entity 'customer' owned by another service" });
     expect(report.emitted).not.toContain("customers.mdx");

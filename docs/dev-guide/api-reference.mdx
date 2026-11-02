@@ -1363,8 +1363,8 @@ foreign for merge/conflict purposes. |
 
 | Field | Type | Description |
 |-------|------|-------------|
-| metaByEntity | `Record<string, Record<string, unknown>>` | entity → served meta (columns, table options, display, collaboration). |
-| capsByEntity | `Record<string, EntityCaps>` | entity → capabilities (perms already resolved to strings). |
+| meta_by_entity | `Record<string, Record<string, unknown>>` | entity → served meta (columns, table options, display, collaboration). |
+| caps_by_entity | `Record<string, EntityCaps>` | entity → capabilities (perms already resolved to strings). |
 
 ### `EntityExportConfig`
 
@@ -2203,12 +2203,16 @@ chunk entry tell which `.svelte` owns which declared route/sheet key.
 | service_code | `string` | Owning service/module code (report tags). |
 | routes | `DocRoute[]` | Declared routes (collectDocRoutes output + host statics merged). |
 | sheets | `DocSheet[]` | Declared sheets. |
-| metaByEntity | `Record<string, Record<string, unknown>>` | entity → served meta. |
-| capsByEntity | `Record<string, EntityCaps>` | entity → caps (perms resolved, stepUp, duplicate, auditable). |
-| extraRoutes | `ScannedRoute[]` | BE fallback — extra-scanned routes (empty for us services). |
+| meta_by_entity | `Record<string, Record<string, unknown>>` | entity → served meta. |
+| caps_by_entity | `Record<string, EntityCaps>` | entity → caps (perms resolved, stepUp, duplicate, auditable). |
+| extra_routes | `ScannedRoute[]` | BE fallback — extra-scanned routes (empty for us services). |
 | perm_values | `Record<string, string>` | Permission enum values for the `<entity>.<op>` guess path. |
 | translations | `Record<string, string>` | Merged translation dict — own schema first (the T() source). |
 | census_options | `{ emits: CensusOption[]; callables: CensusOption[] }` | Census option vocabularies for `options_source` fields. |
+| foreign_entities | `string[]` | Entity names declared by OTHER services' nav/census — the ownership
+boundary. A route declaring a foreign entity is skipped (its doc is
+the owning service's job); an entity merely lacking local meta/caps
+is still local (e.g. BE's own service_registry surface). |
 | idp_name | `string` | Identity-provider display name (config-derived). |
 | access_namespace | `string` | Access namespace of the module — nav.access (e.g. `access.system.job`). |
 | out_dir | `string` | Output directory — pipeline-owned; ghosts are deleted. |
@@ -2283,7 +2287,7 @@ forwards them in headers.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| capsByEntity | `Record<string, EntityCaps>` |  |
+| caps_by_entity | `Record<string, EntityCaps>` |  |
 | extraRoutes | `ScannedRoute[]` |  |
 
 ### `RowCustomAction`
@@ -4515,6 +4519,17 @@ Evaluate RBAC for a user against a list of required permissions.
 | requiredPermissions | `typeOperator` | List of accepted permissions for this endpoint |
 | mode | `"any" \| "all"` | "any" (OR, default) or "all" (AND) |
 
+### `claimedRoutesFromRegistry(registry, ownCode): string[]`
+
+Route paths claimed by OTHER services' registry nav — used by the
+backend generator to subtract service-owned pages from the host-static
+route universe (BE documents only what no module declared).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| registry | `{ code: string; endpoints: Record<string, unknown> }[]` |  |
+| ownCode | `string` |  |
+
 ### `clientKeyHash(key): string`
 
 sha256 hex of a client key — the only form that ever leaves the service
@@ -5134,6 +5149,18 @@ Largest integer `<= d`.
 ### `flushLogsSync(): void`
 
 Best-effort synchronous flush — called from graceful shutdown.
+
+### `foreignEntitiesFromRegistry(registry, ownCode): string[]`
+
+Entities declared by OTHER services' registry nav — the ownership
+boundary for the renderer's foreign-skip. Pass the service's own code;
+every `endpoints.nav.routes[].entity` of every OTHER service lands in
+the set.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| registry | `{ code: string; endpoints: Record<string, unknown> }[]` |  |
+| ownCode | `string` |  |
 
 ### `formatMoney(amount, lang, currency): string`
 
