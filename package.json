@@ -22,10 +22,12 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./json": {
       "types": "./dist/json/ext-json.d.ts",
+      "development": "./src/json/ext-json.ts",
       "import": "./dist/json/ext-json.js"
     }
   },

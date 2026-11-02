@@ -116,6 +116,7 @@ import {
   type MigrationBootState,
 } from "./db-migration-step.js";
 import { makeDbMigrationRouteHandler, MIGRATION_ROUTE_PREFIX } from "../http/migration-routes.js";
+import { snapshotCallables } from "../nats/callable-registry.js";
 
 // ─── Options ───────────────────────────────────────────────────────────────
 
@@ -865,6 +866,17 @@ export async function createMicroservice(
       `Service '${options.serviceName}' booted DEGRADED (db migration failed) — domain routes 503, onReady skipped. Remediate via ${MIGRATION_ROUTE_PREFIX}/* (admin).`,
       { tags: ["core", "db-migration"], error: migrationState.lastError },
     );
+  }
+
+  // 11. Callable census — makeNatsRoutes subscriptions run inside onReady,
+  // AFTER the initial register() (NATS routes need a live connection). Any
+  // route declared with payload_schema was collected by the callable
+  // registry; a second register carries endpoints.callables to the
+  // gateway so rule/scheduling pickers see real, subscribed destinations.
+  const callables = snapshotCallables();
+  if (callables.length > 0) {
+    registrarEndpoints.callables = { callables };
+    await registrar.register();
   }
 
   return ctx;

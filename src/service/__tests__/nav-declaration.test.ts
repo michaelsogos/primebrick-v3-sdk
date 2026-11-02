@@ -345,7 +345,7 @@ describe("page_props.form — entity-form archetype declaration", () => {
 
   it("rejects an unknown options_source and non-string validators", () => {
     expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", options_source: "api" }] }), "system"))
-      .toMatch(/options_source must be one of census\.emits/);
+      .toMatch(/options_source must be one of census\.emits, census\.callables/);
     expect(validateNavDeclaration("job", formed({ fields: [{ key: "a" }], validators: [42] }), "system"))
       .toMatch(/validators: must be an array of non-empty validator keys/);
   });

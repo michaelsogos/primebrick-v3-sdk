@@ -26,6 +26,13 @@ import type { ResolveInput } from "./ports/user-resolver-port.js";
 export interface AuthPorts {
   resolveInternalUuid(input: ResolveInput): Promise<string>;
   getRoleMapping(role: string): Promise<{ permissions: string[]; is_admin: boolean } | null>;
+  /**
+   * Optional — resolves the user's preferred locale (BCP-47) from their
+   * stored preferences (`ui_locale`). Called with the internal uuid once
+   * per auth; absent port or null result → `AuthUser.locale` stays unset
+   * and no `x-user-locale` header is emitted downstream.
+   */
+  resolveUserLocale?(internalUuid: string): Promise<string | null>;
 }
 
 /**
@@ -92,6 +99,7 @@ async function verifyStandalone(
   });
   const { patterns, isAdmin } = await expandPermissions(normalized.roles, ports.getRoleMapping);
   const user = buildAuthUser(internalUuid, normalized, new Set(patterns), isAdmin);
+  user.locale = (await ports.resolveUserLocale?.(internalUuid)) ?? undefined;
   user.raw_access_token = token;
   return user;
 }
@@ -136,12 +144,14 @@ async function verifyGatewayWithPorts(
     idp_username: finalIdpUsername,
   });
   const { patterns, isAdmin } = await expandPermissions(roles, ports.getRoleMapping);
-  return buildAuthUser(
+  const user = buildAuthUser(
     internalUuid,
     { idp_code: idpCode, email, name, roles, idp_org: finalIdpOrg, idp_username: finalIdpUsername },
     new Set(patterns),
     isAdmin,
   );
+  user.locale = (await ports.resolveUserLocale?.(internalUuid)) ?? undefined;
+  return user;
 }
 
 // --- Shared gateway secret verification ---

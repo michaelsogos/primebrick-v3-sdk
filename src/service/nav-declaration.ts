@@ -93,11 +93,11 @@ function isPositiveWireInt(v: unknown): boolean {
  * are a CLOSED set — an unknown key is a declaration bug, rejected here.
  */
 const FORM_FIELD_KEYS = new Set([
-  "key", "col", "span", "row_span", "section",
+  "key", "col", "span", "row", "row_span", "section",
   "default_value", "placeholder_key", "required", "readonly",
-  "widget", "options_source",
+  "widget", "options_source", "allow_create",
 ]);
-const FORM_FIELD_OPTIONS_SOURCES = new Set(["census.emits"]);
+const FORM_FIELD_OPTIONS_SOURCES = new Set(["census.emits", "census.callables"]);
 
 function validateFormPage(form: unknown, path: string): string | null {
   if (!form || typeof form !== "object" || Array.isArray(form)) {
@@ -132,12 +132,12 @@ function validateFormPage(form: unknown, path: string): string | null {
       return `${fpp} ('${pd["key"]}'): duplicate field placement`;
     }
     seen.add(pd["key"] as string);
-    for (const k of ["col", "span", "row_span"] as const) {
+    for (const k of ["col", "span", "row", "row_span"] as const) {
       if (pd[k] !== undefined && !isPositiveWireInt(pd[k])) {
         return `${fpp} ('${pd["key"]}'): ${k} must be a positive integer (grid placement)`;
       }
     }
-    for (const k of ["required", "readonly"] as const) {
+    for (const k of ["required", "readonly", "allow_create"] as const) {
       if (pd[k] !== undefined && typeof pd[k] !== "boolean") {
         return `${fpp} ('${pd["key"]}'): ${k} must be a boolean`;
       }

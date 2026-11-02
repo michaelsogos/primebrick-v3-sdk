@@ -1479,7 +1479,7 @@ Gateway configuration (GATEWAY mode).
 | secret_header_name | `string` |  |
 | public_secret | `string` |  |
 | public_secret_header_name | `string` |  |
-| headers | `{ user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string }` |  |
+| headers | `{ user_id: string; email: string; name: string; roles: string; idp_code: string; idp_org: string; idp_username: string; permissions: string; is_admin: string; is_system: string; locale: string }` |  |
 
 ### `GeneratedDoc`
 
@@ -1833,6 +1833,11 @@ Structural mirror of dal-pg's MigrationRunResult — no dal import.
 | verify | `NatsRouteVerify` | Service-identity verification — see NatsRoute.verify. |
 | enrollment | `boolean` | Enrollment channel — see NatsRoute.enrollment. |
 | validate | `(raw: unknown) => TReq` |  |
+| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema) — see NatsRoute.payload_schema.
+`request`-kind callables additionally let the caller capture the reply
+(execution outcome for run-recording). |
+| label_key | `string` | i18n keys for the callable census entry (picker label/description). |
+| description_key | `string` |  |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<TRes>` | Returns the reply payload — published to msg.reply. |
 
 ### `NatsRoute`
@@ -1854,6 +1859,11 @@ typically with `allowNewPrefix`). Only legal on routes whose purpose
 is first-time client enrollment (service.register): everywhere else a
 skipped L1 is a security hole and the flag must never be set. |
 | validate | `(raw: unknown) => TReq` | Payload validator — throws on invalid shape (zod .parse or manual). |
+| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema). Declaring it lists the route in
+`endpoints.callables` — the census schedulers/rule-forms consume. Omit
+for private routes: a callable without a contract is not mappable. |
+| label_key | `string` | i18n keys for the callable census entry (picker label/description). |
+| description_key | `string` |  |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<void>` | The ONE service call. |
 
 ### `NatsRouteContext`
@@ -1934,6 +1944,54 @@ snake_case lowercase. Sent in `service.register` → persisted in
 `name` (`primebrick-<code>` → `<code>`). This is the ONLY way a
 service may carry a code that does not derive from its package name —
 it is part of the shipped artifact, not runtime-editable config. |
+
+### `PayloadInjectContext`
+
+Context the dispatcher reads injector values from.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| session_actor | `string` | Actor uuid riding the due message's forwarded auth headers
+ (`x-user-id`). Absent on the system lane → `session_actor` resolves
+ to undefined and the field is omitted (no invented identity). |
+
+### `PayloadMapContext`
+
+Context the resolver reads meta values from.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| actor_uuid | `string` | Who armed the rule (stored actor). |
+| rule_id | `string` |  |
+| fired_at | `number` | Fire timestamp (epoch ms) — set by the engine at dispatch. |
+| actor_locale | `string` | Locale (BCP-47, e.g. `it-IT`) of the actor whose event triggered the
+ arm — read off the message's auth headers (`x-user-locale`). Absent
+ on the system lane / anonymous events. |
+
+### `PayloadMapKeysHint`
+
+`x_map_keys` shape — `{from:"templateCode", prop:"variables"}`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| from | `string` |  |
+| prop | `string` |  |
+
+### `PayloadOptionsSource`
+
+`x_options` shape — mirrors the `single_select` `type_config` source
+ contract (api_url+verb+fields OR built-in values_source).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| api_url | `string` |  |
+| api_verb | `string` |  |
+| value_field | `string` |  |
+| label_field | `string` |  |
+| values_source | `string` |  |
+| icon | `string` | Lucide icon name rendered on every resolved option (`_icon`). |
+| icon_color | `string` | Color token for the option icon (`_icon_color`). |
+| icon_dashed | `boolean` | Dashed-stroke rendering for the option icon (`_icon_dashed`). |
 
 ### `PresenceDelta`
 
@@ -2645,6 +2703,16 @@ Cache scope — which browser storage the FE should use.
 
 **Type:** `"local" \| "session"`
 
+### `CallableDecl`
+
+`endpoints.callables` entry — a LISTEN subject the service is willing to
+serve as a work destination (schedulers, rules, external callers). Mirror
+axis of `EmitDecl`: emits = what a module publishes, callables = what it
+serves. Auto-collected from `makeNatsRoutes`/`makeNatsRequestRoute` route
+declarations carrying `payload_schema` — the schema IS the listing opt-in
+(a callable without a contract is not mappable). The service declares its
+own domain subject only — nothing in this axis knows scheduling exists.
+
 ### `CleanupFn`
 
 **Type:** `() => Promise<void>`
@@ -2915,6 +2983,8 @@ resolves with the final Response — success or failure.
 
 **Type:** `(requestFn: (token: string \| null) => Promise<Response>, context: { action: string; target_resource: string }) => Promise<Response>`
 
+### `ModuleCallablesDecl`
+
 ### `ModuleEventsDecl`
 
 ### `ModuleHostBase`
@@ -3086,6 +3156,66 @@ Page archetype vocabulary — what the route renders, regardless of delivery.
 ### `PageRouteProps`
 
 `page_props` — free-form per-route metadata with a typed `form` axis.
+
+### `PayloadInjector`
+
+Fire-time injector vocabulary — values generated by the DISPATCHER at
+republish time (never at arm: a scheduled payload would replay the same
+value every fire otherwise). Declaration-only via `x_inject` /
+`x_semantic` — not a user-picked source kind.
+  - `uuid`          — fresh v4 uuid per dispatch (correlation ids)
+  - `now_iso`       — dispatch instant, ISO 8601
+  - `now_ms`        — dispatch instant, epoch ms
+  - `session_actor` — actor uuid riding the forwarded auth headers
+
+**Type:** `"uuid" \| "now_iso" \| "now_ms" \| "session_actor"`
+
+### `PayloadMap`
+
+target field key → source declaration. `null`/`{}` = verbatim passthrough.
+
+**Type:** `Record<string, PayloadMapEntry>`
+
+### `PayloadMapEntry`
+
+Where one target field's value comes from.
+
+**Type:** `PayloadMapLeafEntry \| { kind: "inject"; inject: PayloadInjector; fallback: PayloadMapFallbackClause[] } \| { kind: "list"; items: PayloadMapItemEntry[]; fallback: PayloadMapFallbackClause[] } \| { kind: "map"; entries: Record<string, PayloadMapItemEntry>; fallback: PayloadMapFallbackClause[] }`
+
+### `PayloadMapFallbackClause`
+
+Fallback clause — one nesting level, user-sourced kinds only.
+
+**Type:** `{ kind: "const"; value: unknown } \| { kind: "path"; path: string } \| { kind: "meta"; meta: PayloadMapMeta }`
+
+### `PayloadMapItemEntry`
+
+Value allowed inside `list` items / `map` entries — leaf kinds or a
+ declared injector (the marker lands verbatim and the dispatcher
+ resolves it per-fire).
+
+**Type:** `PayloadMapLeafEntry \| { kind: "inject"; inject: PayloadInjector }`
+
+### `PayloadMapLeafEntry`
+
+User-authored source for a single scalar value.
+
+**Type:** `{ kind: "const"; value: unknown; fallback: PayloadMapFallbackClause[] } \| { kind: "path"; path: string; fallback: PayloadMapFallbackClause[] } \| { kind: "meta"; meta: PayloadMapMeta; fallback: PayloadMapFallbackClause[] }`
+
+### `PayloadMapMeta`
+
+**Type:** `"actor_uuid" \| "rule_id" \| "fired_at" \| "actor_locale"`
+
+### `PayloadSemanticSlot`
+
+Semantic slots — declared on BOTH sides (event emits + callable
+ schema) so derivation is a lookup, never a guess:
+  - `entity.uuid`  — uuid of the event's declared entity snapshot
+  - `entity.id`    — numeric id of the declared entity snapshot
+  - `entity.table` — table name declared on the emit
+  - `actor.uuid`   — the session actor riding the event headers
+
+**Type:** `"entity.uuid" \| "entity.id" \| "entity.table" \| "actor.uuid"`
 
 ### `Permission`
 
@@ -3456,6 +3586,68 @@ Mirrors the numeric checks in `config-validator.ts`.
 ### `PAGE_ROUTE_KINDS`
 
 **Type:** `Set<string>`
+
+### `PAYLOAD_INJECT_MARK`
+
+Marker key emitted by `{kind:"inject"}` at arm time — the dispatcher
+ replaces single-key `{$inject:name}` objects with the generated value.
+
+**Type:** `"$inject"`
+
+### `PAYLOAD_INJECTORS`
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_MAP_META_KINDS`
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_OPTIONS_VALUES_SOURCES`
+
+Built-in `values_source` vocabularies — closed registry.
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_SEMANTIC_SLOTS`
+
+**Type:** `typeOperator`
+
+### `PAYLOAD_X_INJECT`
+
+Field whose value the dispatcher MAY generate — names a
+ `PayloadInjector`. Seeded automatically; an explicitly authored
+ entry wins over the declaration.
+
+**Type:** `"x_inject"`
+
+### `PAYLOAD_X_MAP_KEYS`
+
+For `kind:"map"` fields — where the suggested entry keys come from:
+ `{from: <other field>, prop: <row prop>}` reads the selected option's
+ source row property (e.g. a template's `variables` schema).
+
+**Type:** `"x_map_keys"`
+
+### `PAYLOAD_X_NOT_EDITABLE`
+
+Private setter — a platform-owned field that MUST NOT render
+ as a form input (reserved traceability/correlation fields).
+
+**Type:** `"x_not_editable"`
+
+### `PAYLOAD_X_OPTIONS`
+
+Catalog-backed const value — the form renders a ComboSelect fed by
+ the declared source instead of free text.
+
+**Type:** `"x_options"`
+
+### `PAYLOAD_X_SEMANTIC`
+
+Semantic derivation slot — declares what context the field wants so
+ the mapping is a lookup, never a guess.
+
+**Type:** `"x_semantic"`
 
 ### `Permission`
 
@@ -3890,6 +4082,30 @@ own namespace plus the CORE vocabularies (`app`, `system`).
 | params | `URLSearchParams` |  |
 | opts | `ListFilterParamsOptions` |  |
 | startIdx | `number` |  |
+
+### `applyPayloadInjectors(payload, ctx): unknown`
+
+Fire-time pass run by the dispatcher on the armed payload: deep-walks
+and replaces every `{$inject:name}` marker with a freshly generated
+value. Unresolvable injectors (`session_actor` with no session) resolve
+to undefined — the field is omitted, never invented.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| payload | `unknown` |  |
+| ctx | `PayloadInjectContext` |  |
+
+### `applyPayloadMap(map, eventPayload, ctx): unknown`
+
+Apply a payload map: for each declared target field, resolve its entry
+against the source event payload + fire context. `null`/absent map →
+the event payload verbatim (the default passthrough).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| map | `PayloadMap \| null \| undefined` |  |
+| eventPayload | `unknown` |  |
+| ctx | `PayloadMapContext` |  |
 
 ### `assertDbEnv(cwd): DbEnv`
 
@@ -4659,6 +4875,18 @@ header names configured on this service's AuthConfig are copied.
 |-----------|------|-------------|
 | msg | `{ headers: MsgHdrs }` |  |
 
+### `forwardedActor(msg): { actor_uuid: string; actor_locale: string }`
+
+Read the session actor's identity off an inbound message's auth headers
+— `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47).
+Header names resolve against the configured `gateway.headers` map with
+the serializer defaults. Both absent on system-lane messages — the
+values are reported, never invented.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| msg | `{ headers: MsgHdrs }` |  |
+
 ### `fromBigInt(v, scale): Decimal`
 
 | Parameter | Type | Description |
@@ -5358,6 +5586,15 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 
 Clear the singleton (for tests or graceful shutdown).
 
+### `resolvePath(payload, path): unknown`
+
+Minimal JSONPath resolver: `$` = root, `$.a.b.c` = nested lookup.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| payload | `unknown` |  |
+| path | `string` |  |
+
 ### `resolvePresetConditions(presets, selections): FilterCondition[]`
 
 Flatten the WHERE conditions of every preset's ACTIVE option — the
@@ -5506,6 +5743,24 @@ Text-physical searchable columns — the scope selector + default
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | columns | `MetaColumn[]` |  |
+
+### `seedPayloadMapEntries(targetSchema, sourceSchema, sourceEntity, map): PayloadMap`
+
+Derive the DECLARED auto-entries for a callable's payload_schema —
+`x_inject` and `x_semantic` fields materialize `{kind:"inject"}` /
+the semantic suggestion when (and only when) the map doesn't already
+declare an entry. Explicitly authored entries ALWAYS win.
+
+This is a pure data derivation: callers merge it into the form's
+initial/baseline data (or the stored map) so machine-written values
+never masquerade as user edits.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| targetSchema | `Record<string, unknown> \| undefined` |  |
+| sourceSchema | `Record<string, unknown> \| undefined` |  |
+| sourceEntity | `{ key: string; entity: string; table: string } \| undefined` |  |
+| map | `PayloadMap` |  |
 
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
@@ -5741,6 +5996,17 @@ Accessor — returns the capability record for a type.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | type | `ConfigType` |  |
+
+### `validateCallablesDeclaration(code, decl): string \| null`
+
+Validate an `endpoints.callables` declaration — returns an error string or
+`null` when valid (same contract as `validateEventsDeclaration`, enforced
+at `service.register` enrollment).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| decl | `unknown` |  |
 
 ### `validateConfigValue(type, type_config, value, config_key): void`
 

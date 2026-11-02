@@ -69,3 +69,24 @@ describe("validateEventsDeclaration", () => {
     ).toMatch(/unknown key/);
   });
 });
+
+describe("emits entity pointer", () => {
+  it("accepts a well-formed {key, entity, table} pointer", () => {
+    expect(
+      validateEventsDeclaration("svc", {
+        emits: [
+          { subject: "a.b", entity: { key: "customer", entity: "customer", table: "customers" } },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects non-object / partial / unknown-key pointers", () => {
+    for (const bad of ["customer", { key: "c" }, { key: "c", entity: "e", table: "" }, { key: "c", entity: "e", table: "t", extra: 1 }]) {
+      expect(
+        validateEventsDeclaration("svc", { emits: [{ subject: "a.b", entity: bad }] }),
+        JSON.stringify(bad),
+      ).toMatch(/entity/);
+    }
+  });
+});

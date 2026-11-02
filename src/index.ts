@@ -92,6 +92,8 @@ export {
   SINGULAR_NAV_ALLOWLIST,
 } from "./service/nav-declaration.js";
 export { validateEventsDeclaration } from "./service/events-declaration.js";
+export { validateCallablesDeclaration } from "./service/callables-declaration.js";
+export type { CallableDecl } from "./service/callables-declaration.js";
 export {
   DOCS_PACK_CAPABILITY,
   DOCS_PACK_SCHEMA_VERSION,
@@ -153,6 +155,7 @@ export {
   cancelJobSchedule,
   dueLaneVerify,
   forwardAuthHeaders,
+  forwardedActor,
   JOB_SCHEDULE_HEADERS,
   JOB_STREAM_SUBJECTS,
   JOB_SCHEDULE_REQUEST_SUBJECT,

@@ -20,4 +20,10 @@ export interface UserResolverPort {
    * Just-in-time provisions a `user_profiles` row on first encounter.
    */
   resolveInternalUuid(input: ResolveInput): Promise<string>;
+  /**
+   * Optional — the user's preferred locale (BCP-47, e.g. `it-IT`) from
+   * their stored `ui_locale` preference. Feeds `AuthUser.locale` → the
+   * `x-user-locale` forwarded header. Absent impl or null → no locale.
+   */
+  resolveUserLocale?(internalUuid: string): Promise<string | null>;
 }

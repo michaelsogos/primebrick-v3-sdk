@@ -30,6 +30,7 @@ import { AuthError } from "../auth/verify.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
 import type { AuthUser } from "../auth/types.js";
 import { logger } from "../lifecycle/logger.js";
+import { recordCallable } from "./callable-registry.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,15 @@ export interface NatsRoute<TReq = unknown> {
   enrollment?: boolean;
   /** Payload validator — throws on invalid shape (zod .parse or manual). */
   validate?: (raw: unknown) => TReq;
+  /**
+   * Request payload contract (JSON Schema). Declaring it lists the route in
+   * `endpoints.callables` — the census schedulers/rule-forms consume. Omit
+   * for private routes: a callable without a contract is not mappable.
+   */
+  payload_schema?: Record<string, unknown>;
+  /** i18n keys for the callable census entry (picker label/description). */
+  label_key?: string;
+  description_key?: string;
   /** The ONE service call. */
   handler: (ctx: NatsRouteContext<TReq>) => Promise<void>;
 }
@@ -98,6 +108,15 @@ export interface NatsRequestRoute<TReq = unknown, TRes = unknown> {
   /** Enrollment channel — see NatsRoute.enrollment. */
   enrollment?: boolean;
   validate?: (raw: unknown) => TReq;
+  /**
+   * Request payload contract (JSON Schema) — see NatsRoute.payload_schema.
+   * `request`-kind callables additionally let the caller capture the reply
+   * (execution outcome for run-recording).
+   */
+  payload_schema?: Record<string, unknown>;
+  /** i18n keys for the callable census entry (picker label/description). */
+  label_key?: string;
+  description_key?: string;
   /** Returns the reply payload — published to msg.reply. */
   handler: (ctx: NatsRouteContext<TReq>) => Promise<TRes>;
 }
@@ -171,6 +190,17 @@ export async function makeNatsRoutes(
     const sub = nc.subscribe(route.subject, queue ? { queue } : undefined);
     subs.push(sub);
 
+    if (route.payload_schema) {
+      recordCallable({
+        subject: route.subject,
+        kind: "pub",
+        permissions: route.permissions,
+        payload_schema: route.payload_schema,
+        label_key: route.label_key,
+        description_key: route.description_key,
+      });
+    }
+
     (async () => {
       for await (const msg of sub) {
         try {
@@ -210,6 +240,17 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
     const queue = route.queue === null ? undefined : (route.queue ?? deps.serviceCode);
     const sub = nc.subscribe(route.subject, queue ? { queue } : undefined);
     subs.push(sub);
+
+    if (route.payload_schema) {
+      recordCallable({
+        subject: route.subject,
+        kind: "request",
+        permissions: route.permissions,
+        payload_schema: route.payload_schema,
+        label_key: route.label_key,
+        description_key: route.description_key,
+      });
+    }
 
     (async () => {
       for await (const msg of sub) {
