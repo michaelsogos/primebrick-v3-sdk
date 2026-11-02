@@ -1031,6 +1031,19 @@ HTTP response metadata for cached endpoints.
 | etag | `string` |  |
 | cached | `boolean` | True if the data came from Redis cache (vs fresh DB read). |
 
+### `CensusOption`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| subject | `string` |  |
+| label_key | `string` |  |
+| description_key | `string` |  |
+| service | `string` | Owning service code — labels resolve in ITS translation schema. |
+| kind | `string` |  |
+| permissions | `typeOperator` |  |
+| payload_schema | `Record<string, unknown>` |  |
+| entity | `{ key: string; entity: string; table: string }` |  |
+
 ### `ClientKeyMaterial`
 
 Row-shaped key material for verification (subset of
@@ -1188,6 +1201,37 @@ Params are `any` at the boundary: strictFunctionTypes contravariance would
 otherwise reject the dal signatures, and the concrete types cannot be
 named here anyway (SDK must not import dal-pg).
 
+### `DocRoute`
+
+One documentable route — normalized union of declared + static facts.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| route | `string` |  |
+| kind | `"create" \| "list" \| "detail" \| "page"` |  |
+| entity | `string` |  |
+| label_key | `string` |  |
+| description_key | `string` |  |
+| icon | `string` |  |
+| component_url | `string` |  |
+| presentation | `"page" \| "sheet"` |  |
+| form | `{ fields: Record<string, unknown>[]; validators: string[] }` | `page_props.form` — the entity-form archetype declaration. |
+| facts | `SveltePageFacts` | AST facts when a source file exists (host static or remote). |
+| delivery | `"remote" \| "host-static" \| "archetype"` | How this route is delivered. |
+
+### `DocSheet`
+
+A declared sheet surface — own doc page, referenced by parent pages.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | `string` |  |
+| label_key | `string` |  |
+| component_url | `string` |  |
+| default_options | `{ side: "left" \| "right"; modal: boolean; content_class: string }` |  |
+| facts | `SveltePageFacts` |  |
+| opened_by | `string[]` | Routes/pages that open this sheet (openSheet('&#60;key&#62;') call sites). |
+
 ### `DocsPackContentFile`
 
 One file of pack content — wire format.
@@ -1283,6 +1327,18 @@ Backing route of an `EntityAction` — emitted by the BE route scan.
 | sentinel | `string` |  |
 | enabled | `boolean` |  |
 
+### `EntityCaps`
+
+Entity capability context the renderer needs (perms, stepUp, duplicate).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| perms | `Record<string, string[]>` |  |
+| extraScans | `string[]` |  |
+| duplicate | `boolean` |  |
+| stepUp | `Record<string, boolean>` |  |
+| auditable | `boolean` |  |
+
 ### `EntityChangedMarker`
 
 Marker published server-side when an auditable entity is saved.
@@ -1302,6 +1358,13 @@ realign, no stale/chip) only when `changed_by` AND `changed_by_session`
 both match this client; a save from another tab of the same user is
 foreign for merge/conflict purposes. |
 | changed_at | `number` | Epoch ms of the save. |
+
+### `EntityContext`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| metaByEntity | `Record<string, Record<string, unknown>>` | entity → served meta (columns, table options, display, collaboration). |
+| capsByEntity | `Record<string, EntityCaps>` | entity → capabilities (perms already resolved to strings). |
 
 ### `EntityExportConfig`
 
@@ -1432,6 +1495,21 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | errors | `string[]` |  |
 | env | `Record<string, string \| undefined>` |  |
 
+### `EvaluatedEntityDecl`
+
+Minimum evaluated shape — matches `EntityRouteDecl`/`EntityRouterConfig`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| entityName | `string` |  |
+| entity | `string` |  |
+| meta | `Record<string, unknown>` |  |
+| permissions | `Record<string, typeOperator>` |  |
+| auditable | `boolean` |  |
+| duplicate | `boolean` |  |
+| guards | `Record<string, unknown>` |  |
+| stepUp | `Record<string, boolean>` | Legacy alias — BE caps-scans may carry middleware-derived step-up. |
+
 ### `ExportConfig`
 
 | Field | Type | Description |
@@ -1468,6 +1546,44 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 |-------|------|-------------|
 | excelStream | `WritableStream` |  |
 | csvStream | `WritableStream` |  |
+
+### `ExtractDeps`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| svelte | `SvelteCompilerPort` |  |
+| ts | `typeof ts` |  |
+
+### `ExtractedEndpoint`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| method | `string` |  |
+| path | `string` |  |
+
+### `ExtractedField`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| type | `string` |  |
+| required | `boolean` |  |
+| constraints | `string[]` |  |
+| default | `string` |  |
+| fromState | `boolean` |  |
+
+### `ExtractedNavigation`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| kind | `"same-tab" \| "new-tab"` |  |
+| target | `string` |  |
+
+### `ExtractedWidget`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| tag | `string` |  |
+| attrs | `Record<string, unknown>` |  |
 
 ### `GatewayConfig`
 
@@ -2069,6 +2185,48 @@ sent as the initial SSE `snapshot` event on connect.
 | allowed | `boolean` |  |
 | missing | `string[]` | Missing permissions (only populated when not allowed) |
 
+### `RemoteDispatchMap`
+
+Route→source-file resolution for remote module chunks: the `PAGES`/
+`PANELS` record literals (or a fixed mountPage/mountSheet body) in the
+chunk entry tell which `.svelte` owns which declared route/sheet key.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| pages | `Record<string, string>` | route path → fe-src-relative .svelte file. |
+| sheets | `Record<string, string>` | sheet key (`<module>.<name>`) → fe-src-relative .svelte file. |
+
+### `RenderContext`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| service_code | `string` | Owning service/module code (report tags). |
+| routes | `DocRoute[]` | Declared routes (collectDocRoutes output + host statics merged). |
+| sheets | `DocSheet[]` | Declared sheets. |
+| metaByEntity | `Record<string, Record<string, unknown>>` | entity → served meta. |
+| capsByEntity | `Record<string, EntityCaps>` | entity → caps (perms resolved, stepUp, duplicate, auditable). |
+| extraRoutes | `ScannedRoute[]` | BE fallback — extra-scanned routes (empty for us services). |
+| perm_values | `Record<string, string>` | Permission enum values for the `<entity>.<op>` guess path. |
+| translations | `Record<string, string>` | Merged translation dict — own schema first (the T() source). |
+| census_options | `{ emits: CensusOption[]; callables: CensusOption[] }` | Census option vocabularies for `options_source` fields. |
+| idp_name | `string` | Identity-provider display name (config-derived). |
+| access_namespace | `string` | Access namespace of the module — nav.access (e.g. `access.system.job`). |
+| out_dir | `string` | Output directory — pipeline-owned; ghosts are deleted. |
+| keep_files | `string[]` | `.mdx` filenames in `out_dir` that other generators own (reference
+docs emitted into the same `generated/` dir — e.g. BE's
+entity-api-catalog). Everything else not re-emitted this run is a
+ghost and is deleted. |
+| generated_base | `string` | Cross-doc link base for generated pages. |
+| dev_guide_base | `string` | Cross-doc link base for hand-written dev-guide pages. |
+
+### `RenderReport`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| emitted | `string[]` |  |
+| skipped | `{ route: string; reason: string }[]` |  |
+| ghosts_deleted | `string[]` |  |
+
 ### `ResolveInput`
 
 Port for resolving IDP subject to internal Primebrick UUID.
@@ -2120,6 +2278,13 @@ forwards them in headers.
 |-------|------|-------------|
 | scope | `string` | "global" or a service code — scopes the key namespace. |
 | name | `string` |  |
+
+### `RouterScanResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| capsByEntity | `Record<string, EntityCaps>` |  |
+| extraRoutes | `ScannedRoute[]` |  |
 
 ### `RowCustomAction`
 
@@ -2199,6 +2364,15 @@ after router construction, e.g. `authDependencySetters`). |
 | mfaConsume | `MfaConsumeFn` | Override for the MFA action-authorization consume — defaults to the
 governed `auth.mfa.consume` correlation call to the BE. Injectable for
 tests only. |
+
+### `ScannedRoute`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| method | `string` |  |
+| path | `string` |  |
+| perms | `string[]` |  |
+| stepUp | `boolean` |  |
 
 ### `SecretGetRequest`
 
@@ -2456,6 +2630,19 @@ All fields are optional: the BE only includes what it has configured.
 all microservices. Single point of configuration; changes are pushed
 via the `config.changed` broadcast subject. |
 
+### `ShellEntityDecl`
+
+EntityTablePage/EntityFormPage shell declaration extracted from the page.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| component | `string` |  |
+| entity | `string` |  |
+| basePath | `string` |  |
+| createAction | `boolean` |  |
+| editAction | `boolean` |  |
+| navStrategy | `string` |  |
+
 ### `ShieldRegistryLike`
 
 Structural view of the client registry needed for shield checks.
@@ -2513,6 +2700,37 @@ followed by a blank line. Comments are sent as `: <text>\n\n`.
 | Field | Type | Description |
 |-------|------|-------------|
 | closed | `boolean` | Whether the underlying connection has been closed. |
+
+### `SvelteCompilerPort`
+
+Minimal injected Svelte compiler surface (svelte/compiler `parse`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| parse | `(source: string, options: { modern: boolean }) => unknown` |  |
+
+### `SveltePageFacts`
+
+Extracted facts for one page/component source file — the same fact set
+the historical `pages.json` carried, extended with remote-source facts.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| route | `string` |  |
+| fields | `Record<string, ExtractedField>` | Form/state fields: name → &#123;type, required, constraints, default, fromState&#125;. |
+| endpoints | `ExtractedEndpoint[]` | Outbound API calls seen in source. |
+| navigations | `ExtractedNavigation[]` | goto/window.open/href CTAs. |
+| composables | `string[]` | use* composable names referenced. |
+| schemaVar | `string \| null` |  |
+| superRefines | `number` |  |
+| customActions | `string[]` | customActionHandlers keys on EntityTablePage/EntityFormPage. |
+| constUrls | `Record<string, string>` |  |
+| widgets | `ExtractedWidget[]` | Template widgets (FormField/Button/EntityTablePage/…) with attrs. |
+| i18nKeys | `string[]` | $t()/ctx.i18n.t() translation keys referenced. |
+| entityDecl | `ShellEntityDecl` | EntityTablePage/EntityFormPage shell declaration facts. |
+| remoteMount | `boolean` | RemotePageMount present on the page. |
+| sheetProps | `string[]` | Remote-source facts — `ctx.sheet.props.*` keys consumed by a sheet. |
+| sheetOpenings | `string[]` | Remote-source facts — `openSheet('<key>')` targets called by the source. |
 
 ### `TableMeta`
 
@@ -4129,6 +4347,18 @@ dialog) or MfaConsumeUnavailableError (transport failure → 503).
 | user | `AuthUser \| undefined` |  |
 | consume | `MfaConsumeFn` |  |
 
+### `assertWithinRoot(root, paths): void`
+
+Hard isolation gate — every filesystem path the engine touches MUST
+resolve inside the service's repo root (the one sanctioned exception is
+`fe_src_dir`, which the caller widens explicitly for the BE↔FE pair).
+Throws on escape — enforcement, never a warning.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| root | `string` |  |
+| paths | `string[]` |  |
+
 ### `assertWritableConfigKey(key): void`
 
 Throws when `key` is a static-identity config key. Designed for
@@ -4335,6 +4565,27 @@ Coerce any role payload shape into a clean array of strings.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | raw | `unknown` |  |
+
+### `collectCensusOptions(sources): { emits: CensusOption[]; callables: CensusOption[] }`
+
+Census-wide option vocabulary for `options_source` fields — every
+module's declared `emits`/`callables`, normalized. `service` keeps the
+owner so label/description keys resolve in the right translation schema
+(the lexicon is the union of all service schemas).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| sources | `{ service: string; emits: EmitDecl[]; callables: CallableDecl[] }[]` |  |
+
+### `collectDocRoutes(nav): DocRoute[]`
+
+`nav.routes` → documentable route entries. Catch-all/bracket segments
+are rejected BY CONSTRUCTION (they are not documentable pages — e.g.
+`/docs/[...path]` never becomes `[...path].mdx`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| nav | `ModuleNavDeclaration` |  |
 
 ### `composeRouteHandlers(handlers): RouteHandler`
 
@@ -4794,6 +5045,28 @@ Floats are serialized as JSON numbers (e.g. 3.14 → "3.14").
 |-----------|------|-------------|
 | data | `unknown` |  |
 
+### `extractHostFacts(raw, route, deps): SveltePageFacts`
+
+Extract facts from one host `+page.svelte` source.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `string` |  |
+| route | `string` |  |
+| deps | `ExtractDeps` |  |
+
+### `extractHostRouteSet(routesDir, routes, deps): Record<string, SveltePageFacts>`
+
+Extract host-page facts for a set of routes. `routesDir` is the FE app
+routes root (`src/routes/(app)`); each route maps to
+`<routesDir>/<route>/+page.svelte`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| routesDir | `string` |  |
+| routes | `string[]` |  |
+| deps | `ExtractDeps` |  |
+
 ### `extractNatsContext(hdrs): Context`
 
 Extract parent context from NATS message headers.
@@ -4801,6 +5074,16 @@ Extract parent context from NATS message headers.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | hdrs | `MsgHdrs \| undefined` |  |
+
+### `extractRemoteFacts(raw, route, deps): SveltePageFacts`
+
+Extract facts from one remote module source (`<svc>/fe/src/*.svelte`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `string` |  |
+| route | `string` |  |
+| deps | `ExtractDeps` |  |
 
 ### `extractTraceContext(hdrs): Context`
 
@@ -4904,6 +5187,12 @@ values are reported, never invented.
 
 Generate a new random API key string.
 Format: `pbk_<32 random hex chars>` (36 chars total, 8-char prefix for display).
+
+### `generatePageDocs(ctx): RenderReport`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| ctx | `RenderContext` |  |
 
 ### `getAllCurrencies(): CurrencyInfo[]`
 
@@ -5240,6 +5529,14 @@ Load auth config from the port into the in-memory cache.
 Called once at startup (and on invalidation).
 Throws if the port is not initialized or the DB is unreachable.
 
+### `loadPermValues(dtsPath): Record<string, string>`
+
+Parse `@primebrick/sdk` permissions.d.ts → enum NAME → permission string.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| dtsPath | `string` |  |
+
 ### `logModuleStartup(name, version, url): void`
 
 Log a successful infrastructure module connection.
@@ -5374,6 +5671,16 @@ Check if a permission string matches a pattern (supports * wildcard).
 | a | `DecimalInput` |  |
 | b | `DecimalInput` |  |
 
+### `mergeTranslationScopes(dicts): Record<string, string>`
+
+Merge translation scopes first-writer-wins — pass scopes ordered by
+precedence (own schema first, then system/public/custom, then the
+census-wide lexicon of all service schemas for option labels).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| dicts | `Record<string, string>[]` |  |
+
 ### `min(a, b): Decimal`
 
 | Parameter | Type | Description |
@@ -5421,6 +5728,16 @@ Strip trailing fractional zeros — `1.230` → `1.23`, `12.000` → `12`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `normalizeEntityContext(decls): EntityContext`
+
+Evaluated `EntityRouteDecl[]` → normalized context. `guards` keys map to
+step-up flags (the presence of an action guard means the op is guarded —
+the renderer only narrates step-up, never the guard mechanism).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| decls | `EvaluatedEntityDecl[]` |  |
 
 ### `normalizeIdpToken(payload, rolesPath): NormalizedIdpUser`
 
@@ -5475,6 +5792,25 @@ Scale is preserved as written (`"1.230"` → scale 3).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | raw | `unknown` |  |
+
+### `parseRemoteDispatch(entrySource, opts, ts): RemoteDispatchMap`
+
+Parse a remote chunk entry (`fe/src/index.ts` / `pages.ts`) and resolve
+the route/sheet-key → component-file dispatch map.
+
+Two dispatch shapes are supported:
+  - Record literals: `const PAGES = { '/route': Component }` (pages,
+    keys start with `/`) and `const PANELS = { 'mod.key': Component }`
+    (sheets, keys match `<module>.<name>`).
+  - Fixed mounts: `mountPage`/`mountSheet` bodies that mount ONE
+    component unconditionally — the component is assigned to every
+    `component_url` route / declared sheet key the caller passes in.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| entrySource | `string` |  |
+| opts | `{ component_url_routes: string[]; sheet_keys: string[] }` |  |
+| ts | `typeof ts` |  |
 
 ### `pgDivScale(a, b): number`
 
@@ -5686,6 +6022,24 @@ Round to `scale` fractional digits (default `HALF_UP`).
 | scale | `number` |  |
 | mode | `RoundingMode` |  |
 
+### `routeFromHostFile(file, routesDir): string`
+
+Derive the route path from a host `+page.svelte` file path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| file | `string` |  |
+| routesDir | `string` |  |
+
+### `routeOp(r, prefixes): string \| null`
+
+Map an extra-scanned route to a standard op / `custom:<name>` action.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| r | `ScannedRoute` |  |
+| prefixes | `string[]` |  |
+
 ### `rpcSpec(routes): Record<string, unknown>`
 
 Convert declared routes into an OpenAPI `paths` fragment. Routes
@@ -5734,6 +6088,28 @@ Drop unknown keys and fall back to defaults when nothing left.
 |-----------|------|-------------|
 | visibleKeys | `string[]` |  |
 | columns | `MetaColumn[]` |  |
+
+### `scanRouterCaps(routerDir, permValues): RouterScanResult`
+
+BE variant — `makeEntityRouter` configs live inside controller files
+that are not importable without boot. Regex scan over `*.router.ts`
+resolves `entityName`, `permissions`, `duplicate`, `actionMiddlewares`
+(→ stepUp) and `metaExtraScans` prefixes — same output as the legacy
+ai/scripts scan, moved into the shared engine.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| routerDir | `string` |  |
+| permValues | `Record<string, string>` |  |
+
+### `scanRoutes(caps, extraRoutes): ScannedRoute[]`
+
+Resolve the extra-scanned routes an entity's caps prefix covers.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| caps | `EntityCaps \| undefined` |  |
+| extraRoutes | `ScannedRoute[]` |  |
 
 ### `searchableTextColumns(columns): MetaColumn[]`
 
@@ -5845,6 +6221,14 @@ Store the cache port and Redis info (called once after Redis connects).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | config | `SharedConfig` |  |
+
+### `sheetsFromNav(nav): DocSheet[]`
+
+`nav.sheets` → documentable sheet surfaces.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| nav | `ModuleNavDeclaration` |  |
 
 ### `shutdownTelemetry(): Promise<void>`
 
@@ -6182,6 +6566,14 @@ mid-rotation.
 |-----------|------|-------------|
 | row | `ClientKeyMaterial \| undefined` |  |
 | presentedKey | `string` |  |
+
+### `walkHostPages(routesDir): string[]`
+
+Walk a host routes directory for `+page.svelte` files.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| routesDir | `string` |  |
 
 ### `withCache(repo, port, logger): R`
 

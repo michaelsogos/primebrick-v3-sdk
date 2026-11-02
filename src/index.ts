@@ -113,6 +113,46 @@ export {
 export { docsPackRouteHandler, DOCS_PACK_ROUTE } from "./docs-pack/serve-docs-pack.js";
 export { fetchDocsPack, DOCS_PACK_SHIELD_HEADER } from "./docs-pack/docs-pack-client.js";
 export {
+  extractHostFacts,
+  extractRemoteFacts,
+  extractHostRouteSet,
+  walkHostPages,
+  routeFromHostFile,
+  parseRemoteDispatch,
+  type ExtractDeps,
+} from "./docs-gen/extract-svelte.js";
+export {
+  assertWithinRoot,
+  collectDocRoutes,
+  sheetsFromNav,
+  normalizeEntityContext,
+  scanRouterCaps,
+  loadPermValues,
+  routeOp,
+  scanRoutes,
+  collectCensusOptions,
+  mergeTranslationScopes,
+  type EvaluatedEntityDecl,
+  type EntityContext,
+  type ScannedRoute,
+  type RouterScanResult,
+  type CensusOption,
+} from "./docs-gen/collect.js";
+export { generatePageDocs, type RenderContext, type RenderReport } from "./docs-gen/render.js";
+export type {
+  SvelteCompilerPort,
+  SveltePageFacts,
+  ExtractedField,
+  ExtractedEndpoint,
+  ExtractedNavigation,
+  ExtractedWidget,
+  ShellEntityDecl,
+  RemoteDispatchMap,
+  DocRoute,
+  DocSheet,
+  EntityCaps,
+} from "./docs-gen/types.js";
+export {
   internalFetch,
   configureInternalClient,
   resetInternalClient,
