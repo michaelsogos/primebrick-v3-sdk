@@ -15,6 +15,13 @@
  *   upsert          `.upsert(`/`.upsertMany(` — removed; find → add | update
  *   new-repository  `new Repository(` — use dal.entityService/tableAuditPort
  *   pool-ping       `client|pool|conn.ping(` — raw driver ping; use dal.serverVersion()
+ *   column-flag-defaults
+ *                   `col.default_visible|sortable|filterable|searchable
+ *                   !==|=== false` — column flags are opt-out (absent =
+ *                   enabled); read them ONLY via the canonical predicates
+ *                   isColumnVisible/isColumnSortable/isColumnFilterable/
+ *                   isColumnSearchable in @primebrick/core. The canonical
+ *                   implementation file (core/src/columns.ts) is exempt.
  *   entity-nullable-explicit
  *                   In @Entity classes, properties declared `prop?:` or
  *                   `prop: T | null` MUST carry an explicit nullability marker:
@@ -89,6 +96,7 @@ type RuleId =
   | "new-repository"
   | "pool-ping"
   | "entity-nullable-explicit"
+  | "column-flag-defaults"
   | "dal-access"
   | "layer-repo-import"
   | "i18n-key-ns"
@@ -116,6 +124,7 @@ const LINE_RULES: Rule[] = [
   { id: "upsert", pattern: /\.upsert(?:Many)?\s*\(/, hint: "upsert removed — find → add | update(version)" },
   { id: "new-repository", pattern: /\bnew\s+Repository\s*\(/, hint: "use dal.entityService()/dal.tableAuditPort()" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
+  { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
 ];
 
 // Config-gated rules — populated from `.devin/check-standards.json` (repo
@@ -266,9 +275,9 @@ const SQL_SHAPES =
 const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
-  "entity-nullable-explicit", "nav-decl-access",
+  "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
 ]);
-const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit"]);
+const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults"]);
 
 interface Violation {
   file: string;
