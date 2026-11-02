@@ -14408,7 +14408,7 @@
 					},
 					{
 						"type": "literal",
-						"value": "rule_id"
+						"value": "trigger_id"
 					},
 					{
 						"type": "literal",
@@ -15468,16 +15468,24 @@
 				},
 				{
 					"id": 601,
-					"name": "rule_id",
+					"name": "trigger_id",
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {
 						"isOptional": true
 					},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "The trigger the dispatch materialized from (job_trigger.uuid)."
+							}
+						]
+					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-							"line": 154,
+							"line": 155,
 							"character": 4
 						}
 					],
@@ -15505,7 +15513,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-							"line": 156,
+							"line": 157,
 							"character": 4
 						}
 					],
@@ -15549,7 +15557,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-							"line": 160,
+							"line": 161,
 							"character": 4
 						}
 					],
@@ -15587,7 +15595,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-					"line": 163,
+					"line": 164,
 					"character": 24
 				}
 			],
@@ -15625,7 +15633,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-							"line": 163,
+							"line": 164,
 							"character": 24
 						}
 					],
@@ -15669,7 +15677,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-					"line": 169,
+					"line": 170,
 					"character": 24
 				}
 			],
@@ -15699,7 +15707,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-							"line": 169,
+							"line": 170,
 							"character": 24
 						}
 					],
@@ -15771,7 +15779,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-					"line": 176,
+					"line": 177,
 					"character": 24
 				}
 			],
@@ -15809,7 +15817,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-							"line": 176,
+							"line": 177,
 							"character": 24
 						}
 					],
@@ -15855,7 +15863,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-					"line": 187,
+					"line": 188,
 					"character": 24
 				}
 			],
@@ -15901,7 +15909,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-							"line": 187,
+							"line": 188,
 							"character": 24
 						}
 					],
@@ -16005,7 +16013,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-															"line": 188,
+															"line": 189,
 															"character": 4
 														}
 													],
@@ -16023,7 +16031,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-															"line": 189,
+															"line": 190,
 															"character": 4
 														}
 													],
@@ -16041,7 +16049,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
-															"line": 190,
+															"line": 191,
 															"character": 4
 														}
 													],
@@ -103685,7 +103693,7 @@
 		"601": {
 			"packageName": "@primebrick/core",
 			"packagePath": "src/payload-map.ts",
-			"qualifiedName": "PayloadMapContext.rule_id"
+			"qualifiedName": "PayloadMapContext.trigger_id"
 		},
 		"602": {
 			"packageName": "@primebrick/core",

@@ -2078,7 +2078,7 @@ Context the resolver reads meta values from.
 | Field | Type | Description |
 |-------|------|-------------|
 | actor_uuid | `string` | Who armed the rule (stored actor). |
-| rule_id | `string` |  |
+| trigger_id | `string` | The trigger the dispatch materialized from (job_trigger.uuid). |
 | fired_at | `number` | Fire timestamp (epoch ms) — set by the engine at dispatch. |
 | actor_locale | `string` | Locale (BCP-47, e.g. `it-IT`) of the actor whose event triggered the
  arm — read off the message's auth headers (`x-user-locale`). Absent
@@ -3426,7 +3426,7 @@ User-authored source for a single scalar value.
 
 ### `PayloadMapMeta`
 
-**Type:** `"actor_uuid" \| "rule_id" \| "fired_at" \| "actor_locale"`
+**Type:** `"actor_uuid" \| "trigger_id" \| "fired_at" \| "actor_locale"`
 
 ### `PayloadSemanticSlot`
 
