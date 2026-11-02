@@ -570,7 +570,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         const flags = c.sortable && c.filterable ? "can be sorted and filtered"
           : c.sortable ? "can be sorted but not filtered"
           : c.filterable ? "can be filtered but not sorted" : "cannot be sorted or filtered";
-        out.push(`- The ${label} column is ${c.default_visible ? "shown" : "hidden"} by default and ${flags}${tip ? ` — ${tip.replace(/\.$/, "").replace(/^./, (x) => x.toLowerCase())}` : ""}.`);
+        out.push(`- The ${label} column is ${c.default_visible ? "shown" : "hidden"} by default and ${flags}${tip ? ` — ${tip.replace(/\.$/, "").replace(/^[A-Z](?=[a-z])/, (x) => x.toLowerCase())}` : ""}.`);
       }
       out.push("");
     }
@@ -602,9 +602,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         // digest notes: drop the raw constraintText (the `that …` clause
         // already narrates it) and strip the trailing period
         const cons = constraintClause(f.constraints, wt);
-        const digestNotes = [tooltip, fieldNotes(name, f, facts, isCreate)]
-          .filter(Boolean).join("; ")
-          .replace(/\.$/, "")
+        const digestNotes = joinNotes(tooltip, fieldNotes(name, f, facts, isCreate))
           .replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase()); // lowercase the lead only for real words — "JSON" stays
         fieldRows.push({ name, f, label, wt, notes: digestNotes, cons });
       }
