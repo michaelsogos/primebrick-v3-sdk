@@ -25,6 +25,7 @@ import type {
 import type { CensusOption, ScannedRoute } from "./collect.js";
 import { routeOp, scanRoutes } from "./collect.js";
 import { extJsonStringify } from "../json/ext-json.js";
+import { isColumnFilterable, isColumnSortable, isColumnVisible, type MetaColumn } from "@primebrick/core";
 
 export interface RenderContext {
   /** Owning service/module code (report tags). */
@@ -89,7 +90,6 @@ const stripIdp = (s: string) => s.replace(/^idp/i, "");
 
 const HANDWRITTEN_SLUGS = new Set(["entities-crud"]);
 
-type MetaColumn = Record<string, unknown> & { key: string };
 const columnsOf = (meta?: Record<string, unknown>): MetaColumn[] => {
   const c = meta?.columns;
   if (Array.isArray(c)) return c as MetaColumn[];
@@ -432,8 +432,8 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     const metaCols = columnsOf(meta);
     const joinAnd = (xs: string[]) => xs.length > 1 ? xs.slice(0, -1).join(", ") + ", and " + xs.at(-1) : (xs[0] ?? "");
     if (hasList && metaCols.length) {
-      const visCols = metaCols.filter((c) => c.default_visible && c.type !== "boolean");
-      const flagCols = metaCols.filter((c) => c.default_visible && c.type === "boolean");
+      const visCols = metaCols.filter((c) => isColumnVisible(c) && c.type !== "boolean");
+      const flagCols = metaCols.filter((c) => isColumnVisible(c) && c.type === "boolean");
       const named = visCols.map((c) => `the ${T(c.label_key as string) ?? humanize(c.key)}`);
       const flags = flagCols.map((c) => T(c.label_key as string) ?? humanize(c.key));
       if (named.length || flags.length)
@@ -570,13 +570,13 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         tip: (c.tooltip ? (T(c.tooltip as string) ?? "") : "") || (IDP_FIELD_NOTES[c.key] ?? ""),
       }));
       for (const { c, label, tip } of colRows)
-        out.push(`| **${label}** | ${c.default_visible ? "yes" : "no"} | ${c.sortable ? "yes" : "no"} | ${c.filterable ? "yes" : "no"} | ${tip} |`);
+        out.push(`| **${label}** | ${isColumnVisible(c) ? "yes" : "no"} | ${isColumnSortable(c) ? "yes" : "no"} | ${isColumnFilterable(c) ? "yes" : "no"} | ${tip} |`);
       out.push("");
       for (const { c, label, tip } of colRows) {
-        const flags = c.sortable && c.filterable ? "can be sorted and filtered"
-          : c.sortable ? "can be sorted but not filtered"
-          : c.filterable ? "can be filtered but not sorted" : "cannot be sorted or filtered";
-        out.push(`- The ${label} column is ${c.default_visible ? "shown" : "hidden"} by default and ${flags}${tip ? ` — ${tip.replace(/\.$/, "").replace(/^[A-Z](?=[a-z])/, (x) => x.toLowerCase())}` : ""}.`);
+        const flags = isColumnSortable(c) && isColumnFilterable(c) ? "can be sorted and filtered"
+          : isColumnSortable(c) ? "can be sorted but not filtered"
+          : isColumnFilterable(c) ? "can be filtered but not sorted" : "cannot be sorted or filtered";
+        out.push(`- The ${label} column is ${isColumnVisible(c) ? "shown" : "hidden"} by default and ${flags}${tip ? ` — ${tip.replace(/\.$/, "").replace(/^[A-Z](?=[a-z])/, (x) => x.toLowerCase())}` : ""}.`);
       }
       out.push("");
     }

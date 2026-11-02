@@ -1405,8 +1405,8 @@ namespace write boundary (see `translation-keys.ts`) guarantees the
 keys actually live in that module's `<code>.translations` schema. |
 | title_key | `string` | Optional i18n key overriding the canonical page title.
 When absent, list/create/edit titles are built from the generic
-`system.entities.page_title.{list|create|edit}` templates interpolated
-with `system.entities.<translation_key>.{plural|singular}`.
+`system.entities.page_title.{list\|create\|edit}` templates interpolated
+with `system.entities.<translation_key>.{plural\|singular}`.
 Set only for custom pages needing a bespoke title — CRUD entity metas
 must not declare it. |
 | uid | `string` | Field key holding the entity primary key (usually `uuid`). |
@@ -5458,6 +5458,40 @@ role_mappings write-path guard (rejection, not silent non-coverage):
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | value | `unknown` |  |
+
+### `isColumnFilterable(col): boolean`
+
+Column participates in the filters sheet — absent means filterable.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "filterable">` |  |
+
+### `isColumnSearchable(col): boolean`
+
+Column joins the search scope — absent means searchable (the caller
+ may still require a text-physical type on top).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "searchable">` |  |
+
+### `isColumnSortable(col): boolean`
+
+Column supports ORDER BY — absent means sortable.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "sortable">` |  |
+
+### `isColumnVisible(col): boolean`
+
+Column is visible by default — opt-out (`default_visible: false`)
+ hides it; `hideable: false` pins it visible regardless.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "default_visible" \| "hideable">` |  |
 
 ### `isDecimal(v): v is Decimal`
 
