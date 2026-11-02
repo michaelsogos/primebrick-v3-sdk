@@ -50567,7 +50567,7 @@
 				},
 				{
 					"id": 1187,
-					"name": "extraRoutes",
+					"name": "extra_routes",
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
@@ -106089,7 +106089,7 @@
 		"1187": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/docs-gen/collect.ts",
-			"qualifiedName": "RouterScanResult.extraRoutes"
+			"qualifiedName": "RouterScanResult.extra_routes"
 		},
 		"1188": {
 			"packageName": "@primebrick/sdk",

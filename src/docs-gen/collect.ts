@@ -145,7 +145,7 @@ export interface ScannedRoute {
 
 export interface RouterScanResult {
   caps_by_entity: Record<string, EntityCaps>;
-  extraRoutes: ScannedRoute[];
+  extra_routes: ScannedRoute[];
 }
 
 /** Parse `@primebrick/sdk` permissions.d.ts → enum NAME → permission string. */
@@ -200,7 +200,7 @@ export function scanRouterCaps(routerDir: string, permValues: Record<string, str
       for (const sm of src.slice(m.index).matchAll(/prefix:\s*"([^"]+)"/g)) caps.extraScans.push(sm[1]);
     }
   }
-  return { caps_by_entity, extraRoutes };
+  return { caps_by_entity, extra_routes: extraRoutes };
 }
 
 /** Map an extra-scanned route to a standard op / `custom:<name>` action. */

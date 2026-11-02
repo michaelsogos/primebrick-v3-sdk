@@ -329,8 +329,9 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     // locally" (a service's own surfaces may legitimately carry no meta)
     const foreign = !!declEntity && foreignSet.has(declEntity);
     // every DECLARED route is documentable (census is the truth); the only
-    // skip is a foreign entity (ownership boundary)
-    const ok = !foreign;
+    // skips are a foreign entity (ownership boundary) or an empty slug
+    // (the "/" root is the app shell, never a documented page)
+    const ok = !foreign && slugFor(route) !== "";
     documentable.set(route, ok);
     if (ok) docSlugs.add(slugFor(route));
     else skipped.push({ route, reason: `entity '${declEntity}' owned by another service` });
@@ -962,12 +963,12 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
   // ── ghost auto-delete — `out_dir` is pipeline-owned: any .mdx not
   // re-emitted this run and not listed in `keep_files` (reference docs
   // owned by sibling generators) is a stale ghost and is deleted.
-  const keep = new Set(ctx.keep_files ?? []);
+  const keep = new Set((ctx.keep_files ?? []).map((k) => k.replace(/\.mdx$/, "")));
   const ghosts: string[] = [];
   try {
     for (const f of readdirSync(outDir)) {
       if (!f.endsWith(".mdx")) continue;
-      if (!emitted.includes(f) && !keep.has(f)) ghosts.push(f);
+      if (!emitted.includes(f) && !keep.has(f.replace(/\.mdx$/, ""))) ghosts.push(f);
     }
   } catch { /* out dir may not exist yet */ }
   const ghosts_deleted: string[] = [];
