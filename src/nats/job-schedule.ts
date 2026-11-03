@@ -185,14 +185,16 @@ export function forwardAuthHeaders(msg: { headers?: MsgHdrs }): Record<string, s
 
 /**
  * Read the session actor's identity off an inbound message's auth headers
- * — `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47).
- * Header names resolve against the configured `gateway.headers` map with
- * the serializer defaults. Both absent on system-lane messages — the
- * values are reported, never invented.
+ * — `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47),
+ * `x-user-email` → `actor_email`. Header names resolve against the
+ * configured `gateway.headers` map with the serializer defaults. All
+ * absent on system-lane messages — the values are reported, never
+ * invented.
  */
 export function forwardedActor(msg: { headers?: MsgHdrs }): {
   actor_uuid?: string;
   actor_locale?: string;
+  actor_email?: string;
 } {
   const config = getAuthConfig();
   const h = config.gateway.headers;
@@ -201,5 +203,6 @@ export function forwardedActor(msg: { headers?: MsgHdrs }): {
   return {
     actor_uuid: get(h.user_id ?? "x-user-id"),
     actor_locale: get(h.locale ?? "x-user-locale"),
+    actor_email: get(h.email ?? "x-user-email"),
   };
 }

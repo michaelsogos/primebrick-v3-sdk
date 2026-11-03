@@ -83,6 +83,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
+import { HONEST_FORMAT_HINTS } from "@primebrick/core";
 
 type RuleId =
   | "ext-json"
@@ -102,6 +103,7 @@ type RuleId =
   | "i18n-key-ns"
   | "i18n-sql-ns"
   | "nav-decl-access"
+  | "schema-honest-format"
   | "truncated-sibling";
 
 interface Rule {
@@ -266,6 +268,75 @@ function checkEntityNullableExplicit(
   return out;
 }
 
+// ── schema-honest-format ────────────────────────────────────────────────
+// Static mirror of the enrollment-time `schemaHonestyIssue` gate (core is
+// the authority — this catches the drift BEFORE boot, so the dishonest
+// schema never even compiles into a build that could register it). ERROR
+// level: any violation fails the check.
+// A property literal `name: { type: "string" … }` — or `type:"array"` with
+// `{type:"string"}` items — whose NAME implies a data shape (`*_at`,
+// `*_by`, uuid/email/phone/url/locale-shaped — the core
+// `HONEST_FORMAT_HINTS` matrix) must declare it inside the literal:
+// `format:`/`x_semantic:`/`enum:`/`const:`/`pattern:`. Zod-authored
+// schemas (`z.string().email()` → `z.toJSONSchema`) carry no `type:"string"`
+// text and are covered by the runtime gate, so they are unaffected here.
+const HONEST_PROP_OPEN = /["']?([a-zA-Z_]\w*)["']?\s*:\s*\{/g;
+const HONEST_MARKERS = /\b(?:format|x_semantic|enum|const|pattern)\s*:/;
+
+function checkSchemaHonesty(
+  lines: string[],
+  rel: string,
+  isExempted: (exempt: { rules: Set<string>; hasReason: boolean } | null, id: string) => boolean,
+  exemptAt: (i: number) => { rules: Set<string>; hasReason: boolean } | null,
+): Violation[] {
+  const out: Violation[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (isCommentOnly(line)) continue;
+    HONEST_PROP_OPEN.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = HONEST_PROP_OPEN.exec(line))) {
+      const field = m[1]!;
+      const hint = HONEST_FORMAT_HINTS.find((h) => h.re.test(field));
+      if (!hint) continue;
+      // Collect the object literal — balance braces from the `{` ending m[0].
+      const startCol = m.index + m[0].length - 1;
+      let depth = 0;
+      let text = "";
+      let j = i;
+      for (; j < lines.length; j++) {
+        const seg = j === i ? line.slice(startCol) : lines[j];
+        for (const ch of seg) {
+          if (ch === "{") depth++;
+          else if (ch === "}") depth--;
+        }
+        text += seg + "\n";
+        if (depth === 0) break;
+        if (j - i > 80) break; // runaway guard — malformed source
+      }
+      // A string leaf is dishonest: the prop itself string-typed, or an
+      // `array` whose items are strings and carry no marker either.
+      const stringLeaf = /type\s*:\s*["']string["']/.test(text);
+      const arrayOfStrings =
+        /type\s*:\s*["']array["']/.test(text) &&
+        /items\s*:\s*\{[^}]*type\s*:\s*["']string["']/.test(text);
+      if (!stringLeaf && !arrayOfStrings) continue;
+      if (HONEST_MARKERS.test(text)) continue;
+      const exempt = exemptAt(i) ?? exemptAt(j);
+      if (isExempted(exempt, "schema-honest-format")) continue;
+      out.push({
+        file: rel,
+        line: i + 1,
+        rule: "schema-honest-format",
+        text: line.trim(),
+        hint: `"${field}" looks like a ${hint.why} value — declare format:"${hint.formats.join("|")}" on it (enrollment rejects a bare string)`,
+      });
+      break; // one finding per line keeps output readable
+    }
+  }
+  return out;
+}
+
 // SQL shapes inside quoted strings — UPPERCASE keywords only (project SQL
 // style), so UI text like "Update an existing entity" does not fire.
 const STRING_RE = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
@@ -276,6 +347,7 @@ const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
   "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
+  "schema-honest-format",
 ]);
 const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults"]);
 
@@ -445,6 +517,12 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     const exemptAt = (i: number) =>
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     out.push(...checkEntityNullableExplicit(lines, rel, isExempted, exemptAt));
+  }
+
+  if (rules.has("schema-honest-format")) {
+    const exemptAt = (i: number) =>
+      parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
+    out.push(...checkSchemaHonesty(lines, rel, isExempted, exemptAt));
   }
 
   // nav-decl-access — a file declaring a ModuleNavDeclaration must set
