@@ -1631,6 +1631,7 @@ Outcome message published on `jobs.result.<…>` after a correlated handler.
 | schedule_subject | `string` |  |
 | fire_seq | `number` | Stream sequence of the consumed fire (JetStream consumers only). |
 | target | `string` | The subject the handler consumed — what the outcome refers to. |
+| duration_ms | `number` | Handler wall time measured by the transport middleware. |
 | error_code | `string` | Machine-readable failure class, e.g. "DENIED", "HANDLER_ERROR". |
 | error_detail | `string` |  |
 

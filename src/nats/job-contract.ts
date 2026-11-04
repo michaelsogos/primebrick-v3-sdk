@@ -32,6 +32,8 @@ export interface JobResultMessage {
   fire_seq?: number;
   /** The subject the handler consumed — what the outcome refers to. */
   target?: string;
+  /** Handler wall time measured by the transport middleware. */
+  duration_ms?: number;
   /** Machine-readable failure class, e.g. "DENIED", "HANDLER_ERROR". */
   error_code?: string;
   error_detail?: string;

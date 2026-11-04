@@ -62,10 +62,10 @@ function injectIdentity(hdrs: MsgHdrs): void {
  * not break the consumer flow — the run row stays `dispatched` and the
  * job-handler sweeper marks it `lost` instead.
  */
-async function publishJobResultMessage(
+export async function publishJobResultMessage(
   subject: string,
   headers: MsgHdrs | undefined,
-  result: Pick<JobResultMessage, "status" | "error_code" | "error_detail" | "fire_seq">,
+  result: Pick<JobResultMessage, "status" | "error_code" | "error_detail" | "fire_seq" | "duration_ms">,
 ): Promise<void> {
   const run_id = msgHeader(headers, JOB_RUN_ID_HEADER) ?? undefined;
   const schedule_subject = msgHeader(headers, JOB_SCHEDULE_SUBJECT_HEADER) ?? undefined;
@@ -264,17 +264,22 @@ export class NatsClient {
           parentCtx,
         );
         await context.with(trace.setSpan(parentCtx, span), async () => {
+          const t0 = performance.now();
           try {
             const text = new TextDecoder().decode(msg.data);
             // Empty payload — skip parsing, call handler with null
             const data = text === "" ? (null as T) : extJsonParse<T>(text);
             await handler(data, msg);
-            await publishJobResultMessage(subject, msg.headers, { status: "executed" });
+            await publishJobResultMessage(subject, msg.headers, {
+              status: "executed",
+              duration_ms: Math.round(performance.now() - t0),
+            });
           } catch (error) {
             await publishJobResultMessage(subject, msg.headers, {
               status: "failed",
               error_code: "HANDLER_ERROR",
               error_detail: error instanceof Error ? error.message : String(error),
+              duration_ms: Math.round(performance.now() - t0),
             });
             span.recordException(error as Error);
             span.setStatus({ code: SpanStatusCode.ERROR });
@@ -484,6 +489,7 @@ export class NatsClient {
           }
           const text = new TextDecoder().decode(m.data);
           const data = text === "" ? (null as T) : extJsonParse<T>(text);
+          const t0 = performance.now();
           try {
             await opts.handler(data, {
               subject,
@@ -498,12 +504,14 @@ export class NatsClient {
               error_detail:
                 handlerError instanceof Error ? handlerError.message : String(handlerError),
               fire_seq: m.seq,
+              duration_ms: Math.round(performance.now() - t0),
             });
             throw handlerError;
           }
           await publishJobResultMessage(subject, m.headers, {
             status: "executed",
             fire_seq: m.seq,
+            duration_ms: Math.round(performance.now() - t0),
           });
           m.ack();
         } catch (error) {
