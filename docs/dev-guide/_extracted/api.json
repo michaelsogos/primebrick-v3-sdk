@@ -74702,9 +74702,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 60,
+					"line": 58,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L60"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L58"
 				}
 			],
 			"type": {
@@ -74727,9 +74727,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-									"line": 61,
+									"line": 59,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L61"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L59"
 								}
 							],
 							"type": {
@@ -74749,9 +74749,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-									"line": 62,
+									"line": 60,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L62"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L60"
 								}
 							],
 							"type": {
@@ -74771,9 +74771,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-									"line": 63,
+									"line": 61,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L63"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L61"
 								}
 							],
 							"type": {
@@ -74793,9 +74793,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-									"line": 64,
+									"line": 62,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L64"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L62"
 								}
 							],
 							"type": {
@@ -74815,9 +74815,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-									"line": 65,
+									"line": 63,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L65"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L63"
 								}
 							],
 							"type": {
@@ -74837,9 +74837,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-									"line": 66,
+									"line": 64,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L66"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L64"
 								}
 							],
 							"type": {
@@ -74898,9 +74898,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 74,
+							"line": 72,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L74"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L72"
 						}
 					],
 					"type": {
@@ -74937,9 +74937,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 76,
+							"line": 74,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L76"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L74"
 						}
 					],
 					"type": {
@@ -74980,9 +74980,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 80,
+							"line": 78,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L80"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L78"
 						}
 					],
 					"type": {
@@ -75017,9 +75017,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 83,
+							"line": 81,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L83"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L81"
 						}
 					],
 					"type": {
@@ -75046,9 +75046,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 87,
+							"line": 85,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L87"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L85"
 						}
 					],
 					"type": {
@@ -75079,9 +75079,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 89,
+							"line": 87,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L89"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L87"
 						}
 					],
 					"type": {
@@ -75124,9 +75124,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 96,
+							"line": 94,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L96"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L94"
 						}
 					],
 					"type": {
@@ -75168,9 +75168,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 69,
+					"line": 67,
 					"character": 17,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L69"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L67"
 				}
 			]
 		},
@@ -75183,9 +75183,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 109,
+					"line": 107,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L109"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L107"
 				}
 			],
 			"signatures": [
@@ -75262,9 +75262,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 109,
+							"line": 107,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L109"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L107"
 						}
 					],
 					"parameters": [
@@ -75310,9 +75310,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 125,
+					"line": 123,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L125"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L123"
 				}
 			],
 			"signatures": [
@@ -75341,9 +75341,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 125,
+							"line": 123,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L125"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L123"
 						}
 					],
 					"parameters": [
@@ -75421,9 +75421,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 142,
+							"line": 140,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L142"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L140"
 						}
 					],
 					"type": {
@@ -75452,9 +75452,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 144,
+							"line": 142,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L144"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L142"
 						}
 					],
 					"type": {
@@ -75492,9 +75492,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 146,
+							"line": 144,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L146"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L144"
 						}
 					],
 					"type": {
@@ -75520,9 +75520,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 147,
+							"line": 145,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L147"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L145"
 						}
 					],
 					"type": {
@@ -75545,9 +75545,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 141,
+					"line": 139,
 					"character": 17,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L141"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L139"
 				}
 			]
 		},
@@ -75560,9 +75560,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 155,
+					"line": 153,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L155"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L153"
 				}
 			],
 			"signatures": [
@@ -75607,9 +75607,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 155,
+							"line": 153,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L155"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L153"
 						}
 					],
 					"parameters": [
@@ -75676,9 +75676,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 183,
+					"line": 181,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L183"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L181"
 				}
 			],
 			"signatures": [
@@ -75707,9 +75707,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 183,
+							"line": 181,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L183"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L181"
 						}
 					],
 					"parameters": [
@@ -75757,9 +75757,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 218,
+					"line": 216,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L218"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L216"
 				}
 			],
 			"signatures": [
@@ -75804,9 +75804,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 218,
+							"line": 216,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L218"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L216"
 						}
 					],
 					"parameters": [
@@ -75874,9 +75874,9 @@
 												"sources": [
 													{
 														"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-														"line": 221,
+														"line": 219,
 														"character": 13,
-														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L221"
+														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L219"
 													}
 												],
 												"type": {
@@ -75893,9 +75893,9 @@
 												"sources": [
 													{
 														"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-														"line": 221,
+														"line": 219,
 														"character": 30,
-														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L221"
+														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L219"
 													}
 												],
 												"type": {
@@ -75914,9 +75914,9 @@
 												"sources": [
 													{
 														"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-														"line": 221,
+														"line": 219,
 														"character": 43,
-														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L221"
+														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L219"
 													}
 												],
 												"type": {
@@ -75954,9 +75954,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 252,
+					"line": 266,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L252"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L266"
 				}
 			],
 			"signatures": [
@@ -75994,15 +75994,39 @@
 							},
 							{
 								"kind": "text",
-								"text": ".\r\n\r\n  - \"system\" lane → L1 client shield only (verifyNatsPublisher). The fired\r\n    message carries the DECLARING service's static identity — verified\r\n    verbatim. No user context exists by design; the handler receives no\r\n    authUser.\r\n  - \"user\" lane → L1 + full L2 chain: gateway-secret + serialized AuthUser\r\n    + RBAC "
+								"text": ".\r\n\r\nWhat a due message CAN prove at the gate:\r\n  - L1 publisher identity — the schedule declaration was published by an\r\n    enrolled service (its static client-shield key survives the rotating\r\n    secret because it lives outside that scheme).\r\n  - For the user lane: the structural presence of the actor claim\r\n    ("
 							},
 							{
 								"kind": "code",
-								"text": "`permissions`"
+								"text": "`x-user-id`"
 							},
 							{
 								"kind": "text",
-								"text": ". An expired rotating secret or missing permission\r\n    returns null → the consumer "
+								"text": ") that the ARM attested.\r\n\r\nWhat it deliberately does NOT check: the arm-time serialized AuthUser\r\nand the rotating client-shield secret frozen in the fired headers —\r\nboth die ~65 minutes after arming (rotation 60m + grace 5m), which\r\nwould kill every long-lived user-lane schedule. Authorization is\r\nre-derived AT FIRE TIME instead: the consumer runs the freshness\r\ncheckpoint (see due-forwarder's "
+							},
+							{
+								"kind": "code",
+								"text": "`freshAuthHeaders`"
+							},
+							{
+								"kind": "text",
+								"text": " →\r\n"
+							},
+							{
+								"kind": "code",
+								"text": "`auth.ctl.resolve_user`"
+							},
+							{
+								"kind": "text",
+								"text": "), which re-resolves the actor with CURRENT\r\npermissions or refuses the fire (fail-closed). RBAC belongs on the\r\ncallable's own route — evaluated on FRESH headers — never at this\r\ngate: arm-time permissions would keep firing for a since-revoked\r\ngrant until the secret happened to rotate.\r\n\r\n  - \"system\" lane → L1 only; the handler receives no authUser.\r\n  - \"user\" lane   → L1 + actor-claim presence; the handler ALSO\r\n    receives no authUser at the gate (it resolves its own). A due\r\n    message without the claim is malformed → "
+							},
+							{
+								"kind": "code",
+								"text": "`null`"
+							},
+							{
+								"kind": "text",
+								"text": " → the consumer\r\n    "
 							},
 							{
 								"kind": "code",
@@ -76010,16 +76034,16 @@
 							},
 							{
 								"kind": "text",
-								"text": "s the message (terminal denial —\r\n    recorded as a failed run by the result tap)."
+								"text": "s it (terminal denial — redelivery can never fix it)."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 252,
+							"line": 266,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L252"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L266"
 						}
 					],
 					"parameters": [
@@ -76042,46 +76066,26 @@
 									}
 								]
 							}
-						},
-						{
-							"id": 1560,
-							"name": "permissions",
-							"variant": "param",
-							"kind": 32768,
-							"flags": {
-								"isOptional": true
-							},
-							"type": {
-								"type": "typeOperator",
-								"operator": "readonly",
-								"target": {
-									"type": "array",
-									"elementType": {
-										"type": "intrinsic",
-										"name": "string"
-									}
-								}
-							}
 						}
 					],
 					"type": {
 						"type": "reflection",
 						"declaration": {
-							"id": 1561,
+							"id": 1560,
 							"name": "__type",
 							"variant": "declaration",
 							"kind": 65536,
 							"flags": {},
 							"signatures": [
 								{
-									"id": 1562,
+									"id": 1561,
 									"name": "__type",
 									"variant": "signature",
 									"kind": 4096,
 									"flags": {},
 									"parameters": [
 										{
-											"id": 1563,
+											"id": 1562,
 											"name": "msg",
 											"variant": "param",
 											"kind": 32768,
@@ -76089,14 +76093,14 @@
 											"type": {
 												"type": "reflection",
 												"declaration": {
-													"id": 1564,
+													"id": 1563,
 													"name": "__type",
 													"variant": "declaration",
 													"kind": 65536,
 													"flags": {},
 													"children": [
 														{
-															"id": 1565,
+															"id": 1564,
 															"name": "subject",
 															"variant": "declaration",
 															"kind": 1024,
@@ -76106,9 +76110,9 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-																	"line": 255,
+																	"line": 268,
 																	"character": 11,
-																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L255"
+																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L268"
 																}
 															],
 															"type": {
@@ -76117,7 +76121,7 @@
 															}
 														},
 														{
-															"id": 1566,
+															"id": 1565,
 															"name": "headers",
 															"variant": "declaration",
 															"kind": 1024,
@@ -76127,9 +76131,9 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-																	"line": 255,
+																	"line": 268,
 																	"character": 29,
-																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L255"
+																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L268"
 																}
 															],
 															"type": {
@@ -76148,8 +76152,8 @@
 														{
 															"title": "Properties",
 															"children": [
-																1565,
-																1566
+																1564,
+																1565
 															]
 														}
 													]
@@ -76196,7 +76200,7 @@
 			]
 		},
 		{
-			"id": 1567,
+			"id": 1566,
 			"name": "forwardAuthHeaders",
 			"variant": "declaration",
 			"kind": 64,
@@ -76204,14 +76208,14 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 271,
+					"line": 282,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L271"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L282"
 				}
 			],
 			"signatures": [
 				{
-					"id": 1568,
+					"id": 1567,
 					"name": "forwardAuthHeaders",
 					"variant": "signature",
 					"kind": 4096,
@@ -76227,14 +76231,14 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 271,
+							"line": 282,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L271"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L282"
 						}
 					],
 					"parameters": [
 						{
-							"id": 1569,
+							"id": 1568,
 							"name": "msg",
 							"variant": "param",
 							"kind": 32768,
@@ -76242,14 +76246,14 @@
 							"type": {
 								"type": "reflection",
 								"declaration": {
-									"id": 1570,
+									"id": 1569,
 									"name": "__type",
 									"variant": "declaration",
 									"kind": 65536,
 									"flags": {},
 									"children": [
 										{
-											"id": 1571,
+											"id": 1570,
 											"name": "headers",
 											"variant": "declaration",
 											"kind": 1024,
@@ -76259,9 +76263,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-													"line": 271,
+													"line": 282,
 													"character": 42,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L271"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L282"
 												}
 											],
 											"type": {
@@ -76280,7 +76284,7 @@
 										{
 											"title": "Properties",
 											"children": [
-												1571
+												1570
 											]
 										}
 									]
@@ -76312,7 +76316,7 @@
 			]
 		},
 		{
-			"id": 1572,
+			"id": 1571,
 			"name": "forwardedActor",
 			"variant": "declaration",
 			"kind": 64,
@@ -76320,14 +76324,14 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-					"line": 294,
+					"line": 306,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L294"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L306"
 				}
 			],
 			"signatures": [
 				{
-					"id": 1573,
+					"id": 1572,
 					"name": "forwardedActor",
 					"variant": "signature",
 					"kind": 4096,
@@ -76368,7 +76372,23 @@
 							},
 							{
 								"kind": "text",
-								"text": " (BCP-47).\r\nHeader names resolve against the configured "
+								"text": " (BCP-47),\r\n"
+							},
+							{
+								"kind": "code",
+								"text": "`x-user-email`"
+							},
+							{
+								"kind": "text",
+								"text": " → "
+							},
+							{
+								"kind": "code",
+								"text": "`actor_email`"
+							},
+							{
+								"kind": "text",
+								"text": ". Header names resolve against the\r\nconfigured "
 							},
 							{
 								"kind": "code",
@@ -76376,21 +76396,21 @@
 							},
 							{
 								"kind": "text",
-								"text": " map with\r\nthe serializer defaults. Both absent on system-lane messages — the\r\nvalues are reported, never invented."
+								"text": " map with the serializer defaults. All\r\nabsent on system-lane messages — the values are reported, never\r\ninvented."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-							"line": 294,
+							"line": 306,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L294"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L306"
 						}
 					],
 					"parameters": [
 						{
-							"id": 1574,
+							"id": 1573,
 							"name": "msg",
 							"variant": "param",
 							"kind": 32768,
@@ -76398,14 +76418,14 @@
 							"type": {
 								"type": "reflection",
 								"declaration": {
-									"id": 1575,
+									"id": 1574,
 									"name": "__type",
 									"variant": "declaration",
 									"kind": 65536,
 									"flags": {},
 									"children": [
 										{
-											"id": 1576,
+											"id": 1575,
 											"name": "headers",
 											"variant": "declaration",
 											"kind": 1024,
@@ -76415,9 +76435,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-													"line": 294,
+													"line": 306,
 													"character": 38,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L294"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L306"
 												}
 											],
 											"type": {
@@ -76436,7 +76456,7 @@
 										{
 											"title": "Properties",
 											"children": [
-												1576
+												1575
 											]
 										}
 									]
@@ -76447,14 +76467,14 @@
 					"type": {
 						"type": "reflection",
 						"declaration": {
-							"id": 1577,
+							"id": 1576,
 							"name": "__type",
 							"variant": "declaration",
 							"kind": 65536,
 							"flags": {},
 							"children": [
 								{
-									"id": 1578,
+									"id": 1577,
 									"name": "actor_uuid",
 									"variant": "declaration",
 									"kind": 1024,
@@ -76464,9 +76484,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-											"line": 295,
+											"line": 307,
 											"character": 2,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L295"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L307"
 										}
 									],
 									"type": {
@@ -76475,7 +76495,7 @@
 									}
 								},
 								{
-									"id": 1579,
+									"id": 1578,
 									"name": "actor_locale",
 									"variant": "declaration",
 									"kind": 1024,
@@ -76485,9 +76505,30 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
-											"line": 296,
+											"line": 308,
 											"character": 2,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L296"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L308"
+										}
+									],
+									"type": {
+										"type": "intrinsic",
+										"name": "string"
+									}
+								},
+								{
+									"id": 1579,
+									"name": "actor_email",
+									"variant": "declaration",
+									"kind": 1024,
+									"flags": {
+										"isOptional": true
+									},
+									"sources": [
+										{
+											"fileName": "primebrick-v3-sdk/src/nats/job-schedule.ts",
+											"line": 309,
+											"character": 2,
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-schedule.ts#L309"
 										}
 									],
 									"type": {
@@ -76500,6 +76541,7 @@
 								{
 									"title": "Properties",
 									"children": [
+										1577,
 										1578,
 										1579
 									]
@@ -99323,8 +99365,8 @@
 				1546,
 				1549,
 				1557,
-				1567,
-				1572,
+				1566,
+				1571,
 				1425,
 				1429,
 				1433,
@@ -106802,7 +106844,7 @@
 		"1560": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "permissions"
+			"qualifiedName": "__type"
 		},
 		"1561": {
 			"packageName": "@primebrick/sdk",
@@ -106812,27 +106854,27 @@
 		"1562": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type"
+			"qualifiedName": "msg"
 		},
 		"1563": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "msg"
+			"qualifiedName": "__type"
 		},
 		"1564": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type"
+			"qualifiedName": "__type.subject"
 		},
 		"1565": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type.subject"
+			"qualifiedName": "__type.headers"
 		},
 		"1566": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type.headers"
+			"qualifiedName": "forwardAuthHeaders"
 		},
 		"1567": {
 			"packageName": "@primebrick/sdk",
@@ -106842,22 +106884,22 @@
 		"1568": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "forwardAuthHeaders"
+			"qualifiedName": "msg"
 		},
 		"1569": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "msg"
+			"qualifiedName": "__type"
 		},
 		"1570": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type"
+			"qualifiedName": "__type.headers"
 		},
 		"1571": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type.headers"
+			"qualifiedName": "forwardedActor"
 		},
 		"1572": {
 			"packageName": "@primebrick/sdk",
@@ -106867,37 +106909,37 @@
 		"1573": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "forwardedActor"
+			"qualifiedName": "msg"
 		},
 		"1574": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "msg"
+			"qualifiedName": "__type"
 		},
 		"1575": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type"
+			"qualifiedName": "__type.headers"
 		},
 		"1576": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type.headers"
+			"qualifiedName": "__type"
 		},
 		"1577": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type"
+			"qualifiedName": "__type.actor_uuid"
 		},
 		"1578": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type.actor_uuid"
+			"qualifiedName": "__type.actor_locale"
 		},
 		"1579": {
 			"packageName": "@primebrick/sdk",
 			"packagePath": "src/nats/job-schedule.ts",
-			"qualifiedName": "__type.actor_locale"
+			"qualifiedName": "__type.actor_email"
 		},
 		"1580": {
 			"packageName": "@primebrick/sdk",

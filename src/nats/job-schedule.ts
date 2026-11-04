@@ -52,8 +52,6 @@ import type { MsgHdrs } from "@nats-io/transport-node";
 import { AckPolicy, JetStreamApiError } from "@nats-io/jetstream";
 import { NatsClient } from "./nats-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
-import { verifyNatsMessage } from "../auth/verify-nats.js";
-import { enforceNatsRbac } from "../auth/rbac-enforce.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
 import type { AuthUser } from "../auth/types.js";
 
@@ -192,7 +190,7 @@ export async function listJobScheduleSubjects(stream = "JOBS"): Promise<string[]
   try {
     const consumer = await js.consumers.get(stream, name);
     const subjects = new Set<string>();
-    for (let round = 0; round < 20; round++) {
+    for (;;) {
       const batch = await consumer.fetch({ max_messages: 200, expires: 1500 });
       let n = 0;
       for await (const m of batch) {
@@ -240,25 +238,38 @@ export async function cancelJobSchedules(
 /**
  * Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
  *
- *   - "system" lane → L1 client shield only (verifyNatsPublisher). The fired
- *     message carries the DECLARING service's static identity — verified
- *     verbatim. No user context exists by design; the handler receives no
- *     authUser.
- *   - "user" lane → L1 + full L2 chain: gateway-secret + serialized AuthUser
- *     + RBAC `permissions`. An expired rotating secret or missing permission
- *     returns null → the consumer `term()`s the message (terminal denial —
- *     recorded as a failed run by the result tap).
+ * What a due message CAN prove at the gate:
+ *   - L1 publisher identity — the schedule declaration was published by an
+ *     enrolled service (its static client-shield key survives the rotating
+ *     secret because it lives outside that scheme).
+ *   - For the user lane: the structural presence of the actor claim
+ *     (`x-user-id`) that the ARM attested.
+ *
+ * What it deliberately does NOT check: the arm-time serialized AuthUser
+ * and the rotating client-shield secret frozen in the fired headers —
+ * both die ~65 minutes after arming (rotation 60m + grace 5m), which
+ * would kill every long-lived user-lane schedule. Authorization is
+ * re-derived AT FIRE TIME instead: the consumer runs the freshness
+ * checkpoint (see due-forwarder's `freshAuthHeaders` →
+ * `auth.ctl.resolve_user`), which re-resolves the actor with CURRENT
+ * permissions or refuses the fire (fail-closed). RBAC belongs on the
+ * callable's own route — evaluated on FRESH headers — never at this
+ * gate: arm-time permissions would keep firing for a since-revoked
+ * grant until the secret happened to rotate.
+ *
+ *   - "system" lane → L1 only; the handler receives no authUser.
+ *   - "user" lane   → L1 + actor-claim presence; the handler ALSO
+ *     receives no authUser at the gate (it resolves its own). A due
+ *     message without the claim is malformed → `null` → the consumer
+ *     `term()`s it (terminal denial — redelivery can never fix it).
  */
 export function dueLaneVerify(
   lane: "system" | "user",
-  permissions?: readonly string[],
 ): (msg: { subject?: string; headers?: MsgHdrs }) => Promise<AuthUser | null | undefined> {
   return async (msg) => {
     if (!(await verifyNatsPublisher(msg))) return null;
     if (lane === "system") return undefined;
-    const user = await verifyNatsMessage(msg as never, getAuthConfig());
-    enforceNatsRbac(user, permissions ?? []);
-    return user;
+    return forwardedActor(msg).actor_uuid ? undefined : null;
   };
 }
 
@@ -286,14 +297,16 @@ export function forwardAuthHeaders(msg: { headers?: MsgHdrs }): Record<string, s
 
 /**
  * Read the session actor's identity off an inbound message's auth headers
- * — `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47).
- * Header names resolve against the configured `gateway.headers` map with
- * the serializer defaults. Both absent on system-lane messages — the
- * values are reported, never invented.
+ * — `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47),
+ * `x-user-email` → `actor_email`. Header names resolve against the
+ * configured `gateway.headers` map with the serializer defaults. All
+ * absent on system-lane messages — the values are reported, never
+ * invented.
  */
 export function forwardedActor(msg: { headers?: MsgHdrs }): {
   actor_uuid?: string;
   actor_locale?: string;
+  actor_email?: string;
 } {
   const config = getAuthConfig();
   const h = config.gateway.headers;
@@ -302,5 +315,6 @@ export function forwardedActor(msg: { headers?: MsgHdrs }): {
   return {
     actor_uuid: get(h.user_id ?? "x-user-id"),
     actor_locale: get(h.locale ?? "x-user-locale"),
+    actor_email: get(h.email ?? "x-user-email"),
   };
 }
