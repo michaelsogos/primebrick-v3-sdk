@@ -441,7 +441,7 @@ Each incoming message is decoded from UTF-8 and parsed with extJsonParse
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | subject | `string` | NATS subject to subscribe to |
-| handler | `(data: T, raw: Msg) => Promise<void>` | Async function receiving the parsed message data and raw Msg |
+| handler | `(data: T, raw: Msg) => Promise<unknown>` | Async function receiving the parsed message data and raw Msg |
 | opts | `{ queue: string }` |  |
 
 #### `NatsClient.ensureStream(name, subjects, opts): Promise<void>`
@@ -494,7 +494,7 @@ messages (concurrency), `maxDeliver` bounds retries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<void> }` |  |
+| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
 
 ### `NatsHeaderProvider`
 
@@ -1632,6 +1632,9 @@ Outcome message published on `jobs.result.<…>` after a correlated handler.
 | fire_seq | `number` | Stream sequence of the consumed fire (JetStream consumers only). |
 | target | `string` | The subject the handler consumed — what the outcome refers to. |
 | duration_ms | `number` | Handler wall time measured by the transport middleware. |
+| report | `unknown` | Structured report returned by the handler — folded into
+`job_runs.report` by the run-recorder. Only object returns are
+reported; scalar/void returns carry no report. |
 | error_code | `string` | Machine-readable failure class, e.g. "DENIED", "HANDLER_ERROR". |
 | error_detail | `string` |  |
 
