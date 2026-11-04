@@ -65,7 +65,10 @@ function injectIdentity(hdrs: MsgHdrs): void {
 export async function publishJobResultMessage(
   subject: string,
   headers: MsgHdrs | undefined,
-  result: Pick<JobResultMessage, "status" | "error_code" | "error_detail" | "fire_seq" | "duration_ms">,
+  result: Pick<
+    JobResultMessage,
+    "status" | "error_code" | "error_detail" | "fire_seq" | "duration_ms" | "report"
+  >,
 ): Promise<void> {
   const run_id = msgHeader(headers, JOB_RUN_ID_HEADER) ?? undefined;
   const schedule_subject = msgHeader(headers, JOB_SCHEDULE_SUBJECT_HEADER) ?? undefined;
@@ -238,7 +241,7 @@ export class NatsClient {
    */
   static async subscribe<T = unknown>(
     subject: string,
-    handler: (data: T, raw: Msg) => Promise<void>,
+    handler: (data: T, raw: Msg) => Promise<unknown>,
     opts?: { queue?: string },
   ): Promise<Subscription> {
     const nc = await NatsClient.getConnection();
@@ -269,10 +272,11 @@ export class NatsClient {
             const text = new TextDecoder().decode(msg.data);
             // Empty payload — skip parsing, call handler with null
             const data = text === "" ? (null as T) : extJsonParse<T>(text);
-            await handler(data, msg);
+            const out = await handler(data, msg);
             await publishJobResultMessage(subject, msg.headers, {
               status: "executed",
               duration_ms: Math.round(performance.now() - t0),
+              report: typeof out === "object" && out !== null ? out : undefined,
             });
           } catch (error) {
             await publishJobResultMessage(subject, msg.headers, {
@@ -424,7 +428,7 @@ export class NatsClient {
         info: { redeliveryCount: number };
         authUser?: AuthUser;
       },
-    ) => Promise<void>;
+    ) => Promise<unknown>;
   }): Promise<{ close(): Promise<void> }> {
     const js = NatsClient.getJetStream();
     const jsm = NatsClient.jsm ?? (await jetstreamManager(await NatsClient.getConnection()));
@@ -490,8 +494,9 @@ export class NatsClient {
           const text = new TextDecoder().decode(m.data);
           const data = text === "" ? (null as T) : extJsonParse<T>(text);
           const t0 = performance.now();
+          let out: unknown;
           try {
-            await opts.handler(data, {
+            out = await opts.handler(data, {
               subject,
               headers: m.headers,
               info: { redeliveryCount: m.info.deliveryCount },
@@ -512,6 +517,7 @@ export class NatsClient {
             status: "executed",
             fire_seq: m.seq,
             duration_ms: Math.round(performance.now() - t0),
+            report: typeof out === "object" && out !== null ? out : undefined,
           });
           m.ack();
         } catch (error) {

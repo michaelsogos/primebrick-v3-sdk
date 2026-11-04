@@ -34,6 +34,12 @@ export interface JobResultMessage {
   target?: string;
   /** Handler wall time measured by the transport middleware. */
   duration_ms?: number;
+  /**
+   * Structured report returned by the handler — folded into
+   * `job_runs.report` by the run-recorder. Only object returns are
+   * reported; scalar/void returns carry no report.
+   */
+  report?: unknown;
   /** Machine-readable failure class, e.g. "DENIED", "HANDLER_ERROR". */
   error_code?: string;
   error_detail?: string;
