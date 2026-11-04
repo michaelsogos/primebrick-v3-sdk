@@ -49,6 +49,7 @@ export const JOB_STREAM_SUBJECTS = [
 export const JOB_SCHEDULE_REQUEST_SUBJECT = "jobs.ctl.schedule.request";
 
 import type { MsgHdrs } from "@nats-io/transport-node";
+import { AckPolicy, JetStreamApiError } from "@nats-io/jetstream";
 import { NatsClient } from "./nats-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";
@@ -134,6 +135,106 @@ export async function cancelJobSchedule(
     [JOB_SCHEDULE_HEADERS.next]: "purge",
     [JOB_SCHEDULE_HEADERS.scheduler]: scheduleSubject,
   });
+}
+
+/** One live schedule declaration found in the stream (read via `last_by_subj`). */
+export interface JobScheduleDeclaration {
+  subject: string;
+  /** `Nats-Schedule` spec — "@every 30s", cron, "@at …". */
+  schedule: string | undefined;
+  /** `Nats-Schedule-Target` — the fired republish destination. */
+  target: string | undefined;
+  seq: number;
+}
+
+/**
+ * Read the live declaration stored on `scheduleSubject`, or `null` when no
+ * message exists (schedule purged / never armed / stream wiped). Uses the
+ * JetStream `last_by_subj` direct-get — O(1) per subject.
+ */
+export async function getJobSchedule(
+  scheduleSubject: string,
+  stream = "JOBS",
+): Promise<JobScheduleDeclaration | null> {
+  const jsm = await NatsClient.getJetStreamManager();
+  try {
+    const sm = await jsm.streams.getMessage(stream, { last_by_subj: scheduleSubject });
+    if (sm === null) return null;
+    return {
+      subject: sm.subject,
+      schedule: sm.header?.get(JOB_SCHEDULE_HEADERS.schedule),
+      target: sm.header?.get(JOB_SCHEDULE_HEADERS.target),
+      seq: sm.seq,
+    };
+  } catch (error) {
+    // 10037 = no message found — the expected "absent" answer.
+    if (error instanceof JetStreamApiError && error.apiError().err_code === 10037) return null;
+    throw error;
+  }
+}
+
+/**
+ * Enumerate every live `jobs.schedule.*` declaration in the stream.
+ * Ephemeral pull consumer + fetch — each rollup subject yields at most one
+ * stored message, so subjects dedup naturally. The consumer is deleted
+ * afterwards; partial failures surface as an incomplete list, never a throw
+ * that hides them (the caller decides whether a short list is fatal).
+ */
+export async function listJobScheduleSubjects(stream = "JOBS"): Promise<string[]> {
+  const jsm = await NatsClient.getJetStreamManager();
+  const js = NatsClient.getJetStream();
+  const name = `sched-enum-${Date.now()}`;
+  await jsm.consumers.add(stream, {
+    durable_name: name,
+    filter_subjects: ["jobs.schedule.>"],
+    ack_policy: AckPolicy.None,
+  });
+  try {
+    const consumer = await js.consumers.get(stream, name);
+    const subjects = new Set<string>();
+    for (let round = 0; round < 20; round++) {
+      const batch = await consumer.fetch({ max_messages: 200, expires: 1500 });
+      let n = 0;
+      for await (const m of batch) {
+        n++;
+        subjects.add(m.subject);
+      }
+      if (n === 0) break;
+    }
+    return [...subjects].sort();
+  } finally {
+    await jsm.consumers.delete(stream, name).catch(() => {});
+  }
+}
+
+/**
+ * Disarm a set of schedules — or ALL live ones with `"all"`. Single purge
+ * logic: resolves the subject list then applies `cancelJobSchedule` per
+ * subject (the only mechanism — a `jobs.cancel.*` purge publish). Every
+ * per-subject failure is collected, not thrown: a disarm pass must run to
+ * completion so one bad subject cannot shield the rest. Returns per-subject
+ * outcomes for the caller to log/surface.
+ */
+export async function cancelJobSchedules(
+  subjects: string[] | "all",
+  stream = "JOBS",
+): Promise<{ subject: string; ok: boolean; error?: string }[]> {
+  const list = subjects === "all" ? await listJobScheduleSubjects(stream) : subjects;
+  const results: { subject: string; ok: boolean; error?: string }[] = [];
+  for (const scheduleSubject of list) {
+    const rest = scheduleSubject.replace(/^jobs\.schedule\./, "");
+    if (rest === scheduleSubject) {
+      results.push({ subject: scheduleSubject, ok: false, error: "not a jobs.schedule.* subject" });
+      continue;
+    }
+    try {
+      await cancelJobSchedule(scheduleSubject, `jobs.cancel.${rest}`);
+      results.push({ subject: scheduleSubject, ok: true });
+    } catch (error) {
+      results.push({ subject: scheduleSubject, ok: false, error: String(error) });
+    }
+  }
+  return results;
 }
 
 /**
