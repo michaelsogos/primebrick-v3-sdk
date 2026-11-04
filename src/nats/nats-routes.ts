@@ -20,13 +20,14 @@
  */
 
 import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
-import { NatsClient } from "./nats-client.js";
+import { NatsClient, publishJobResultMessage } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { extJsonParse, extJsonStringify } from "../json/ext-json.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";
 import { enforceNatsRbac, RbacDeniedError } from "../auth/rbac-enforce.js";
 import { AuthError } from "../auth/verify.js";
+import { ValidationError } from "../http/rpc-router.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
 import type { AuthUser } from "../auth/types.js";
 import { logger } from "../lifecycle/logger.js";
@@ -203,12 +204,30 @@ export async function makeNatsRoutes(
 
     (async () => {
       for await (const msg of sub) {
+        const t0 = performance.now();
         try {
           const user = await verifyAndAuthorize(msg, route);
           const raw = decode(msg.data);
           const request = route.validate ? route.validate(raw) : raw;
           await route.handler({ user, request, msg });
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "executed",
+            duration_ms: Math.round(performance.now() - t0),
+          });
         } catch (err) {
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "failed",
+            error_code:
+              err instanceof AuthError ||
+              (err != null &&
+                typeof (err as { internal_code?: unknown }).internal_code === "string")
+                ? (err as { internal_code: string }).internal_code
+              : err instanceof RbacDeniedError ? "RBAC_PERMISSION_DENIED"
+              : err instanceof ValidationError ? "VALIDATION_ERROR"
+              : "HANDLER_ERROR",
+            error_detail: err instanceof Error ? err.message : String(err),
+            duration_ms: Math.round(performance.now() - t0),
+          });
           if (err instanceof AuthError || err instanceof RbacDeniedError) {
             logger.warn(`${route.subject} denied: ${err.message}`, { tags: ["nats-routes"] });
           } else {
@@ -257,13 +276,31 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
         const replyError = (code: string, message: string) => {
           if (msg.reply) msg.respond(encode({ error: { code, message } }));
         };
+        const t0 = performance.now();
         try {
           const user = await verifyAndAuthorize(msg, route);
           const raw = decode<TReq>(msg.data);
           const request = route.validate ? route.validate(raw) : raw;
           const result = await route.handler({ user, request, msg });
           if (msg.reply) msg.respond(encode(result ?? null));
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "executed",
+            duration_ms: Math.round(performance.now() - t0),
+          });
         } catch (err) {
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "failed",
+            error_code:
+              err instanceof AuthError ||
+              (err != null &&
+                typeof (err as { internal_code?: unknown }).internal_code === "string")
+                ? (err as { internal_code: string }).internal_code
+              : err instanceof RbacDeniedError ? "RBAC_PERMISSION_DENIED"
+              : err instanceof ValidationError ? "VALIDATION_ERROR"
+              : "HANDLER_ERROR",
+            error_detail: err instanceof Error ? err.message : String(err),
+            duration_ms: Math.round(performance.now() - t0),
+          });
           if (err instanceof AuthError) {
             replyError(err.internal_code, err.message);
           } else if (err instanceof RbacDeniedError) {
