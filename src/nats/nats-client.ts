@@ -117,6 +117,10 @@ export class NatsClient {
     return NatsClient.js;
   }
 
+  static async getJetStreamManager(): Promise<JetStreamManager> {
+    return NatsClient.jsm ?? (await jetstreamManager(await NatsClient.getConnection()));
+  }
+
   /**
    * Check if the NATS connection is alive.
    * Returns false if the connection was never established or has been closed.

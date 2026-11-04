@@ -153,6 +153,9 @@ export {
 export {
   ensureJobSchedule,
   cancelJobSchedule,
+  getJobSchedule,
+  listJobScheduleSubjects,
+  cancelJobSchedules,
   dueLaneVerify,
   forwardAuthHeaders,
   forwardedActor,
@@ -160,6 +163,7 @@ export {
   JOB_STREAM_SUBJECTS,
   JOB_SCHEDULE_REQUEST_SUBJECT,
   type EnsureJobScheduleOpts,
+  type JobScheduleDeclaration,
 } from "./nats/job-schedule.js";
 export {
   RotatingSecretEngine,
