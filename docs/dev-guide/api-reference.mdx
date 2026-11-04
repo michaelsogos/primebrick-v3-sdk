@@ -939,6 +939,26 @@ wrapped by `CachingApiKeyPort` for the shared Redis/in-memory cache.
 | is_active | `boolean` |  |
 | expires_at | `Date \| null` |  |
 
+### `ArmJobScheduleRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| name | `string` | Job name within the caller's namespace — the declaration subject is
+derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
+arm outside its own namespace (the job-handler enforces the same
+server-side). Dots allowed for sub-namespacing
+(`partition-maintenance.<id>`). |
+| schedule | `string` | `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). |
+| target | `string` | Subject the stored message is republished to at fire time —
+`jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
+stream's subjects. |
+| payload | `unknown` | Payload stored on the schedule message — fired verbatim unless
+ `source` is set. |
+| source | `string` | Fire-time indirection (ADR-51): at fire time the scheduler reads the
+ LATEST message on this subject and fires THAT as the payload — the
+ schedule declaration never holds business state. |
+| ttl | `string` | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
+
 ### `AuthConfig`
 
 Full auth configuration loaded at startup from the service's config table.
@@ -1231,27 +1251,6 @@ One file of pack content — wire format.
 | manifest | `DocsPackManifest` |  |
 | files | `DocsPackContentFile[]` |  |
 | openapi | `string` | Raw openapi.json content, when the pack carries one. |
-
-### `EnsureJobScheduleOpts`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| scheduleSubject | `string` | Unique schedule subject — `jobs.schedule.<svc>.<name>[.<entity-id>]`.
-One schedule per subject; republishing replaces it atomically. |
-| schedule | `string` | `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | cron expression. |
-| target | `string` | Subject the stored message is republished to at fire time —
- `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
- stream's subjects. |
-| payload | `unknown` | Payload stored on the schedule message — fired verbatim unless
- `source` is set. Serialized via extJson by jetstreamPublish. |
-| source | `string` | Fire-time indirection (ADR-51): at fire time the scheduler reads the
- LATEST message on this subject and fires THAT as the payload — the
- schedule declaration never holds business state. |
-| ttl | `string` | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
-| forwardHeaders | `Record<string, string>` | Extra headers stamped on the declaration and forwarded VERBATIM to the
-fired message. For `jobs.due.user.*` targets pass the triggering
-message's auth headers via `forwardAuthHeaders()` so the executor can
-run the full L2+RBAC chain on the ORIGINATING user. |
 
 ### `EntityAction`
 
@@ -1621,16 +1620,19 @@ and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
 
-### `JobScheduleDeclaration`
+### `JobResultMessage`
 
-One live schedule declaration found in the stream (read via `last_by_subj`).
+Outcome message published on `jobs.result.<…>` after a correlated handler.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| subject | `string` |  |
-| schedule | `string \| undefined` | `Nats-Schedule` spec — "@every 30s", cron, "@at …". |
-| target | `string \| undefined` | `Nats-Schedule-Target` — the fired republish destination. |
-| seq | `number` |  |
+| status | `"executed" \| "failed"` |  |
+| run_id | `string` |  |
+| schedule_subject | `string` |  |
+| fire_seq | `number` | Stream sequence of the consumed fire (JetStream consumers only). |
+| target | `string` | The subject the handler consumed — what the outcome refers to. |
+| error_code | `string` | Machine-readable failure class, e.g. "DENIED", "HANDLER_ERROR". |
+| error_detail | `string` |  |
 
 ### `ListFilterParamsOptions`
 
@@ -3659,6 +3661,18 @@ Parseable ISO/RFC3339 datetime.
 
 **Type:** `(v: string) => boolean`
 
+### `JOB_RUN_ID_HEADER`
+
+Correlation header — the `job.job_runs` row this work belongs to.
+
+**Type:** `"x-job-run-id"`
+
+### `JOB_SCHEDULE_CANCEL_SUBJECT`
+
+Control-plane route for schedule cancellations (primebrick-job).
+
+**Type:** `"jobs.ctl.schedule.cancel"`
+
 ### `JOB_SCHEDULE_HEADERS`
 
 **Type:** `{ schedule: "Nats-Schedule"; target: "Nats-Schedule-Target"; ttl: "Nats-Schedule-TTL"; source: "Nats-Schedule-Source"; next: "Nats-Schedule-Next"; scheduler: "Nats-Scheduler" }`
@@ -3677,6 +3691,12 @@ Parseable ISO/RFC3339 datetime.
 Control-plane route for schedule declarations (primebrick-job).
 
 **Type:** `"jobs.ctl.schedule.request"`
+
+### `JOB_SCHEDULE_SUBJECT_HEADER`
+
+Correlation header — the `jobs.schedule.*` declaration that fired it.
+
+**Type:** `"x-job-schedule-subject"`
 
 ### `JOB_STREAM_SUBJECTS`
 
@@ -4320,6 +4340,21 @@ would fail the destination's own `items` validation downstream.
 | ctx | `PayloadMapContext` |  |
 | targetSchema | `Record<string, unknown>` |  |
 
+### `armJobSchedule(req, opts): Promise<{ seq: bigint }>`
+
+THE governed way to arm a schedule — the only public API. Issues a
+`callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
+awaits the COMPLETE operation: JetStream declaration → stored-message
+read-back → `job.job_schedules` mirror upsert (with purge compensation
+on mirror failure). Rejects on validation/namespace/internal errors —
+the caller retries or surfaces the error; it never falls back to a
+direct publish (the raw mechanism is job-handler internal).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| req | `ArmJobScheduleRequest` |  |
+| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
+
 ### `assertDbEnv(cwd): DbEnv`
 
 Validate the DB env contract and return the resolved `{ url, schemas }`.
@@ -4476,31 +4511,6 @@ uses `buildNatsAuthHeaders` to forward the resolved user).
 | subject | `string` |  |
 | data | `unknown` |  |
 | opts | `{ timeoutMs: number; headers: Record<string, string>; connection: NatsConnection; natsClient: typeof NatsClient }` |  |
-
-### `cancelJobSchedule(scheduleSubject, cancelSubject): Promise<bigint>`
-
-Disarm a previously armed schedule. The cancellation MUST go to a
-different subject than `scheduleSubject` (a same-subject publish would
-just replace the declaration).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| scheduleSubject | `string` |  |
-| cancelSubject | `string` |  |
-
-### `cancelJobSchedules(subjects, stream): Promise<{ subject: string; ok: boolean; error: string }[]>`
-
-Disarm a set of schedules — or ALL live ones with `"all"`. Single purge
-logic: resolves the subject list then applies `cancelJobSchedule` per
-subject (the only mechanism — a `jobs.cancel.*` purge publish). Every
-per-subject failure is collected, not thrown: a disarm pass must run to
-completion so one bad subject cannot shield the rest. Returns per-subject
-outcomes for the caller to log/surface.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| subjects | `string[] \| "all"` |  |
-| stream | `string` |  |
 
 ### `ceil(d): Decimal`
 
@@ -4734,6 +4744,8 @@ The value a publisher must stamp on outbound calls.
 |-----------|------|-------------|
 | fallback | `string` |  |
 
+### `currentServiceCode(): string`
+
 ### `dec(input): Decimal`
 
 `Decimal` — pass-through. `string` — parsed (PG text form or `"…d"` wire form). `number` — via shortest round-trip `toString` so `0.1` stays `"0.1"`. `bigint` — scale 0.
@@ -4824,6 +4836,18 @@ a semver-tolerant handshake would only defer an opaque import failure.
 | requires | `Record<string, string>` |  |
 | manifest | `VendorManifest` |  |
 
+### `disarmJobSchedule(name, opts): Promise<void>`
+
+THE governed way to disarm a schedule — awaited end-to-end: purge
+publish → read-back confirms the declaration is gone → mirror flips to
+`disarmed`. Idempotent: disarming an already-disarmed/absent schedule
+resolves cleanly.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | `string` |  |
+| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
+
 ### `div(a, b, opts): Decimal`
 
 `a / b`. Without `scale`, the result uses the PostgreSQL `numeric`
@@ -4911,21 +4935,6 @@ Same logic as enforceHttpRbac — separated for semantic clarity.
 | user | `AuthUser` |  |
 | requiredPermissions | `typeOperator` |  |
 | mode | `"any" \| "all"` |  |
-
-### `ensureJobSchedule(opts): Promise<bigint>`
-
-Arm a JetStream schedule. Publishes the declaration message — the NATS
-server itself republishes `payload`/`source` to `target` per `schedule`.
-
-Callers do NOT publish on `jobs.schedule.*` directly in production:
-the governed entry point is the `jobs.schedule.request` route on
-primebrick-job, which validates the caller's namespace and records the
-declaration in `job.job_schedules`. This helper is what THAT service
-calls (and is also usable by tests/tooling).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| opts | `EnsureJobScheduleOpts` |  |
 
 ### `entityChangedSubject(entityType, entityUuid): string`
 
@@ -5235,17 +5244,6 @@ Returns `undefined` for entities not marked with `@Cached()`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | ctor | `(args: any[]) => any` |  |
-
-### `getJobSchedule(scheduleSubject, stream): Promise<JobScheduleDeclaration \| null>`
-
-Read the live declaration stored on `scheduleSubject`, or `null` when no
-message exists (schedule purged / never armed / stream wiped). Uses the
-JetStream `last_by_subj` direct-get — O(1) per subject.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| scheduleSubject | `string` |  |
-| stream | `string` |  |
 
 ### `getLogOptions(): Readonly<LoggerState>`
 
@@ -5596,6 +5594,17 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 |-----------|------|-------------|
 | v | `string` |  |
 
+### `jobResultSubject(subject): string`
+
+Result-lane subject for a consumed subject:
+`jobs.due.<lane>.<rest>` → `jobs.result.<rest>` (the fire lane peels
+off); anything else maps verbatim (`emailsender.send` →
+`jobs.result.emailsender.send`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| subject | `string` |  |
+
 ### `jobTriggerShapeIssues(entity): FieldIssue[]`
 
 `event_subject`/`schedule_spec` are mutually mandatory (at least one);
@@ -5623,18 +5632,6 @@ First dotted segment of a translation key — `job.entities.x` → `job`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | key | `string` |  |
-
-### `listJobScheduleSubjects(stream): Promise<string[]>`
-
-Enumerate every live `jobs.schedule.*` declaration in the stream.
-Ephemeral pull consumer + fetch — each rollup subject yields at most one
-stored message, so subjects dedup naturally. The consumer is deleted
-afterwards; partial failures surface as an incomplete list, never a throw
-that hides them (the caller decides whether a short list is fatal).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| stream | `string` |  |
 
 ### `listNonSentinelPermissions(): string[]`
 
@@ -6201,6 +6198,16 @@ Drop unknown keys and fall back to defaults when nothing left.
 | visibleKeys | `string[]` |  |
 | columns | `MetaColumn[]` |  |
 
+### `scheduleSubjectFor(name): string`
+
+Derive the declaration subject for this service — the static service
+code resolved from the deployed artifact, so a caller can never
+mis-namespace itself. Names are restricted to subject-safe tokens.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | `string` |  |
+
 ### `schemaHonestyIssue(field, prop): string \| null`
 
 `property` honesty gate — the declared name implies a format the schema
@@ -6288,6 +6295,12 @@ NatsRouteVerify adapter — use as `verify` on service-identity routes
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | s | `ClientShieldSecretSlot \| null` |  |
+
+### `setCurrentServiceCode(code): void`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
 
 ### `setLogOptions(opts): void`
 

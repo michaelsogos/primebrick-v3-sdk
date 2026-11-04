@@ -11,9 +11,9 @@
  *   - The schedule declaration is a stored, rollup-subject message carrying
  *     `Nats-Schedule` + `Nats-Schedule-Target`; republishing on the same
  *     subject REPLACES the schedule.
- *   - Custom headers (incl. the L1 client-shield key and forwarded auth
- *     headers) are copied verbatim onto the fired message — L1 identity of
- *     the declaring service survives the delayed fire.
+ *   - Custom headers (incl. the L1 client-shield key and the correlation
+ *     headers `x-job-schedule-subject`) are copied verbatim onto the fired
+ *     message — publisher identity and correlation survive the delayed fire.
  *   - Fired messages are written into the stream and NEVER dispatched to
  *     core subscribers — due consumers MUST be durable JetStream consumers
  *     (NatsClient.jetstreamSubscribe).
@@ -35,6 +35,13 @@
  *
  * The JOBS stream subjects are therefore the four data lanes ONLY — never
  * a bare `jobs.>`.
+ *
+ * GOVERNED API ONLY: services arm/disarm exclusively through
+ * `armJobSchedule`/`disarmJobSchedule` (control-plane request/reply onto
+ * primebrick-job — awaited end-to-end, declaration + mirror written
+ * atomically with read-back and compensation). The raw publish mechanism
+ * is NOT exported: it lives inside the job-handler, the only service that
+ * may write `jobs.schedule.*`/`jobs.cancel.*`.
  */
 
 /** Canonical JOBS stream capture set — schedule/due/result/cancel lanes only. */
@@ -48,11 +55,14 @@ export const JOB_STREAM_SUBJECTS = [
 /** Control-plane route for schedule declarations (primebrick-job). */
 export const JOB_SCHEDULE_REQUEST_SUBJECT = "jobs.ctl.schedule.request";
 
-import type { MsgHdrs } from "@nats-io/transport-node";
-import { AckPolicy, JetStreamApiError } from "@nats-io/jetstream";
-import { NatsClient } from "./nats-client.js";
+/** Control-plane route for schedule cancellations (primebrick-job). */
+export const JOB_SCHEDULE_CANCEL_SUBJECT = "jobs.ctl.schedule.cancel";
+
+import type { MsgHdrs, NatsConnection } from "@nats-io/transport-node";
+import { callNats } from "./nats-routes.js";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
+import { currentServiceCode } from "../service/service-identity.js";
 import type { AuthUser } from "../auth/types.js";
 
 export const JOB_SCHEDULE_HEADERS = {
@@ -64,20 +74,25 @@ export const JOB_SCHEDULE_HEADERS = {
   scheduler: "Nats-Scheduler",
 } as const;
 
-export interface EnsureJobScheduleOpts {
+export interface ArmJobScheduleRequest {
   /**
-   * Unique schedule subject — `jobs.schedule.<svc>.<name>[.<entity-id>]`.
-   * One schedule per subject; republishing replaces it atomically.
+   * Job name within the caller's namespace — the declaration subject is
+   * derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
+   * arm outside its own namespace (the job-handler enforces the same
+   * server-side). Dots allowed for sub-namespacing
+   * (`partition-maintenance.<id>`).
    */
-  scheduleSubject: string;
-  /** `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | cron expression. */
+  name: string;
+  /** `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). */
   schedule: string;
-  /** Subject the stored message is republished to at fire time —
-   *  `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
-   *  stream's subjects. */
+  /**
+   * Subject the stored message is republished to at fire time —
+   * `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
+   * stream's subjects.
+   */
   target: string;
   /** Payload stored on the schedule message — fired verbatim unless
-   *  `source` is set. Serialized via extJson by jetstreamPublish. */
+   *  `source` is set. */
   payload?: unknown;
   /** Fire-time indirection (ADR-51): at fire time the scheduler reads the
    *  LATEST message on this subject and fires THAT as the payload — the
@@ -85,154 +100,65 @@ export interface EnsureJobScheduleOpts {
   source?: string;
   /** `Nats-Schedule-TTL` — auto-purge the schedule after this duration. */
   ttl?: string;
-  /**
-   * Extra headers stamped on the declaration and forwarded VERBATIM to the
-   * fired message. For `jobs.due.user.*` targets pass the triggering
-   * message's auth headers via `forwardAuthHeaders()` so the executor can
-   * run the full L2+RBAC chain on the ORIGINATING user.
-   */
-  forwardHeaders?: Record<string, string>;
 }
 
 /**
- * Arm a JetStream schedule. Publishes the declaration message — the NATS
- * server itself republishes `payload`/`source` to `target` per `schedule`.
- *
- * Callers do NOT publish on `jobs.schedule.*` directly in production:
- * the governed entry point is the `jobs.schedule.request` route on
- * primebrick-job, which validates the caller's namespace and records the
- * declaration in `job.job_schedules`. This helper is what THAT service
- * calls (and is also usable by tests/tooling).
+ * Derive the declaration subject for this service — the static service
+ * code resolved from the deployed artifact, so a caller can never
+ * mis-namespace itself. Names are restricted to subject-safe tokens.
  */
-export async function ensureJobSchedule(opts: EnsureJobScheduleOpts): Promise<bigint> {
-  const hdrs: Record<string, string> = {
-    ...opts.forwardHeaders,
-    [JOB_SCHEDULE_HEADERS.schedule]: opts.schedule,
-    [JOB_SCHEDULE_HEADERS.target]: opts.target,
-  };
-  if (opts.ttl) hdrs[JOB_SCHEDULE_HEADERS.ttl] = opts.ttl;
-  if (opts.source) hdrs[JOB_SCHEDULE_HEADERS.source] = opts.source;
-  return NatsClient.jetstreamPublish(opts.scheduleSubject, opts.payload ?? null, hdrs);
-}
-
-/**
- * Disarm a previously armed schedule. The cancellation MUST go to a
- * different subject than `scheduleSubject` (a same-subject publish would
- * just replace the declaration).
- */
-export async function cancelJobSchedule(
-  scheduleSubject: string,
-  cancelSubject: string,
-): Promise<bigint> {
-  if (cancelSubject === scheduleSubject) {
+export function scheduleSubjectFor(name: string): string {
+  if (!/^[a-z0-9_][a-z0-9_.-]*$/.test(name)) {
     throw new Error(
-      "cancelJobSchedule: cancelSubject must differ from scheduleSubject (same-subject publish replaces the schedule)",
+      `scheduleSubjectFor: invalid job name "${name}" — expected ^[a-z0-9_][a-z0-9_.-]*$`,
     );
   }
-  return NatsClient.jetstreamPublish(cancelSubject, null, {
-    [JOB_SCHEDULE_HEADERS.next]: "purge",
-    [JOB_SCHEDULE_HEADERS.scheduler]: scheduleSubject,
-  });
-}
-
-/** One live schedule declaration found in the stream (read via `last_by_subj`). */
-export interface JobScheduleDeclaration {
-  subject: string;
-  /** `Nats-Schedule` spec — "@every 30s", cron, "@at …". */
-  schedule: string | undefined;
-  /** `Nats-Schedule-Target` — the fired republish destination. */
-  target: string | undefined;
-  seq: number;
+  return `jobs.schedule.${currentServiceCode()}.${name}`;
 }
 
 /**
- * Read the live declaration stored on `scheduleSubject`, or `null` when no
- * message exists (schedule purged / never armed / stream wiped). Uses the
- * JetStream `last_by_subj` direct-get — O(1) per subject.
+ * THE governed way to arm a schedule — the only public API. Issues a
+ * `callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
+ * awaits the COMPLETE operation: JetStream declaration → stored-message
+ * read-back → `job.job_schedules` mirror upsert (with purge compensation
+ * on mirror failure). Rejects on validation/namespace/internal errors —
+ * the caller retries or surfaces the error; it never falls back to a
+ * direct publish (the raw mechanism is job-handler internal).
  */
-export async function getJobSchedule(
-  scheduleSubject: string,
-  stream = "JOBS",
-): Promise<JobScheduleDeclaration | null> {
-  const jsm = await NatsClient.getJetStreamManager();
-  try {
-    const sm = await jsm.streams.getMessage(stream, { last_by_subj: scheduleSubject });
-    if (sm === null) return null;
-    return {
-      subject: sm.subject,
-      schedule: sm.header?.get(JOB_SCHEDULE_HEADERS.schedule),
-      target: sm.header?.get(JOB_SCHEDULE_HEADERS.target),
-      seq: sm.seq,
-    };
-  } catch (error) {
-    // 10037 = no message found — the expected "absent" answer.
-    if (error instanceof JetStreamApiError && error.apiError().err_code === 10037) return null;
-    throw error;
-  }
+export async function armJobSchedule(
+  req: ArmJobScheduleRequest,
+  opts: { timeoutMs?: number; connection?: NatsConnection } = {},
+): Promise<{ seq: bigint }> {
+  const res = await callNats<{ armed: true; seq: string }>(
+    JOB_SCHEDULE_REQUEST_SUBJECT,
+    {
+      schedule_subject: scheduleSubjectFor(req.name),
+      schedule: req.schedule,
+      target: req.target,
+      ...(req.payload !== undefined ? { payload: req.payload } : {}),
+      ...(req.source !== undefined ? { source: req.source } : {}),
+      ...(req.ttl !== undefined ? { ttl: req.ttl } : {}),
+    },
+    opts,
+  );
+  return { seq: BigInt(res.seq) };
 }
 
 /**
- * Enumerate every live `jobs.schedule.*` declaration in the stream.
- * Ephemeral pull consumer + fetch — each rollup subject yields at most one
- * stored message, so subjects dedup naturally. The consumer is deleted
- * afterwards; partial failures surface as an incomplete list, never a throw
- * that hides them (the caller decides whether a short list is fatal).
+ * THE governed way to disarm a schedule — awaited end-to-end: purge
+ * publish → read-back confirms the declaration is gone → mirror flips to
+ * `disarmed`. Idempotent: disarming an already-disarmed/absent schedule
+ * resolves cleanly.
  */
-export async function listJobScheduleSubjects(stream = "JOBS"): Promise<string[]> {
-  const jsm = await NatsClient.getJetStreamManager();
-  const js = NatsClient.getJetStream();
-  const name = `sched-enum-${Date.now()}`;
-  await jsm.consumers.add(stream, {
-    durable_name: name,
-    filter_subjects: ["jobs.schedule.>"],
-    ack_policy: AckPolicy.None,
-  });
-  try {
-    const consumer = await js.consumers.get(stream, name);
-    const subjects = new Set<string>();
-    for (;;) {
-      const batch = await consumer.fetch({ max_messages: 200, expires: 1500 });
-      let n = 0;
-      for await (const m of batch) {
-        n++;
-        subjects.add(m.subject);
-      }
-      if (n === 0) break;
-    }
-    return [...subjects].sort();
-  } finally {
-    await jsm.consumers.delete(stream, name).catch(() => {});
-  }
-}
-
-/**
- * Disarm a set of schedules — or ALL live ones with `"all"`. Single purge
- * logic: resolves the subject list then applies `cancelJobSchedule` per
- * subject (the only mechanism — a `jobs.cancel.*` purge publish). Every
- * per-subject failure is collected, not thrown: a disarm pass must run to
- * completion so one bad subject cannot shield the rest. Returns per-subject
- * outcomes for the caller to log/surface.
- */
-export async function cancelJobSchedules(
-  subjects: string[] | "all",
-  stream = "JOBS",
-): Promise<{ subject: string; ok: boolean; error?: string }[]> {
-  const list = subjects === "all" ? await listJobScheduleSubjects(stream) : subjects;
-  const results: { subject: string; ok: boolean; error?: string }[] = [];
-  for (const scheduleSubject of list) {
-    const rest = scheduleSubject.replace(/^jobs\.schedule\./, "");
-    if (rest === scheduleSubject) {
-      results.push({ subject: scheduleSubject, ok: false, error: "not a jobs.schedule.* subject" });
-      continue;
-    }
-    try {
-      await cancelJobSchedule(scheduleSubject, `jobs.cancel.${rest}`);
-      results.push({ subject: scheduleSubject, ok: true });
-    } catch (error) {
-      results.push({ subject: scheduleSubject, ok: false, error: String(error) });
-    }
-  }
-  return results;
+export async function disarmJobSchedule(
+  name: string,
+  opts: { timeoutMs?: number; connection?: NatsConnection } = {},
+): Promise<void> {
+  await callNats(
+    JOB_SCHEDULE_CANCEL_SUBJECT,
+    { schedule_subject: scheduleSubjectFor(name) },
+    opts,
+  );
 }
 
 /**

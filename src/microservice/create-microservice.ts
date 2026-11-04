@@ -100,6 +100,7 @@ import {
   configureInternalClient,
   detectPackageIdentity,
   resolveServiceCode,
+  setCurrentServiceCode,
   buildUserAgent,
   deriveClientKey,
   logModuleStartup,
@@ -486,6 +487,7 @@ export async function createMicroservice(
   // disagrees with the static identity, boot fails loudly.
   const selfIdentity = detectPackageIdentity();
   const serviceCode = resolveServiceCode(selfIdentity, configLoader.get("service_code"));
+  setCurrentServiceCode(serviceCode);
   const baseUrl = configLoader.require("service_base_url");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
   const clientKey = configLoader.get("service_client_shield_key");
