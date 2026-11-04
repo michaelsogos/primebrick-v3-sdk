@@ -8,6 +8,12 @@ import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { msgHeader } from "./msg-headers.js";
+import {
+  JOB_RUN_ID_HEADER,
+  JOB_SCHEDULE_SUBJECT_HEADER,
+  jobResultSubject,
+  type JobResultMessage,
+} from "./job-contract.js";
 import { lifecycleRegistry } from "../lifecycle/process-registry.js";
 import type { AuthUser } from "../auth/types.js";
 
@@ -46,6 +52,33 @@ function injectIdentity(hdrs: MsgHdrs): void {
   if (!identity) return;
   for (const [name, value] of Object.entries(identity)) {
     hdrs.set(name.toLowerCase(), value);
+  }
+}
+
+/**
+ * Emit the execution outcome for a correlated message — one carrying
+ * `x-job-run-id` and/or `x-job-schedule-subject` headers. Uncorrelated
+ * messages are a no-op. NEVER throws: a result that fails to publish must
+ * not break the consumer flow — the run row stays `dispatched` and the
+ * job-handler sweeper marks it `lost` instead.
+ */
+async function publishJobResultMessage(
+  subject: string,
+  headers: MsgHdrs | undefined,
+  result: Pick<JobResultMessage, "status" | "error_code" | "error_detail" | "fire_seq">,
+): Promise<void> {
+  const run_id = msgHeader(headers, JOB_RUN_ID_HEADER) ?? undefined;
+  const schedule_subject = msgHeader(headers, JOB_SCHEDULE_SUBJECT_HEADER) ?? undefined;
+  if (run_id === undefined && schedule_subject === undefined) return;
+  try {
+    await NatsClient.jetstreamPublish(jobResultSubject(subject), {
+      ...result,
+      run_id,
+      schedule_subject,
+      target: subject,
+    } satisfies JobResultMessage);
+  } catch (error) {
+    logger.warn(`job result publish failed for "${subject}"`, { tags: ["nats"], error });
   }
 }
 
@@ -233,14 +266,16 @@ export class NatsClient {
         await context.with(trace.setSpan(parentCtx, span), async () => {
           try {
             const text = new TextDecoder().decode(msg.data);
-            if (text === "") {
-              // Empty payload — skip parsing, call handler with null
-              await handler(null as T, msg);
-              return;
-            }
-            const data = extJsonParse<T>(text);
+            // Empty payload — skip parsing, call handler with null
+            const data = text === "" ? (null as T) : extJsonParse<T>(text);
             await handler(data, msg);
+            await publishJobResultMessage(subject, msg.headers, { status: "executed" });
           } catch (error) {
+            await publishJobResultMessage(subject, msg.headers, {
+              status: "failed",
+              error_code: "HANDLER_ERROR",
+              error_detail: error instanceof Error ? error.message : String(error),
+            });
             span.recordException(error as Error);
             span.setStatus({ code: SpanStatusCode.ERROR });
             logger.error(`Error processing message on "${subject}"`, { tags: ["nats"], error: error });
@@ -437,6 +472,11 @@ export class NatsClient {
             const result = await opts.verify(m);
             if (result === null) {
               // Terminal denial — term() prevents pointless redelivery.
+              await publishJobResultMessage(subject, m.headers, {
+                status: "failed",
+                error_code: "DENIED",
+                fire_seq: m.seq,
+              });
               m.term();
               return;
             }
@@ -444,11 +484,26 @@ export class NatsClient {
           }
           const text = new TextDecoder().decode(m.data);
           const data = text === "" ? (null as T) : extJsonParse<T>(text);
-          await opts.handler(data, {
-            subject,
-            headers: m.headers,
-            info: { redeliveryCount: m.info.deliveryCount },
-            authUser,
+          try {
+            await opts.handler(data, {
+              subject,
+              headers: m.headers,
+              info: { redeliveryCount: m.info.deliveryCount },
+              authUser,
+            });
+          } catch (handlerError) {
+            await publishJobResultMessage(subject, m.headers, {
+              status: "failed",
+              error_code: "HANDLER_ERROR",
+              error_detail:
+                handlerError instanceof Error ? handlerError.message : String(handlerError),
+              fire_seq: m.seq,
+            });
+            throw handlerError;
+          }
+          await publishJobResultMessage(subject, m.headers, {
+            status: "executed",
+            fire_seq: m.seq,
           });
           m.ack();
         } catch (error) {

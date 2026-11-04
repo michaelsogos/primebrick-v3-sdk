@@ -76,6 +76,8 @@ export {
   verifyRowKey,
   detectPackageIdentity,
   resolveServiceCode,
+  setCurrentServiceCode,
+  currentServiceCode,
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,
@@ -151,20 +153,24 @@ export {
   type ShieldRegistryLike,
 } from "./nats/service-shield.js";
 export {
-  ensureJobSchedule,
-  cancelJobSchedule,
-  getJobSchedule,
-  listJobScheduleSubjects,
-  cancelJobSchedules,
+  armJobSchedule,
+  disarmJobSchedule,
+  scheduleSubjectFor,
   dueLaneVerify,
   forwardAuthHeaders,
   forwardedActor,
   JOB_SCHEDULE_HEADERS,
   JOB_STREAM_SUBJECTS,
   JOB_SCHEDULE_REQUEST_SUBJECT,
-  type EnsureJobScheduleOpts,
-  type JobScheduleDeclaration,
+  JOB_SCHEDULE_CANCEL_SUBJECT,
+  type ArmJobScheduleRequest,
 } from "./nats/job-schedule.js";
+export {
+  JOB_RUN_ID_HEADER,
+  JOB_SCHEDULE_SUBJECT_HEADER,
+  jobResultSubject,
+  type JobResultMessage,
+} from "./nats/job-contract.js";
 export {
   RotatingSecretEngine,
   SecretProvider,
