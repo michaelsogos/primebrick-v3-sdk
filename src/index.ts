@@ -131,6 +131,7 @@ export {
 
 // Lifecycle
 export { GracefulShutdown, type CleanupFn } from "./lifecycle/graceful-shutdown.js";
+export { setProcessInterval } from "./lifecycle/process-registry.js";
 
 // NATS
 export { NatsClient, msgHeader } from "./nats/nats-client.js";

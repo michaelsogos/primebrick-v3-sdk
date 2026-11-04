@@ -10,6 +10,8 @@
  * handles on `globalThis` and let the newest instance REPLACE them.
  */
 
+import { logger } from "./logger.js";
+
 const KEY = Symbol.for("primebrick.sdk.lifecycle-registry");
 
 export interface LifecycleRegistry {
@@ -24,9 +26,38 @@ export interface LifecycleRegistry {
     event: string;
     fn: (...args: any[]) => void;
   }>;
+  /** Named intervals — hot reloads replace, never stack. */
+  intervals?: Map<string, ReturnType<typeof setInterval>>;
 }
 
 export function lifecycleRegistry(): LifecycleRegistry {
   const g = globalThis as Record<symbol, LifecycleRegistry | undefined>;
   return (g[KEY] ??= {});
+}
+
+/**
+ * Register a named interval that survives hot-module-reload EXACTLY ONCE:
+ * a previous interval under the same key is cleared before the new one is
+ * installed — watch-mode reloads replace instead of accumulating ticks.
+ */
+export function setProcessInterval(
+  key: string,
+  ms: number,
+  fn: () => void | Promise<void>,
+): ReturnType<typeof setInterval> {
+  const reg = lifecycleRegistry();
+  const map = (reg.intervals ??= new Map());
+  const prev = map.get(key);
+  if (prev !== undefined) clearInterval(prev);
+  const handle = setInterval(() => {
+    void Promise.resolve()
+      .then(fn)
+      .catch((err) => {
+        // An interval tick failure must never kill the process — log and
+        // keep ticking; the next run retries the same work.
+        logger.warn(`process-interval "${key}" tick failed: ${String(err)}`, { tags: ["lifecycle"] });
+      });
+  }, ms);
+  map.set(key, handle);
+  return handle;
 }

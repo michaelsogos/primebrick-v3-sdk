@@ -6326,6 +6326,18 @@ Hot-swap logging options (from config reload / `config.changed`).
 |-----------|------|-------------|
 | sink | `LogSink \| null` |  |
 
+### `setProcessInterval(key, ms, fn): Timeout`
+
+Register a named interval that survives hot-module-reload EXACTLY ONCE:
+a previous interval under the same key is cleared before the new one is
+installed — watch-mode reloads replace instead of accumulating ticks.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+| ms | `number` |  |
+| fn | `() => void \| Promise<void>` |  |
+
 ### `setSdkCachePort(port, info): void`
 
 Store the cache port and Redis info (called once after Redis connects).
