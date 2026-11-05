@@ -21,6 +21,7 @@
 
 import {
   makeEntityRouter,
+  type EntityCustomOp,
   type EntityAction,
   type EntityRouterConfig,
 } from "./entity-router.js";
@@ -115,8 +116,59 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   const handlers: RouteHandler[] = [];
   const paths: Record<string, unknown> = {};
 
-  for (const decl of input.entities ?? []) {
-    handlers.push(makeEntityRouter(decl));
+  // Custom entity ops — RPC routes that declare `entity_op` are attached
+  // to the target entity's `meta.actions` with their declared endpoint.
+  // Fail-fast at construction (enforcement, not verification):
+  //   - entity_op naming an entity with no decl → boot error
+  //   - duplicate op on the same entity → boot error
+  //   - row_custom_actions/bulk_custom_actions action_name without a
+  //     declared op → boot error (dead CTA is a config bug, not a runtime
+  //     501 surprise)
+  const entityDecls = input.entities ?? [];
+  const customOps = new Map<string, EntityCustomOp[]>();
+  for (const entry of input.rpc ?? []) {
+    const routes = Array.isArray(entry) ? entry : entry.routes;
+    for (const r of routes) {
+      if (!r.entity_op) continue;
+      const { entity, op } = r.entity_op;
+      if (!entityDecls.some((d) => d.entityName === entity)) {
+        throw new Error(
+          `makeServiceRoutes: route ${r.method} ${r.path} declares entity_op ` +
+            `on "${entity}" which has no entity decl — the op can never be reached`,
+        );
+      }
+      const list = customOps.get(entity) ?? [];
+      if (list.some((c) => c.op === op)) {
+        throw new Error(
+          `makeServiceRoutes: duplicate custom op "${op}" on entity "${entity}" ` +
+            `(${r.method} ${r.path})`,
+        );
+      }
+      list.push({ op, method: r.method, path: r.path, permissions: r.permissions ?? [] });
+      customOps.set(entity, list);
+    }
+  }
+  for (const decl of entityDecls) {
+    const declaredOps = new Set((customOps.get(decl.entityName) ?? []).map((c) => c.op));
+    const chrome = [
+      ...(decl.meta?.table?.row_custom_actions ?? []),
+      ...(decl.meta?.table?.bulk_custom_actions ?? []),
+    ];
+    for (const cta of chrome) {
+      if (!declaredOps.has(cta.action_name)) {
+        throw new Error(
+          `makeServiceRoutes: entity "${decl.entityName}" declares ` +
+            `custom action "${cta.action_name}" in meta.table with no backing ` +
+            `route — declare entity_op: { entity: "${decl.entityName}", op: ` +
+            `"${cta.action_name}" } on its RpcRoute`,
+        );
+      }
+    }
+  }
+
+  for (const decl of entityDecls) {
+    const ops = customOps.get(decl.entityName);
+    handlers.push(makeEntityRouter(ops ? { ...decl, custom_ops: ops } : decl));
     Object.assign(
       paths,
       entityCrudSpec(decl.entityName, {
