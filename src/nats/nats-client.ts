@@ -274,7 +274,7 @@ export class NatsClient {
             const data = text === "" ? (null as T) : extJsonParse<T>(text);
             const out = await handler(data, msg);
             await publishJobResultMessage(subject, msg.headers, {
-              status: "executed",
+              status: "succeeded",
               duration_ms: Math.round(performance.now() - t0),
               report: typeof out === "object" && out !== null ? out : undefined,
             });
@@ -514,7 +514,7 @@ export class NatsClient {
             throw handlerError;
           }
           await publishJobResultMessage(subject, m.headers, {
-            status: "executed",
+            status: "succeeded",
             fire_seq: m.seq,
             duration_ms: Math.round(performance.now() - t0),
             report: typeof out === "object" && out !== null ? out : undefined,

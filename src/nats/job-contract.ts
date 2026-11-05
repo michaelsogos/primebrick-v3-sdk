@@ -10,7 +10,7 @@
  * observability lives in the transport, it cannot be forgotten per
  * service. A result is emitted for every terminal outcome:
  *
- *   - handler resolved → `executed`
+ *   - handler resolved → `succeeded`
  *   - handler threw    → `failed` (then normal ack/nak semantics apply)
  *   - `verify` denied  → `failed` / `error_code: "DENIED"` (terminal)
  *   - a `dispatched` run that never gets a result → the job-handler
@@ -25,15 +25,25 @@ export const JOB_SCHEDULE_SUBJECT_HEADER = "x-job-schedule-subject";
 
 /** Outcome message published on `jobs.result.<…>` after a correlated handler. */
 export interface JobResultMessage {
-  status: "executed" | "failed";
+  /**
+   * Run-row status vocabulary — `succeeded`/`failed` are the SAME words the
+   * `job.job_runs` row and the admin stats/sparkline surfaces use: the
+   * recorder folds this value verbatim, no mapping layer.
+   */
+  status: "succeeded" | "failed";
   run_id?: string;
   schedule_subject?: string;
-  /** Stream sequence of the consumed fire (JetStream consumers only). */
-  fire_seq?: number;
+  /**
+   * Stream sequence of the consumed fire (JetStream consumers only).
+   * WIRE REALITY: ext-json decodes every JSON integer as `bigint` —
+   * publishers assign `number`, consumers MUST accept `bigint`.
+   */
+  fire_seq?: number | bigint;
   /** The subject the handler consumed — what the outcome refers to. */
   target?: string;
-  /** Handler wall time measured by the transport middleware. */
-  duration_ms?: number;
+  /** Handler wall time measured by the transport middleware — same
+   *  `number`-publish/`bigint`-receive contract as `fire_seq`. */
+  duration_ms?: number | bigint;
   /**
    * Structured report returned by the handler — folded into
    * `job_runs.report` by the run-recorder. Only object returns are
