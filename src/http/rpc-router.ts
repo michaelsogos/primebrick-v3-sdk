@@ -114,9 +114,51 @@ export interface RpcRoute<
    * The route itself stays a normal RPC route — wire is always
    * `/api/v1/actions/…`-style, never entity CRUD paths.
    */
-  entity_op?: { entity: string; op: string };
+  entity_op?: { entity: string; op: string; cta?: EntityOpCta };
   /** The ONE service call — business logic lives behind it, not here. */
   handler: (ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>;
+}
+
+/**
+ * CTA chrome authored on the route — `makeServiceRoutes` derives the
+ * `meta.table.row_custom_actions`/`bulk_custom_actions` entry from it.
+ * Everything not declared is inferred:
+ *   - `placement`   → `op` ending in `_all` ⇒ `bulk`, else `row`
+ *   - `row_key`     → the entity meta's `uid`
+ *   - `translation_key` → `<entities_ns>.actions.<op>`
+ *   - `required_permission` → this route's `permissions`
+ *   - `require_step_up`     → `true` when the route declares `mfa`
+ *   - `requires_selection`  → `false` for `*_all` bulk ops
+ */
+export interface EntityOpCta {
+  /** `row` = per-record menu CTA; `bulk` = selection toolbar CTA.
+   *  Default: `*_all` ops are `bulk`, everything else `row`. */
+  placement?: "row" | "bulk";
+  /** Row→body binding — the op's request body receives
+   *  `{[row_key]: row[row_key]}`. Default: entity meta `uid` (usually
+   *  `uuid`). Declare when the op binds a different field (e.g.
+   *  `schedule_subject`). */
+  row_key?: string;
+  /** Lucide icon name — absent renders an icon-less CTA. */
+  icon?: string;
+  /** CSS color class for the label. */
+  text_color?: string;
+  /** i18n key for the CTA label — default `<entities_ns>.actions.<op>`. */
+  translation_key?: string;
+  /** i18n key for a pre-dispatch confirmation dialog. */
+  confirm_key?: string;
+  /** Per-row visibility gate — show the CTA only when `row[field]` is in
+   *  `values` (e.g. `resume` only on `paused` rows, `enable` only when
+   *  `enabled === false`). */
+  visible_on?: { field: string; values: (string | number | boolean)[] };
+  /** Bulk ops only — require a selection and post `selected_uuids`.
+   *  Default `false` for `*_all` global ops. */
+  requires_selection?: boolean;
+  /** Require an MFA step-up before dispatch — default `true` when the
+   *  route declares `mfa`. */
+  require_step_up?: boolean;
+  /** Disable the CTA on soft-deleted rows. */
+  disabled_when_deleted?: boolean;
 }
 
 export interface RpcRouterDeps {
