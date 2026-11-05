@@ -252,7 +252,7 @@ export async function makeNatsRoutes<TReq = unknown>(
           const request = runContract(route, raw);
           await route.handler({ user, request, msg });
           await publishJobResultMessage(route.subject, msg.headers, {
-            status: "executed",
+            status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
           });
         } catch (err) {
@@ -327,7 +327,7 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
           const result = await route.handler({ user, request, msg });
           if (msg.reply) msg.respond(encode(result ?? null));
           await publishJobResultMessage(route.subject, msg.headers, {
-            status: "executed",
+            status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
           });
         } catch (err) {
