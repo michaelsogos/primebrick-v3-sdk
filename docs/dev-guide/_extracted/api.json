@@ -81332,12 +81332,44 @@
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Run-row status vocabulary — "
+							},
+							{
+								"kind": "code",
+								"text": "`succeeded`"
+							},
+							{
+								"kind": "text",
+								"text": "/"
+							},
+							{
+								"kind": "code",
+								"text": "`failed`"
+							},
+							{
+								"kind": "text",
+								"text": " are the SAME words the\r\n"
+							},
+							{
+								"kind": "code",
+								"text": "`job.job_runs`"
+							},
+							{
+								"kind": "text",
+								"text": " row and the admin stats/sparkline surfaces use: the\r\nrecorder folds this value verbatim, no mapping layer."
+							}
+						]
+					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 28,
+							"line": 33,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L28"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L33"
 						}
 					],
 					"type": {
@@ -81345,7 +81377,7 @@
 						"types": [
 							{
 								"type": "literal",
-								"value": "executed"
+								"value": "succeeded"
 							},
 							{
 								"type": "literal",
@@ -81365,9 +81397,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 29,
+							"line": 34,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L29"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L34"
 						}
 					],
 					"type": {
@@ -81386,9 +81418,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 30,
+							"line": 35,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L30"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L35"
 						}
 					],
 					"type": {
@@ -81408,21 +81440,54 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Stream sequence of the consumed fire (JetStream consumers only)."
+								"text": "Stream sequence of the consumed fire (JetStream consumers only).\r\nWIRE REALITY: ext-json decodes every JSON integer as "
+							},
+							{
+								"kind": "code",
+								"text": "`bigint`"
+							},
+							{
+								"kind": "text",
+								"text": " —\r\npublishers assign "
+							},
+							{
+								"kind": "code",
+								"text": "`number`"
+							},
+							{
+								"kind": "text",
+								"text": ", consumers MUST accept "
+							},
+							{
+								"kind": "code",
+								"text": "`bigint`"
+							},
+							{
+								"kind": "text",
+								"text": "."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 32,
+							"line": 41,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L32"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L41"
 						}
 					],
 					"type": {
-						"type": "intrinsic",
-						"name": "number"
+						"type": "union",
+						"types": [
+							{
+								"type": "intrinsic",
+								"name": "number"
+							},
+							{
+								"type": "intrinsic",
+								"name": "bigint"
+							}
+						]
 					}
 				},
 				{
@@ -81444,9 +81509,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 34,
+							"line": 43,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L34"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L43"
 						}
 					],
 					"type": {
@@ -81466,21 +81531,54 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Handler wall time measured by the transport middleware."
+								"text": "Handler wall time measured by the transport middleware — same\r\n "
+							},
+							{
+								"kind": "code",
+								"text": "`number`"
+							},
+							{
+								"kind": "text",
+								"text": "-publish/"
+							},
+							{
+								"kind": "code",
+								"text": "`bigint`"
+							},
+							{
+								"kind": "text",
+								"text": "-receive contract as "
+							},
+							{
+								"kind": "code",
+								"text": "`fire_seq`"
+							},
+							{
+								"kind": "text",
+								"text": "."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 36,
+							"line": 46,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L36"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L46"
 						}
 					],
 					"type": {
-						"type": "intrinsic",
-						"name": "number"
+						"type": "union",
+						"types": [
+							{
+								"type": "intrinsic",
+								"name": "number"
+							},
+							{
+								"type": "intrinsic",
+								"name": "bigint"
+							}
+						]
 					}
 				},
 				{
@@ -81510,9 +81608,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 42,
+							"line": 52,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L42"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L52"
 						}
 					],
 					"type": {
@@ -81539,9 +81637,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 44,
+							"line": 54,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L44"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L54"
 						}
 					],
 					"type": {
@@ -81560,9 +81658,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 45,
+							"line": 55,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L45"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L55"
 						}
 					],
 					"type": {
@@ -81605,9 +81703,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-					"line": 54,
+					"line": 64,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L54"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L64"
 				}
 			],
 			"signatures": [
@@ -81660,9 +81758,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/job-contract.ts",
-							"line": 54,
+							"line": 64,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L54"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/job-contract.ts#L64"
 						}
 					],
 					"parameters": [

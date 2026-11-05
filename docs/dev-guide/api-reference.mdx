@@ -1767,12 +1767,17 @@ Outcome message published on `jobs.result.<…>` after a correlated handler.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| status | `"executed" \| "failed"` |  |
+| status | `"succeeded" \| "failed"` | Run-row status vocabulary — `succeeded`/`failed` are the SAME words the
+`job.job_runs` row and the admin stats/sparkline surfaces use: the
+recorder folds this value verbatim, no mapping layer. |
 | run_id | `string` |  |
 | schedule_subject | `string` |  |
-| fire_seq | `number` | Stream sequence of the consumed fire (JetStream consumers only). |
+| fire_seq | `number \| bigint` | Stream sequence of the consumed fire (JetStream consumers only).
+WIRE REALITY: ext-json decodes every JSON integer as `bigint` —
+publishers assign `number`, consumers MUST accept `bigint`. |
 | target | `string` | The subject the handler consumed — what the outcome refers to. |
-| duration_ms | `number` | Handler wall time measured by the transport middleware. |
+| duration_ms | `number \| bigint` | Handler wall time measured by the transport middleware — same
+ `number`-publish/`bigint`-receive contract as `fire_seq`. |
 | report | `unknown` | Structured report returned by the handler — folded into
 `job_runs.report` by the run-recorder. Only object returns are
 reported; scalar/void returns carry no report. |
