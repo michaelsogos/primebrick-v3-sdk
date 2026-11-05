@@ -49,6 +49,7 @@ import {
   type EntityExportConfig,
   type EntityExportQuery,
 } from "./entity-export.js";
+import { entityFieldValidator } from "./entity-field-validator.js";
 import {
   makeRpcRouter,
   ValidationError,
@@ -467,9 +468,12 @@ export function makeEntityRouter<TEntity = unknown>(
     method: "POST",
     path: base,
     body: (raw) => {
-      const validated = config.schemas?.createBody
-        ? config.schemas.createBody(raw)
-        : (raw as { entity: Record<string, unknown> });
+      // Meta-declared field rules are the DEFAULT contract (same core
+      // predicates the FE binds into zod) — an explicit schema wins.
+      const validate =
+        config.schemas?.createBody ??
+        (config.meta ? entityFieldValidator(config.meta) : undefined);
+      const validated = validate ? validate(raw) : (raw as { entity: Record<string, unknown> });
       if (!validated || typeof validated !== "object" || !("entity" in validated)) {
         throw new ValidationError("Body must be the { entity } envelope");
       }
@@ -526,9 +530,10 @@ export function makeEntityRouter<TEntity = unknown>(
     method: "PUT",
     path: `${base}/:uuid`,
     body: (raw) => {
-      const validated = config.schemas?.updateBody
-        ? config.schemas.updateBody(raw)
-        : (raw as { entity: Record<string, unknown> });
+      const validate =
+        config.schemas?.updateBody ??
+        (config.meta ? entityFieldValidator(config.meta, { partial: true }) : undefined);
+      const validated = validate ? validate(raw) : (raw as { entity: Record<string, unknown> });
       if (!validated || typeof validated !== "object" || !("entity" in validated)) {
         throw new ValidationError("Body must be the { entity } envelope");
       }

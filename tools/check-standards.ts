@@ -15,6 +15,13 @@
  *   upsert          `.upsert(`/`.upsertMany(` — removed; find → add | update
  *   new-repository  `new Repository(` — use dal.entityService/tableAuditPort
  *   pool-ping       `client|pool|conn.ping(` — raw driver ping; use dal.serverVersion()
+ *   column-flag-defaults
+ *                   `col.default_visible|sortable|filterable|searchable
+ *                   !==|=== false` — column flags are opt-out (absent =
+ *                   enabled); read them ONLY via the canonical predicates
+ *                   isColumnVisible/isColumnSortable/isColumnFilterable/
+ *                   isColumnSearchable in @primebrick/core. The canonical
+ *                   implementation file (core/src/columns.ts) is exempt.
  *   entity-nullable-explicit
  *                   In @Entity classes, properties declared `prop?:` or
  *                   `prop: T | null` MUST carry an explicit nullability marker:
@@ -41,6 +48,11 @@
  * the library IS the driver wrapper; query/sql/pool rules are its
  * implementation, not violations.
  *
+ * Profile `fe` (browser SPA repos): NO base rules — the consumer set encodes
+ * server-side contracts (driver boundary, BigInt-safe JSON) that are false
+ * positives in browser code. Only config-gated rules fire, exactly the same
+ * opt-in mechanism the other repos use.
+ *
  * Config-gated rules (activate only via `.devin/check-standards.json` in the
  * repo root — see below):
  *   dal-access      `getDal(`/`initDal(` — data access ONLY inside the
@@ -51,6 +63,16 @@
  *                   `from|import|require "…*(-|_)(dal|repo|repository)"` —
  *                   forbidden inside the configured path scopes (transport +
  *                   dispatch layers must call services, never repo wrappers).
+ *   raw-switch      `import { …Switch… } from '@primebrick/ui'` — labelled
+ *                   booleans MUST render SwitchField (switch-first anatomy).
+ *                   Raw Switch is composite-internal only; sanctioned
+ *                   composites go in `allowPaths`. Multi-line import lists
+ *                   are caught by the structural pass.
+ *   button-variant-toolbar
+ *                   `variant="soft"` — toolbar action CTAs are solid variants
+ *                   only (default/destructive/warning; `outline` for
+ *                   secondary). `soft` is reserved for Layout-1 in-card
+ *                   secondary CTAs. Scope via `appliesTo` (toolbar dirs).
  *
  * `.devin/check-standards.json` — per-repo rule activation + allowlists:
  *   {
@@ -76,6 +98,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
+import { HONEST_FORMAT_HINTS } from "@primebrick/core";
 
 type RuleId =
   | "ext-json"
@@ -89,11 +112,15 @@ type RuleId =
   | "new-repository"
   | "pool-ping"
   | "entity-nullable-explicit"
+  | "column-flag-defaults"
   | "dal-access"
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
   | "nav-decl-access"
+  | "schema-honest-format"
+  | "raw-switch"
+  | "button-variant-toolbar"
   | "truncated-sibling";
 
 interface Rule {
@@ -116,15 +143,21 @@ const LINE_RULES: Rule[] = [
   { id: "upsert", pattern: /\.upsert(?:Many)?\s*\(/, hint: "upsert removed — find → add | update(version)" },
   { id: "new-repository", pattern: /\bnew\s+Repository\s*\(/, hint: "use dal.entityService()/dal.tableAuditPort()" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
+  { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
 ];
 
 // Config-gated rules — populated from `.devin/check-standards.json` (repo
 // root); absent from the config = rule off entirely. Patterns are fixed;
 // allowPaths/appliesTo come from the per-repo config.
-const GATED_RULE_IDS = new Set<RuleId>(["dal-access", "layer-repo-import"]);
+const GATED_RULE_IDS = new Set<RuleId>(["dal-access", "layer-repo-import", "raw-switch", "button-variant-toolbar"]);
 const GATED_LINE_RULES: Rule[] = [
   { id: "dal-access", pattern: /\b(?:initDal|getDal)\s*\(/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal() only inside the declared allowlist" },
   { id: "layer-repo-import", pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'][^"']*[-_](?:dal|repo|repository)(?:\.js|\.ts)?["']/, hint: "transport/dispatch layers must call services — never import *-dal/*-repo modules" },
+  // Single-line `import { …Switch… } from '@primebrick/ui'` — \b after
+  // "Switch" never matches SwitchField. Multi-line import lists are caught
+  // by checkRawSwitch (structural pass below), so no overlap.
+  { id: "raw-switch", pattern: /import\s+(?:type\s+)?\{[^}]*\bSwitch\b[^}]*\}\s*from\s*["']@primebrick\/ui["']/, hint: "labelled booleans MUST use SwitchField (switch-first anatomy) — raw Switch is composite-internal only (allowPaths for sanctioned composites)" },
+  { id: "button-variant-toolbar", pattern: /variant\s*=\s*\{?\s*["'`]soft["'`]/, hint: "toolbar action CTAs are solid variants only (default/destructive/warning; `outline` for secondary) — `soft` is reserved for Layout-1 in-card secondary CTAs" },
 ];
 
 interface StandardsConfig {
@@ -257,6 +290,126 @@ function checkEntityNullableExplicit(
   return out;
 }
 
+// ── schema-honest-format ────────────────────────────────────────────────
+// Static mirror of the enrollment-time `schemaHonestyIssue` gate (core is
+// the authority — this catches the drift BEFORE boot, so the dishonest
+// schema never even compiles into a build that could register it). ERROR
+// level: any violation fails the check.
+// A property literal `name: { type: "string" … }` — or `type:"array"` with
+// `{type:"string"}` items — whose NAME implies a data shape (`*_at`,
+// `*_by`, uuid/email/phone/url/locale-shaped — the core
+// `HONEST_FORMAT_HINTS` matrix) must declare it inside the literal:
+// `format:`/`x_semantic:`/`enum:`/`const:`/`pattern:`. Zod-authored
+// schemas (`z.string().email()` → `z.toJSONSchema`) carry no `type:"string"`
+// text and are covered by the runtime gate, so they are unaffected here.
+const HONEST_PROP_OPEN = /["']?([a-zA-Z_]\w*)["']?\s*:\s*\{/g;
+const HONEST_MARKERS = /\b(?:format|x_semantic|enum|const|pattern)\s*:/;
+
+function checkSchemaHonesty(
+  lines: string[],
+  rel: string,
+  isExempted: (exempt: { rules: Set<string>; hasReason: boolean } | null, id: string) => boolean,
+  exemptAt: (i: number) => { rules: Set<string>; hasReason: boolean } | null,
+): Violation[] {
+  const out: Violation[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (isCommentOnly(line)) continue;
+    HONEST_PROP_OPEN.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = HONEST_PROP_OPEN.exec(line))) {
+      const field = m[1]!;
+      const hint = HONEST_FORMAT_HINTS.find((h) => h.re.test(field));
+      if (!hint) continue;
+      // Collect the object literal — balance braces from the `{` ending m[0].
+      const startCol = m.index + m[0].length - 1;
+      let depth = 0;
+      let text = "";
+      let j = i;
+      for (; j < lines.length; j++) {
+        const seg = j === i ? line.slice(startCol) : lines[j];
+        for (const ch of seg) {
+          if (ch === "{") depth++;
+          else if (ch === "}") depth--;
+        }
+        text += seg + "\n";
+        if (depth === 0) break;
+        if (j - i > 80) break; // runaway guard — malformed source
+      }
+      // A string leaf is dishonest: the prop itself string-typed, or an
+      // `array` whose items are strings and carry no marker either.
+      const stringLeaf = /type\s*:\s*["']string["']/.test(text);
+      const arrayOfStrings =
+        /type\s*:\s*["']array["']/.test(text) &&
+        /items\s*:\s*\{[^}]*type\s*:\s*["']string["']/.test(text);
+      if (!stringLeaf && !arrayOfStrings) continue;
+      if (HONEST_MARKERS.test(text)) continue;
+      const exempt = exemptAt(i) ?? exemptAt(j);
+      if (isExempted(exempt, "schema-honest-format")) continue;
+      out.push({
+        file: rel,
+        line: i + 1,
+        rule: "schema-honest-format",
+        text: line.trim(),
+        hint: `"${field}" looks like a ${hint.why} value — declare format:"${hint.formats.join("|")}" on it (enrollment rejects a bare string)`,
+      });
+      break; // one finding per line keeps output readable
+    }
+  }
+  return out;
+}
+
+// ── raw-switch ──────────────────────────────────────────────────────────
+// Multi-line `import { …Switch… } from '@primebrick/ui'` — the line-rule
+// above catches single-line imports; this pass tracks import blocks whose
+// `}` and `from` land on later lines, buffers the `Switch` specifier lines,
+// and flags them only if the resolved package is @primebrick/ui.
+const RAW_SWITCH_IMPORT_OPEN = /^\s*import\s+(?:type\s+)?\{/;
+const RAW_SWITCH_FROM = /\}\s*from\s*["']([^"']+)["']/;
+
+function checkRawSwitch(
+  lines: string[],
+  rel: string,
+  isExempted: (exempt: { rules: Set<string>; hasReason: boolean } | null, id: string) => boolean,
+  exemptAt: (i: number) => { rules: Set<string>; hasReason: boolean } | null,
+): Violation[] {
+  const out: Violation[] = [];
+  let collecting = false;
+  let switchLines: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (isCommentOnly(line)) continue;
+    if (!collecting) {
+      if (!RAW_SWITCH_IMPORT_OPEN.test(line)) continue;
+      if (RAW_SWITCH_FROM.test(line)) continue; // single-line — the line rule owns it
+      collecting = true;
+      continue;
+    }
+    const to = line.match(RAW_SWITCH_FROM);
+    if (to) {
+      if (to[1] === "@primebrick/ui") {
+        for (const ln of switchLines) {
+          const exempt = exemptAt(ln) ?? exemptAt(ln - 1);
+          if (isExempted(exempt, "raw-switch")) continue;
+          out.push({
+            file: rel,
+            line: ln + 1,
+            rule: "raw-switch",
+            text: lines[ln]?.trim() ?? "",
+            hint: "labelled booleans MUST use SwitchField (switch-first anatomy) — raw Switch is composite-internal only (allowPaths for sanctioned composites)",
+          });
+        }
+      }
+      collecting = false;
+      switchLines = [];
+      continue;
+    }
+    if (/\bSwitch\b/.test(line)) switchLines.push(i);
+    if (/;/.test(line)) { collecting = false; switchLines = []; } // runaway guard — malformed import
+  }
+  return out;
+}
+
 // SQL shapes inside quoted strings — UPPERCASE keywords only (project SQL
 // style), so UI text like "Update an existing entity" does not fire.
 const STRING_RE = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
@@ -266,9 +419,13 @@ const SQL_SHAPES =
 const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
-  "entity-nullable-explicit", "nav-decl-access",
+  "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
+  "schema-honest-format",
 ]);
-const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit"]);
+const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults"]);
+// `fe` — browser SPA: no base line rules (server-side contracts don't
+// apply); the gated rules above activate via .devin/check-standards.json.
+const FE_RULES = new Set<RuleId>([]);
 
 interface Violation {
   file: string;
@@ -302,7 +459,7 @@ function* walk(dir: string): Generator<string> {
     const p = join(dir, entry);
     const st = statSync(p);
     if (st.isDirectory()) yield* walk(p);
-    else if (entry.endsWith(".ts")) yield p;
+    else if (entry.endsWith(".ts") || entry.endsWith(".svelte")) yield p;
   }
 }
 
@@ -438,6 +595,26 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     out.push(...checkEntityNullableExplicit(lines, rel, isExempted, exemptAt));
   }
 
+  if (rules.has("schema-honest-format")) {
+    const exemptAt = (i: number) =>
+      parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
+    out.push(...checkSchemaHonesty(lines, rel, isExempted, exemptAt));
+  }
+
+  // raw-switch structural pass — multi-line import lists. Scope mirrors
+  // the activeLineRules filter (config-injected allowPaths/appliesTo).
+  const rawSwitchRule = LINE_RULES.find((r) => r.id === "raw-switch");
+  if (
+    rules.has("raw-switch") &&
+    rawSwitchRule &&
+    !rawSwitchRule.allowPaths?.test(rel) &&
+    (!rawSwitchRule.appliesTo || rawSwitchRule.appliesTo.test(rel))
+  ) {
+    const exemptAt = (i: number) =>
+      parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
+    out.push(...checkRawSwitch(lines, rel, isExempted, exemptAt));
+  }
+
   // nav-decl-access — a file declaring a ModuleNavDeclaration must set
   // module-level `access:` somewhere (top-level decl property). Item-level
   // access alone also satisfies the literal check by design — exact-value
@@ -532,11 +709,13 @@ const profile = args.find((a) => a.startsWith("--profile="))?.split("=")[1] ?? "
 const includeTests = args.includes("--tests");
 
 if (!dir) {
-  console.error("usage: check-standards <srcDir> [--profile=consumer|lib] [--tests]");
+  console.error("usage: check-standards <srcDir> [--profile=consumer|lib|fe] [--tests]");
   process.exit(2);
 }
 
-const rules = new Set(profile === "lib" ? LIB_RULES : CONSUMER_RULES);
+const rules = new Set(
+  profile === "lib" ? LIB_RULES : profile === "fe" ? FE_RULES : CONSUMER_RULES,
+);
 
 // Config-gated rules: `.devin/check-standards.json` in the repo root enables
 // them per-repo and carries their allowPaths/appliesTo (injected onto the

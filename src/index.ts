@@ -115,6 +115,49 @@ export {
 export { docsPackRouteHandler, DOCS_PACK_ROUTE } from "./docs-pack/serve-docs-pack.js";
 export { fetchDocsPack, DOCS_PACK_SHIELD_HEADER } from "./docs-pack/docs-pack-client.js";
 export {
+  extractHostFacts,
+  extractRemoteFacts,
+  extractHostRouteSet,
+  walkHostPages,
+  routeFromHostFile,
+  parseRemoteDispatch,
+  type ExtractDeps,
+} from "./docs-gen/extract-svelte.js";
+export {
+  assertWithinRoot,
+  collectDocRoutes,
+  sheetsFromNav,
+  normalizeEntityContext,
+  scanRouterCaps,
+  loadPermValues,
+  routeOp,
+  scanRoutes,
+  collectCensusOptions,
+  mergeTranslationScopes,
+  foreignEntitiesFromRegistry,
+  claimedRoutesFromRegistry,
+  type EvaluatedEntityDecl,
+  type EntityContext,
+  type ScannedRoute,
+  type RouterScanResult,
+  type CensusOption,
+} from "./docs-gen/collect.js";
+export { generatePageDocs, type RenderContext, type RenderReport } from "./docs-gen/render.js";
+export { reconcileOrder } from "./docs-gen/order.js";
+export type {
+  SvelteCompilerPort,
+  SveltePageFacts,
+  ExtractedField,
+  ExtractedEndpoint,
+  ExtractedNavigation,
+  ExtractedWidget,
+  ShellEntityDecl,
+  RemoteDispatchMap,
+  DocRoute,
+  DocSheet,
+  EntityCaps,
+} from "./docs-gen/types.js";
+export {
   internalFetch,
   configureInternalClient,
   resetInternalClient,
@@ -139,6 +182,7 @@ export {
   makeNatsRoutes,
   makeNatsRequestRoute,
   callNats,
+  type CallablePayloadContract,
   type NatsRoute,
   type NatsRequestRoute,
   type NatsRouteContext,
@@ -212,6 +256,10 @@ export {
   type EntityServiceLike,
   type EntityActionMeta,
 } from "./http/entity-router.js";
+export {
+  entityFieldValidator,
+  type EntityFieldValidatorOptions,
+} from "./http/entity-field-validator.js";
 export {
   streamEntityExport,
   defaultExportColumns,
