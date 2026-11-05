@@ -1013,6 +1013,25 @@ Preferred over openapiPath: services generate their spec at module
 load via `buildOpenApiSpec`/`entityCrudSpec`, so the pack always
 carries the runtime spec with zero file plumbing. |
 
+### `BulkCustomAction`
+
+UI configuration for a selection-aware bulk CTA (endpoint-backed op
+ with no row binding — e.g. `disarm_all`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| action_name | `string` | Action/op name — must resolve to an `entity_op`-declared route. |
+| translation_key | `string` | i18n key for the CTA label. |
+| icon | `string` | Icon name (Lucide in the reference FE). |
+| text_color | `string` | Optional CSS color class for the label. |
+| required_permission | `string \| string[]` | Permission required to see/use the action. |
+| requires_selection | `boolean` | When true, the CTA is enabled only with rows selected and the body
+ receives `selected_uuids`; false = fires with an empty body
+ (selection-independent, e.g. `disarm_all`). Default true. |
+| require_step_up | `boolean` | Require a step-up MFA challenge before dispatch (destructive bulk). |
+| confirm_key | `string` | i18n key for a confirmation dialog message — when set, the action
+ asks before dispatching. |
+
 ### `CacheableRepository`
 
 Structural interface — a DAL Repository satisfies this without any import from the DAL.
@@ -1352,6 +1371,9 @@ Backing route of an `EntityAction` — emitted by the BE route scan.
 | permissions | `string[]` |  |
 | sentinel | `string` |  |
 | enabled | `boolean` |  |
+| endpoint | `{ method: string; path: string }` | Declared backing route — present on custom ops (and standard ops on
+ non-standard prefixes). Consumers dispatch writes to this endpoint
+ instead of recomputing the `/entities/{entity}` convention. |
 
 ### `EntityCaps`
 
@@ -1485,6 +1507,9 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
  resolution. Requires `permissions.export` (the route) and `meta`
  (the column driver). See `entity-export.ts`. |
+| custom_ops | `EntityCustomOp[]` | Custom ops emitted into `meta.actions` with their declared
+ `endpoint` — populated by `makeServiceRoutes` from
+ `RpcRoute.entity_op` bindings (never authored by hand). |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 | spec | `{ tag: string; label: string; listResponse: JsonSchema }` |  |
@@ -1513,6 +1538,9 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
  resolution. Requires `permissions.export` (the route) and `meta`
  (the column driver). See `entity-export.ts`. |
+| custom_ops | `EntityCustomOp[]` | Custom ops emitted into `meta.actions` with their declared
+ `endpoint` — populated by `makeServiceRoutes` from
+ `RpcRoute.entity_op` bindings (never authored by hand). |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 
@@ -2394,6 +2422,14 @@ UI configuration for a non-standard row CTA (route-backed bare op).
 | disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
 | required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
  against the user's permission set). |
+| row_key | `string` | Row→body binding for endpoint-dispatched actions: the op's request
+ body receives `{[row_key]: row[row_key]}` — same convention as
+ sparkline `row_key` (e.g. `schedule_subject`). When absent and the
+ endpoint path carries `:param` placeholders, params substitute from
+ the row fields of the same name (`:uuid` ← `meta.uid`). |
+| visible_on | `{ field: string; values: string[] }` | Show the CTA only when the row's `status` (or `visible_on.field`)
+ equals one of these values — e.g. show `resume` only on `paused`
+ rows. Absent = always visible. |
 
 ### `RpcRoute`
 
@@ -2421,6 +2457,12 @@ the BE via `auth.mfa.consume`. Missing/invalid → 403 with
 this route in the service's auto-generated `/api/v1/openapi.json`.
 Routes without it are still documented (path+method+security derived),
 but `summary`/`description`/schemas make them first-class. |
+| entity_op | `{ entity: string; op: string }` | Entity-op binding — declares this route as a custom entity action.
+`makeServiceRoutes` emits `op` into `<entity>`'s `meta.actions` with
+this route's `method`/`path` as the declared endpoint, so consumers
+dispatch writes on the endpoint contract (row/bulk custom CTAs).
+The route itself stays a normal RPC route — wire is always
+`/api/v1/actions/…`-style, never entity CRUD paths. |
 | handler | `(ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>` | The ONE service call — business logic lives behind it, not here. |
 
 ### `RpcRouteContext`
@@ -2839,6 +2881,9 @@ Table options — present only on entities with a table page.
 | row_custom_actions | `RowCustomAction[]` | UI config for non-standard row actions (e.g. change password).
  Standard ops (edit/delete/duplicate/preview) are derived from
  `meta.actions` — never declared here. |
+| bulk_custom_actions | `BulkCustomAction[]` | UI config for non-standard bulk CTAs rendered in the selection
+ toolbar (e.g. `disarm_all`) — dispatch rides the same endpoint
+ contract as row custom actions via `meta.actions`. |
 | filter_presets | `typeOperator` | Mutually-exclusive preset WHERE filters — each rendered as its own
  toolbar control; the active option's conditions AND into every list
  request (see FilterPreset). |
@@ -5973,9 +6018,10 @@ off); anything else maps verbatim (`emailsender.send` →
 `event_subject`/`schedule_spec` are mutually mandatory (at least one);
 `execution_context: "user"` requires an event source to forward auth
 headers from; a one-shot `@at <ts>` must lie in the future — a past
-timestamp stores in NATS and then self-purges unfired, so the trigger
-could never run (verified empirically: the server accepts the
-declaration, drops it dead). `now` is injected so the predicate stays
+timestamp FIRES IMMEDIATELY at declare time (verified empirically:
+the declaration PubAcks, the scheduler dispatches at once, then the
+declaration self-purges — an unintended execution, not a dead one).
+`now` is injected so the predicate stays
 pure — the form passes the client clock, the write guard the server
 clock. On `partial` (update), fields not present in `entity` are
 treated from the merged record the caller passes.

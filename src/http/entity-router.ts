@@ -115,6 +115,19 @@ export interface EntityActionMeta {
   permissions: string[];
   sentinel?: string;
   enabled: boolean;
+  /** Declared backing route — present on custom ops (and standard ops on
+   *  non-standard prefixes). Consumers dispatch writes to this endpoint
+   *  instead of recomputing the `/entities/{entity}` convention. */
+  endpoint?: { method: string; path: string };
+}
+
+/** A custom entity op bound to an RPC route via `RpcRoute.entity_op` —
+ *  attached to `meta.actions` by `makeServiceRoutes` at construction. */
+export interface EntityCustomOp {
+  op: string;
+  method: string;
+  path: string;
+  permissions: readonly string[];
 }
 
 const SENTINEL_RE = /^_(public|authenticated_user|authenticated_admin)$/;
@@ -158,6 +171,10 @@ export interface EntityRouterConfig<TEntity = unknown> {
    *  resolution. Requires `permissions.export` (the route) and `meta`
    *  (the column driver). See `entity-export.ts`. */
   export?: EntityExportConfig;
+  /** Custom ops emitted into `meta.actions` with their declared
+   *  `endpoint` — populated by `makeServiceRoutes` from
+   *  `RpcRoute.entity_op` bindings (never authored by hand). */
+  custom_ops?: EntityCustomOp[];
   /** Async per-action guards invoked before the service call — the US
    *  replacement for Express action middlewares (MFA step-up, B9). */
   guards?: Partial<Record<EntityAction, (ctx: RpcRouteContext) => void | Promise<void>>>;
@@ -343,7 +360,7 @@ function deriveActions(
     }
     return cfg.permissions[a];
   };
-  return STANDARD_OPS.map((op) => {
+  const standard = STANDARD_OPS.map((op) => {
     const action = (Object.keys(ACTION_TO_OP) as EntityAction[]).find(
       (a) => ACTION_TO_OP[a] === op,
     );
@@ -357,6 +374,17 @@ function deriveActions(
       enabled: hasRoute && (overrides[op]?.enabled !== false),
     };
   });
+  const custom = (cfg.custom_ops ?? []).map((c) => {
+    const sentinel = c.permissions.find((p) => SENTINEL_RE.test(p));
+    return {
+      op: c.op,
+      permissions: c.permissions.filter((p) => !SENTINEL_RE.test(p)),
+      ...(sentinel ? { sentinel } : {}),
+      enabled: overrides[c.op]?.enabled !== false,
+      endpoint: { method: c.method, path: c.path },
+    };
+  });
+  return [...standard, ...custom];
 }
 
 function assembleMeta(

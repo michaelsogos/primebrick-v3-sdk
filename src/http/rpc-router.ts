@@ -106,6 +106,15 @@ export interface RpcRoute<
    * but `summary`/`description`/schemas make them first-class.
    */
   openapi?: import("./openapi.js").RpcRouteOpenApi;
+  /**
+   * Entity-op binding — declares this route as a custom entity action.
+   * `makeServiceRoutes` emits `op` into `<entity>`'s `meta.actions` with
+   * this route's `method`/`path` as the declared endpoint, so consumers
+   * dispatch writes on the endpoint contract (row/bulk custom CTAs).
+   * The route itself stays a normal RPC route — wire is always
+   * `/api/v1/actions/…`-style, never entity CRUD paths.
+   */
+  entity_op?: { entity: string; op: string };
   /** The ONE service call — business logic lives behind it, not here. */
   handler: (ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>;
 }
