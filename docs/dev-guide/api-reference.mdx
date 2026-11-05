@@ -4597,7 +4597,7 @@ would fail the destination's own `items` validation downstream.
 | ctx | `PayloadMapContext` |  |
 | targetSchema | `Record<string, unknown>` |  |
 
-### `armJobSchedule(req, opts): Promise<{ seq: bigint }>`
+### `armJobSchedule(req, opts): Promise<{ seq: bigint; skipped: "terminal-once" }>`
 
 THE governed way to arm a schedule — the only public API. Issues a
 `callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
@@ -5963,17 +5963,22 @@ off); anything else maps verbatim (`emailsender.send` →
 |-----------|------|-------------|
 | subject | `string` |  |
 
-### `jobTriggerShapeIssues(entity): FieldIssue[]`
+### `jobTriggerShapeIssues(entity, now): FieldIssue[]`
 
 `event_subject`/`schedule_spec` are mutually mandatory (at least one);
 `execution_context: "user"` requires an event source to forward auth
-headers from. Pure — shared by the FE `job_trigger_shape` validator and
-the service-side `assertTriggerShape`. On `partial` (update), fields not
-present in `entity` are treated from the merged record the caller passes.
+headers from; a one-shot `@at <ts>` must lie in the future — a past
+timestamp stores in NATS and then self-purges unfired, so the trigger
+could never run (verified empirically: the server accepts the
+declaration, drops it dead). `now` is injected so the predicate stays
+pure — the form passes the client clock, the write guard the server
+clock. On `partial` (update), fields not present in `entity` are
+treated from the merged record the caller passes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | entity | `Record<string, unknown>` |  |
+| now | `Date` |  |
 
 ### `jsonSchemaCheck(value, schema, path): FieldIssue[]`
 

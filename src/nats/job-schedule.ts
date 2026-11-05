@@ -128,8 +128,8 @@ export function scheduleSubjectFor(name: string): string {
 export async function armJobSchedule(
   req: ArmJobScheduleRequest,
   opts: { timeoutMs?: number; connection?: NatsConnection } = {},
-): Promise<{ seq: bigint }> {
-  const res = await callNats<{ armed: true; seq: string }>(
+): Promise<{ seq?: bigint; skipped?: "terminal-once" }> {
+  const res = await callNats<{ armed: boolean; seq?: string; skipped?: "terminal-once" }>(
     JOB_SCHEDULE_REQUEST_SUBJECT,
     {
       schedule_subject: scheduleSubjectFor(req.name),
@@ -141,7 +141,11 @@ export async function armJobSchedule(
     },
     opts,
   );
-  return { seq: BigInt(res.seq) };
+  // A terminal-once skip is a successful no-op: the one-shot already
+  // completed its lifecycle and must never re-declare (a past @at would
+  // fire immediately). No seq exists in that case.
+  if (res.skipped !== undefined) return { skipped: res.skipped };
+  return { seq: BigInt(res.seq!) };
 }
 
 /**
