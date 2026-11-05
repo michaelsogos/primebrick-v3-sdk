@@ -89,6 +89,16 @@ describe("armJobSchedule", () => {
       armJobSchedule({ name: "x", schedule: "bad", target: "jobs.due.system.ai.x" }, { connection: conn }),
     ).rejects.toThrow("FOREIGN_NAMESPACE");
   });
+
+  it("a terminal-once skip reply resolves as a successful no-op — no seq", async () => {
+    const { conn } = replyConn({ armed: false, skipped: "terminal-once" });
+    const res = await armJobSchedule(
+      { name: "once-job", schedule: "@at 2026-01-01T00:00:00Z", target: "jobs.due.system.ai.once-job" },
+      { connection: conn },
+    );
+    expect(res).toEqual({ skipped: "terminal-once" });
+    expect(res.seq).toBeUndefined();
+  });
 });
 
 describe("disarmJobSchedule", () => {
