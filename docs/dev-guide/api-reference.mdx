@@ -1022,7 +1022,7 @@ UI configuration for a selection-aware bulk CTA (endpoint-backed op
 |-------|------|-------------|
 | action_name | `string` | Action/op name — must resolve to an `entity_op`-declared route. |
 | translation_key | `string` | i18n key for the CTA label. |
-| icon | `string` | Icon name (Lucide in the reference FE). |
+| icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
 | text_color | `string` | Optional CSS color class for the label. |
 | required_permission | `string \| string[]` | Permission required to see/use the action. |
 | requires_selection | `boolean` | When true, the CTA is enabled only with rows selected and the body
@@ -2417,7 +2417,7 @@ UI configuration for a non-standard row CTA (route-backed bare op).
 | action_name | `string` | Action/op name — matches the bare op derived from the route
  (e.g. `change_password`). |
 | translation_key | `string` | i18n key for the CTA label. |
-| icon | `string` | Icon name (Lucide in the reference FE). |
+| icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
 | text_color | `string` | Optional CSS color class for the label. |
 | disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
 | required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
@@ -2427,9 +2427,10 @@ UI configuration for a non-standard row CTA (route-backed bare op).
  sparkline `row_key` (e.g. `schedule_subject`). When absent and the
  endpoint path carries `:param` placeholders, params substitute from
  the row fields of the same name (`:uuid` ← `meta.uid`). |
-| visible_on | `{ field: string; values: string[] }` | Show the CTA only when the row's `status` (or `visible_on.field`)
+| visible_on | `{ field: string; values: string \| number \| boolean[] }` | Show the CTA only when the row's `status` (or `visible_on.field`)
  equals one of these values — e.g. show `resume` only on `paused`
- rows. Absent = always visible. |
+ rows. Absent = always visible. Scalar comparison — boolean/number
+ fields are allowed (e.g. `enabled ∈ [false]` for an Enable CTA). |
 
 ### `RpcRoute`
 
@@ -2457,7 +2458,7 @@ the BE via `auth.mfa.consume`. Missing/invalid → 403 with
 this route in the service's auto-generated `/api/v1/openapi.json`.
 Routes without it are still documented (path+method+security derived),
 but `summary`/`description`/schemas make them first-class. |
-| entity_op | `{ entity: string; op: string }` | Entity-op binding — declares this route as a custom entity action.
+| entity_op | `{ entity: string; op: string; cta: EntityOpCta }` | Entity-op binding — declares this route as a custom entity action.
 `makeServiceRoutes` emits `op` into `<entity>`'s `meta.actions` with
 this route's `method`/`path` as the declared endpoint, so consumers
 dispatch writes on the endpoint contract (row/bulk custom CTAs).
@@ -3316,7 +3317,7 @@ New formats are additive literals (never breaking).
 UI column renderer type. NOTE: this is the UI type, not the DB type —
  e.g. `roles` is `"text"` here but `jsonb` on disk (never ILIKE-searchable).
 
-**Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline"`
+**Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline" \| "ref" \| "ref_count"`
 
 ### `MfaConsumeFn`
 
@@ -6250,6 +6251,21 @@ Tries the name as given first, then the canonical MIME form
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `nextScheduleFire(spec, opts): Date \| null`
+
+Next fire for a `schedule_spec`, when derivable without a cron evaluator:
+- `@every <n><unit>` — next interval boundary after `now`, anchored at
+  `since` (the declaration's `armed_at`); without an anchor the period is
+  assumed to start at `now`, so the first fire is `now + interval`.
+- `@at <ts>` — the timestamp itself if still future, else null (fired).
+- cron — null: NATS owns cron evaluation; a second interpreter here would
+  drift on dom/dow edge semantics. Invalid specs return null too.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| spec | `string` |  |
+| opts | `{ now: Date; since: Date }` |  |
 
 ### `normalize(d): Decimal`
 

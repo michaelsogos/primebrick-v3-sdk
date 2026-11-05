@@ -36,10 +36,12 @@ import {
 import {
   composeRouteHandlers,
   makeRpcRouter,
+  type EntityOpCta,
   type RpcRoute,
   type RpcRouterDeps,
   type RouteHandler,
 } from "./rpc-router.js";
+import type { BulkCustomAction, RowCustomAction } from "@primebrick/core";
 
 /** Entity declaration for `makeServiceRoutes`. `spec` only shapes the
  *  generated OpenAPI block — the router ignores it. Operation set is
@@ -126,11 +128,14 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   //     501 surprise)
   const entityDecls = input.entities ?? [];
   const customOps = new Map<string, EntityCustomOp[]>();
+  // CTA chrome derived from each op route — synthesized into the served
+  // `meta.table.row_custom_actions`/`bulk_custom_actions` below.
+  const ctaByOp = new Map<string, { cta?: EntityOpCta; route: RpcRoute }>();
   for (const entry of input.rpc ?? []) {
     const routes = Array.isArray(entry) ? entry : entry.routes;
     for (const r of routes) {
       if (!r.entity_op) continue;
-      const { entity, op } = r.entity_op;
+      const { entity, op, cta } = r.entity_op;
       if (!entityDecls.some((d) => d.entityName === entity)) {
         throw new Error(
           `makeServiceRoutes: route ${r.method} ${r.path} declares entity_op ` +
@@ -146,6 +151,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
       }
       list.push({ op, method: r.method, path: r.path, permissions: r.permissions ?? [] });
       customOps.set(entity, list);
+      ctaByOp.set(`${entity}:${op}`, { cta, route: r });
     }
   }
   for (const decl of entityDecls) {
@@ -166,9 +172,86 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     }
   }
 
+  /**
+   * Synthesize `meta.table.row_custom_actions`/`bulk_custom_actions` from
+   * the entity's `entity_op` routes — the route is the source of truth.
+   * Inferred: placement (`*_all` → bulk), `row_key` (meta `uid`),
+   * `translation_key` (`<entities_ns>.actions.<op>`),
+   * `required_permission` (route permissions, sentinels → FE names),
+   * `require_step_up` (route `mfa`). Authored meta.table entries still
+   * merge per `action_name` as explicit overrides.
+   */
+  const permissionDisplay = (perms: readonly string[]): string[] | undefined =>
+    perms.length
+      ? perms.map((p) => (p.startsWith("_") ? p.slice(1).toUpperCase() : p))
+      : undefined;
+
+  const mergeCtas = <T extends { action_name: string }>(
+    synth: T[],
+    authored: T[] | undefined,
+  ): T[] => {
+    const map = new Map(synth.map((c) => [c.action_name, c]));
+    for (const a of authored ?? []) map.set(a.action_name, { ...map.get(a.action_name), ...a });
+    return [...map.values()];
+  };
+
+  function withSynthesizedCtas(
+    decl: (typeof entityDecls)[number],
+    ops: EntityCustomOp[],
+  ): typeof decl.meta {
+    const meta = decl.meta;
+    if (!meta) return meta;
+    const ns = meta.entities_ns ?? "system";
+    const uid = meta.uid ?? "uuid";
+    const row: RowCustomAction[] = [];
+    const bulk: BulkCustomAction[] = [];
+    for (const op of ops) {
+      const bound = ctaByOp.get(`${decl.entityName}:${op.op}`);
+      const cta = bound?.cta ?? ({} as EntityOpCta);
+      const placement = cta.placement ?? (op.op.endsWith("_all") ? "bulk" : "row");
+      const translation_key = cta.translation_key ?? `${ns}.actions.${op.op}`;
+      const required_permission = permissionDisplay(op.permissions);
+      if (placement === "row") {
+        row.push({
+          action_name: op.op,
+          translation_key,
+          icon: cta.icon,
+          text_color: cta.text_color,
+          disabled_when_deleted: cta.disabled_when_deleted,
+          required_permission,
+          row_key: cta.row_key ?? uid,
+          visible_on: cta.visible_on,
+        });
+      } else {
+        bulk.push({
+          action_name: op.op,
+          translation_key,
+          icon: cta.icon,
+          text_color: cta.text_color,
+          required_permission,
+          requires_selection: cta.requires_selection ?? false,
+          require_step_up: cta.require_step_up ?? !!bound?.route.mfa,
+          confirm_key: cta.confirm_key,
+        });
+      }
+    }
+    return {
+      ...meta,
+      table: {
+        ...meta.table,
+        row_custom_actions: mergeCtas(row, meta.table?.row_custom_actions),
+        bulk_custom_actions: mergeCtas(bulk, meta.table?.bulk_custom_actions),
+      },
+    };
+  }
+
   for (const decl of entityDecls) {
     const ops = customOps.get(decl.entityName);
-    handlers.push(makeEntityRouter(ops ? { ...decl, custom_ops: ops } : decl));
+    const meta = ops?.length ? withSynthesizedCtas(decl, ops) : decl.meta;
+    const effectiveDecl = meta !== decl.meta ? { ...decl, meta } : decl;
+    handlers.push(
+      makeEntityRouter(ops ? { ...effectiveDecl, custom_ops: ops } : effectiveDecl),
+    );
     Object.assign(
       paths,
       entityCrudSpec(decl.entityName, {
