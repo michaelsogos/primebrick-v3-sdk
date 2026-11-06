@@ -198,4 +198,113 @@ describe("entity_op → served meta CTA synthesis", () => {
     const stop = table.row_custom_actions.find((c) => c.action_name === "stop");
     expect(stop).toMatchObject({ translation_key: "custom.stop", icon: "octagon" });
   });
+
+  it("actions_overrides confirm_key/busy_key reach meta.actions — dialog copy is meta-driven", async () => {
+    const decl = entityDecl();
+    decl.permissions = {
+      ...decl.permissions,
+      delete: ["p"],
+      bulkDelete: ["p"],
+      restore: ["p"],
+      bulkRestore: ["p"],
+    };
+    decl.meta.actions_overrides = {
+      "delete.bulk": {
+        label_key: "job.entities.job_trigger.actions.disable",
+        icon: "exec-stop",
+        color: "destructive",
+        confirm_key: "job.entities.job_trigger.actions.disable_entities_confirm",
+        busy_key: "job.entities.job_trigger.actions.disabling",
+      },
+      "restore.single": {
+        label_key: "job.entities.job_trigger.actions.enable",
+        icon: "exec-start",
+        color: "success",
+        confirm_key: "job.entities.job_trigger.actions.enable_confirm",
+        busy_key: "job.entities.job_trigger.actions.enabling",
+      },
+    };
+    const h = makeServiceRoutes({
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as { op: string; confirm_key?: string; busy_key?: string }[];
+    expect(actions.find((a) => a.op === "delete.bulk")).toMatchObject({
+      confirm_key: "job.entities.job_trigger.actions.disable_entities_confirm",
+      busy_key: "job.entities.job_trigger.actions.disabling",
+    });
+    expect(actions.find((a) => a.op === "restore.single")).toMatchObject({
+      confirm_key: "job.entities.job_trigger.actions.enable_confirm",
+      busy_key: "job.entities.job_trigger.actions.enabling",
+    });
+  });
+
+  it("entity_op.cta confirm_key/busy_key merge onto a crud_action standard op", async () => {
+    const decl = entityDecl();
+    decl.permissions = { ...decl.permissions, delete: ["p"] };
+    const rpc: RpcRoute[] = [
+      {
+        method: "POST",
+        path: "/api/v1/actions/disable-schedule",
+        entity_op: {
+          entity: "job_schedule",
+          op: "disable_row",
+          crud_action: "delete.single",
+          cta: {
+            icon: "exec-stop",
+            color: "destructive",
+            confirm_key: "job.entities.job_schedule.actions.disable_confirm",
+            busy_key: "job.entities.job_schedule.actions.disabling",
+          },
+        },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+    ];
+    const h = makeServiceRoutes({
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [rpc],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as { op: string; confirm_key?: string; busy_key?: string; endpoint?: { path: string } }[];
+    expect(actions.find((a) => a.op === "delete.single")).toMatchObject({
+      confirm_key: "job.entities.job_schedule.actions.disable_confirm",
+      busy_key: "job.entities.job_schedule.actions.disabling",
+      endpoint: { path: "/api/v1/actions/disable-schedule" },
+    });
+  });
+
+  it("a resolved-pair divergence (crud_action icon + override color) fails at CONSTRUCTION", () => {
+    const decl = entityDecl();
+    decl.permissions = { ...decl.permissions, delete: ["p"] };
+    decl.meta.actions_overrides = {
+      // icon comes from the crud_action CTA, color from the override —
+      // neither raw pair is invalid alone; the MERGED pair is.
+      "delete.single": { color: "success" },
+    };
+    const rpc: RpcRoute[] = [
+      {
+        method: "POST",
+        path: "/api/v1/actions/disable-schedule",
+        entity_op: {
+          entity: "job_schedule",
+          op: "disable_row",
+          crud_action: "delete.single",
+          cta: { icon: "exec-stop" },
+        },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+    ];
+    expect(() =>
+      makeServiceRoutes({
+        info: { title: "T", version: "0.0.0" },
+        entities: [decl],
+        rpc: [rpc],
+      }),
+    ).toThrow(/exec-stop.*destructive|destructive.*exec-stop/i);
+  });
 });

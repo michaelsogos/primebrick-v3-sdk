@@ -1023,7 +1023,7 @@ UI configuration for a selection-aware bulk CTA (endpoint-backed op
 | action_name | `string` | Action/op name — must resolve to an `entity_op`-declared route. |
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
-| text_color | `string` | Optional CSS color class for the label. |
+| color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
 | required_permission | `string \| string[]` | Permission required to see/use the action. |
 | requires_selection | `boolean` | When true, the CTA is enabled only with rows selected and the body
  receives `selected_uuids`; false = fires with an empty body
@@ -1350,7 +1350,21 @@ unavailable for everyone (route missing or product-disabled).
  action, absent when no route exists (`enabled: false`). Consumers
  dispatch writes to the declared endpoint instead of recomputing the
  `/api/v1/entities/{entity}` convention — required for ops living under
- non-standard prefixes (e.g. `/api/v1/auth/users`). |
+ non-standard prefixes (e.g. `/api/v1/auth/users`). An RPC route may
+ claim the slot via `entity_op.crud_action` — the declared override. |
+| label_key | `string` | CTA chrome overrides — translation key / icon / semantic color
+ replacing the standard rendering (e.g. soft-delete-as-disable →
+ "Deactivate" + `exec-stop` + destructive). Cosmetics only: gating,
+ dialogs and dispatch are untouched. Sources: `entity_op.cta` on a
+ `crud_action` route, or `meta.actions_overrides[op]`. |
+| icon | `string` |  |
+| color | `ActionColor` |  |
+| confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` for
+ single ops, `{count}`/`{entity}` for bulk). When set it replaces the
+ standard `app.common.{delete,restore}Entit{y,ies}Confirm` copy —
+ e.g. soft-delete-as-disable → "disattivare" + reversible note. |
+| busy_key | `string` | In-flight confirm-button label override (default `app.common.
+ {deleting,restoring}`) — e.g. "Disattivazione…" while disabling. |
 
 ### `EntityActionEndpoint`
 
@@ -1374,6 +1388,13 @@ Backing route of an `EntityAction` — emitted by the BE route scan.
 | endpoint | `{ method: string; path: string }` | Declared backing route — present on custom ops (and standard ops on
  non-standard prefixes). Consumers dispatch writes to this endpoint
  instead of recomputing the `/entities/{entity}` convention. |
+| label_key | `string` | CTA chrome — `actions_overrides`/`crud_action` overrides. Icon+label
+ +color travel as ONE contract; semantic icons bind their color. |
+| icon | `string` |  |
+| color | `ActionColor` |  |
+| confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` single,
+ `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. |
+| busy_key | `string` | In-flight confirm-button label override — see `EntityAction.busy_key`. |
 
 ### `EntityCaps`
 
@@ -2418,7 +2439,7 @@ UI configuration for a non-standard row CTA (route-backed bare op).
  (e.g. `change_password`). |
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
-| text_color | `string` | Optional CSS color class for the label. |
+| color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
 | disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
 | required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
  against the user's permission set). |
@@ -2458,12 +2479,20 @@ the BE via `auth.mfa.consume`. Missing/invalid → 403 with
 this route in the service's auto-generated `/api/v1/openapi.json`.
 Routes without it are still documented (path+method+security derived),
 but `summary`/`description`/schemas make them first-class. |
-| entity_op | `{ entity: string; op: string; cta: EntityOpCta }` | Entity-op binding — declares this route as a custom entity action.
+| entity_op | `{ entity: string; op: string; cta: EntityOpCta; crud_action: string }` | Entity-op binding — declares this route as a custom entity action.
 `makeServiceRoutes` emits `op` into `<entity>`'s `meta.actions` with
 this route's `method`/`path` as the declared endpoint, so consumers
 dispatch writes on the endpoint contract (row/bulk custom CTAs).
 The route itself stays a normal RPC route — wire is always
-`/api/v1/actions/…`-style, never entity CRUD paths. |
+`/api/v1/actions/…`-style, never entity CRUD paths.
+
+`crud_action` — DECLARED CRUD OVERRIDE: this route REPLACES the
+standard op (`"delete"`, `"restore"`, …) in `meta.actions` — the
+standard action entry keeps its CTA position/gating but dispatches to
+this endpoint, inheriting `cta` chrome (translation_key→label_key,
+icon, color). No custom action is synthesized. The companion
+entity-route for that op MUST be disabled explicitly in the entity
+router config — overrides are deliberate, never implicit. |
 | handler | `(ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>` | The ONE service call — business logic lives behind it, not here. |
 
 ### `RpcRouteContext`
@@ -3007,11 +3036,22 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 
 ## Types & Enums
 
+### `ActionColor`
+
+Closed action-color vocabulary — ONE semantic drives BOTH the icon and
+ the label of a menu CTA (impossible to drift them apart). `neutral` is
+ the default uncolored rendering; the destructive/warning/success/info/
+ primary names map to the theme's semantic text utilities. A meta may
+ never smuggle a Tailwind class here — the enum IS the contract.
+
+**Type:** `"neutral" \| "primary" \| "info" \| "success" \| "warning" \| "destructive"`
+
 ### `ActionsOverrides`
 
-Per-op enable overrides — may ONLY toggle `enabled` on route-backed ops.
+Per-op overrides — `enabled` toggles route-backed ops; chrome fields
+ restyle the standard CTA without touching its logic.
 
-**Type:** `Record<string, { enabled: boolean }>`
+**Type:** `Record<string, { enabled: boolean; label_key: string; icon: string; color: ActionColor; confirm_key: string; busy_key: string }>`
 
 ### `ApiKeyCacheSource`
 
@@ -3721,6 +3761,14 @@ Widget-level type_config capabilities (top-level type_config props).
 
 ## Constants
 
+### `ACTION_COLORS`
+
+The full `ActionColor` vocabulary — construction/lint validation rejects
+anything outside this closed set (raw strings on the wire can never reach
+the renderer).
+
+**Type:** `typeOperator`
+
 ### `API_KEY_CACHE_TTL_MS`
 
 Shared cache key + TTL for `api_keys` lookups.
@@ -4372,6 +4420,22 @@ Rotation cadence + how long `previous` stays acceptable.
 | GET | "secret.get" |
 | ROTATED | "secret.rotated" |
 
+### `SEMANTIC_ICON_COLORS`
+
+Semantic action icons — names whose COLOR IS PART OF THE ICON's meaning.
+Each name binds to exactly one `ActionColor` (the label color); the icon
+component itself (in `@primebrick/ui`'s `SEMANTIC_ICONS` registry, which
+reads THIS table) renders the gradient surface self-colored. A meta that
+pairs a semantic icon with a different color is a contract violation —
+`validateActionChrome` rejects it at construction time, so icon and
+label can never drift apart even by accident.
+
+- `exec-start` → success   (start/enable is a positive op — deliberate
+  divergence from the standard restore-warning chrome)
+- `exec-stop`  → destructive (stop/disable is a destructive op)
+
+**Type:** `Record<string, ActionColor>`
+
 ### `SERVICE_SUBJECTS`
 
 NATS subjects and payload types for microservice lifecycle events.
@@ -4587,6 +4651,18 @@ strip the code prefix and attach the name to the module namespace:
 | ns | `string` |  |
 | code | `string` |  |
 | sheetKey | `string` |  |
+
+### `actionColorClass(color): string`
+
+Maps an `ActionColor` to its Tailwind text utility. `neutral`/`undefined`
+resolves to the empty string — the item keeps the theme's default muted
+appearance (what standard CTAs like "Modifica" already show). This is the
+ONLY mapping of semantic color → class; renderers never hand-roll
+`text-${color}` strings.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| color | `ActionColor \| null \| undefined` |  |
 
 ### `add(a, b): Decimal`
 
@@ -5852,11 +5928,12 @@ role_mappings write-path guard (rejection, not silent non-coverage):
 
 ### `isColumnFilterable(col): boolean`
 
-Column participates in the filters sheet — absent means filterable.
+Column participates in the filters sheet — absent means filterable,
+ except `kind:"virtual"` columns: never filterable, no opt-in exists.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| col | `Pick<MetaColumn, "filterable">` |  |
+| col | `Pick<MetaColumn, "filterable" \| "kind">` |  |
 
 ### `isColumnSearchable(col): boolean`
 
@@ -5865,15 +5942,16 @@ Column joins the search scope — absent means searchable (the caller
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| col | `Pick<MetaColumn, "searchable">` |  |
+| col | `Pick<MetaColumn, "searchable" \| "kind">` |  |
 
 ### `isColumnSortable(col): boolean`
 
-Column supports ORDER BY — absent means sortable.
+Column supports ORDER BY — absent means sortable, except `kind:"virtual"`
+ columns (post-query enrichment): never sortable, no opt-in exists.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| col | `Pick<MetaColumn, "sortable">` |  |
+| col | `Pick<MetaColumn, "sortable" \| "kind">` |  |
 
 ### `isColumnVisible(col): boolean`
 
@@ -7033,6 +7111,19 @@ Accessor — returns the capability record for a type.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | type | `ConfigType` |  |
+
+### `validateActionChrome(icon, color): string \| null`
+
+Validates the icon↔color contract of a single action chrome override.
+Returns a diagnostic string on violation, `null` when the pair is legal:
+- `color` must be a member of `ACTION_COLORS`;
+- a semantic icon (`SEMANTIC_ICON_COLORS` key) must carry its bound color —
+  `icon:"exec-stop", color:"success"` is an error, not a style choice.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| icon | `string \| undefined` |  |
+| color | `string \| undefined` |  |
 
 ### `validateCallablesDeclaration(code, decl): string \| null`
 

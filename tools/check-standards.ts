@@ -537,6 +537,22 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     (exempt?.hasReason && (exempt.rules.has(id) || exempt.rules.has("all"))) ||
     (fileExempt?.hasReason && (fileExempt.rules.has(id) || fileExempt.rules.has("all")));
 
+  // `@Calculated(...)` argument context — the decorator OWNS raw SQL by
+  // contract: entity classes are the one sanctioned place for projection
+  // expressions (they never reach DDL; the DAL projects them on read).
+  // A SQL-shaped string inside the call's argument list is legal; the
+  // raw-sql ban still applies everywhere else. Track paren depth from the
+  // `@Calculated(` token until the call closes.
+  let calculatedDepth = 0;
+  const parenDelta = (s: string): number => {
+    let d = 0;
+    for (const ch of s) {
+      if (ch === "(") d++;
+      else if (ch === ")") d--;
+    }
+    return d;
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (isCommentOnly(line)) continue;
@@ -552,6 +568,17 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       });
     }
 
+    // Inside a `@Calculated(` argument list? The decorator line itself
+    // opens the context; the depth returns to 0 when the call closes.
+    const atCalculated = line.indexOf("@Calculated(");
+    const inCalculated =
+      calculatedDepth > 0 ? calculatedDepth + parenDelta(line) > 0 : atCalculated !== -1;
+    if (atCalculated !== -1) {
+      calculatedDepth = parenDelta(line.slice(atCalculated + "@Calculated".length));
+    } else if (calculatedDepth > 0) {
+      calculatedDepth += parenDelta(line);
+    }
+
     for (const rule of activeLineRules) {
       if (!rule.pattern.test(line)) continue;
       if (isExempted(exempt, rule.id)) continue;
@@ -559,7 +586,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       break; // one finding per line keeps output readable
     }
 
-    if (rules.has("raw-sql")) {
+    if (rules.has("raw-sql") && !inCalculated) {
       STRING_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = STRING_RE.exec(line))) {

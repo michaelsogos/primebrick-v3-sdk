@@ -27,6 +27,7 @@ import { enforceHttpRbac } from "../auth/rbac-enforce.js";
 import { AuthError } from "../auth/verify.js";
 import { RbacDeniedError } from "../auth/rbac-enforce.js";
 import { runWithSession, type Session } from "../auth/session-context.js";
+import type { ActionColor } from "@primebrick/core";
 import type { AuthUser } from "../auth/types.js";
 import type { ApiKeyPort } from "../auth/ports/api-key-port.js";
 import { createSseWriter } from "../sse/sse-writer.js";
@@ -113,8 +114,16 @@ export interface RpcRoute<
    * dispatch writes on the endpoint contract (row/bulk custom CTAs).
    * The route itself stays a normal RPC route — wire is always
    * `/api/v1/actions/…`-style, never entity CRUD paths.
+   *
+   * `crud_action` — DECLARED CRUD OVERRIDE: this route REPLACES the
+   * standard op (`"delete"`, `"restore"`, …) in `meta.actions` — the
+   * standard action entry keeps its CTA position/gating but dispatches to
+   * this endpoint, inheriting `cta` chrome (translation_key→label_key,
+   * icon, color). No custom action is synthesized. The companion
+   * entity-route for that op MUST be disabled explicitly in the entity
+   * router config — overrides are deliberate, never implicit.
    */
-  entity_op?: { entity: string; op: string; cta?: EntityOpCta };
+  entity_op?: { entity: string; op: string; cta?: EntityOpCta; crud_action?: string };
   /** The ONE service call — business logic lives behind it, not here. */
   handler: (ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>;
 }
@@ -141,12 +150,16 @@ export interface EntityOpCta {
   row_key?: string;
   /** Lucide icon name — absent renders an icon-less CTA. */
   icon?: string;
-  /** CSS color class for the label. */
-  text_color?: string;
+  /** Semantic color for icon + label together — closed `ActionColor`
+   *  vocabulary, never a free-form CSS class. */
+  color?: ActionColor;
   /** i18n key for the CTA label — default `<entities_ns>.actions.<op>`. */
   translation_key?: string;
   /** i18n key for a pre-dispatch confirmation dialog. */
   confirm_key?: string;
+  /** i18n key for the in-flight confirm-button label (standard-op dialogs
+   *  merged via `crud_action`; default `app.common.{deleting,restoring}`). */
+  busy_key?: string;
   /** Per-row visibility gate — show the CTA only when `row[field]` is in
    *  `values` (e.g. `resume` only on `paused` rows, `enable` only when
    *  `enabled === false`). */
