@@ -121,7 +121,14 @@ type RuleId =
   | "schema-honest-format"
   | "raw-switch"
   | "button-variant-toolbar"
-  | "truncated-sibling";
+  | "truncated-sibling"
+  | "panel-layout"
+  | "panel-content-scroll"
+  | "panel-raw-label"
+  | "panel-control-id"
+  | "panel-select-dropdown"
+  | "panel-button-testid"
+  | "i18n-entity-fallback";
 
 interface Rule {
   id: RuleId;
@@ -149,7 +156,12 @@ const LINE_RULES: Rule[] = [
 // Config-gated rules — populated from `.devin/check-standards.json` (repo
 // root); absent from the config = rule off entirely. Patterns are fixed;
 // allowPaths/appliesTo come from the per-repo config.
-const GATED_RULE_IDS = new Set<RuleId>(["dal-access", "layer-repo-import", "raw-switch", "button-variant-toolbar"]);
+const GATED_RULE_IDS = new Set<RuleId>([
+  "dal-access", "layer-repo-import", "raw-switch", "button-variant-toolbar",
+  "panel-layout", "panel-content-scroll", "panel-raw-label",
+  "panel-control-id", "panel-select-dropdown", "panel-button-testid",
+  "i18n-entity-fallback",
+]);
 const GATED_LINE_RULES: Rule[] = [
   { id: "dal-access", pattern: /\b(?:initDal|getDal)\s*\(/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal() only inside the declared allowlist" },
   { id: "layer-repo-import", pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'][^"']*[-_](?:dal|repo|repository)(?:\.js|\.ts)?["']/, hint: "transport/dispatch layers must call services — never import *-dal/*-repo modules" },
@@ -158,6 +170,19 @@ const GATED_LINE_RULES: Rule[] = [
   // by checkRawSwitch (structural pass below), so no overlap.
   { id: "raw-switch", pattern: /import\s+(?:type\s+)?\{[^}]*\bSwitch\b[^}]*\}\s*from\s*["']@primebrick\/ui["']/, hint: "labelled booleans MUST use SwitchField (switch-first anatomy) — raw Switch is composite-internal only (allowPaths for sanctioned composites)" },
   { id: "button-variant-toolbar", pattern: /variant\s*=\s*\{?\s*["'`]soft["'`]/, hint: "toolbar action CTAs are solid variants only (default/destructive/warning; `outline` for secondary) — `soft` is reserved for Layout-1 in-card secondary CTAs" },
+  // ── sheet-panel anatomy rules (scope via appliesTo → */sheets/panels/) ──
+  // panel-layout's finding comes from the structural pass in checkFile —
+  // the never-match pattern keeps the line loop inert.
+  { id: "panel-layout", pattern: /(?!)/, hint: "every sheet panel mounts <SheetPanelLayout> as its root anatomy (header/toolbar/content/footer)" },
+  { id: "panel-content-scroll", pattern: /contentClass\s*=\s*["'{`][^"'`}]*\boverflow\b/, hint: "CONTENT is the only scrollable region — SheetPanelLayout owns overflow; contentClass carries padding/spacing only" },
+  { id: "panel-raw-label", pattern: /<label[\s>]/, hint: "field labels come from PrimeField/FormField — a raw <label> bypasses the icon/help/id contract" },
+  { id: "panel-control-id", pattern: /\{#snippet\s+control\(\s*\)\}/, hint: "the control snippet MUST destructure { id } and apply it to the control — the label for/id pair is structural, not optional" },
+  { id: "panel-select-dropdown", pattern: /\bDropdownMenuCheckboxItem\b|closeOnSelect\s*=/, hint: "select anatomy goes through the dispatcher/ComboSelect — hand-built dropdown selects are the duplicated-filter drift" },
+  // panel-button-testid — findings come from the structural pass: the
+  // attribute block may span lines and carry `=>` inside handlers, which
+  // a `[^>]*` line pattern cannot see past. Never-match keeps it inert here.
+  { id: "panel-button-testid", pattern: /(?!)/, hint: "interactive controls carry data-testid (<scope>-<purpose>, kebab-case) — E2E locators are brittle-on-purpose by convention" },
+  { id: "i18n-entity-fallback", pattern: /\$t\([^)]*\|\|/, hint: "no entity-specific i18n fallback inside shared entity-list code — label_key resolves or the raw key shows" },
 ];
 
 interface StandardsConfig {
@@ -640,6 +665,67 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     const exemptAt = (i: number) =>
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     out.push(...checkRawSwitch(lines, rel, isExempted, exemptAt));
+  }
+
+  // panel-layout — every file under the appliesTo scope mounts
+  // SheetPanelLayout as its root anatomy. Scope mirrors activeLineRules.
+  const panelLayoutRule = LINE_RULES.find((r) => r.id === "panel-layout");
+  if (
+    rules.has("panel-layout") &&
+    panelLayoutRule &&
+    !panelLayoutRule.allowPaths?.test(rel) &&
+    (!panelLayoutRule.appliesTo || panelLayoutRule.appliesTo.test(rel)) &&
+    !lines.some((l) => l.includes("<SheetPanelLayout"))
+  ) {
+    const exempt = parseExempt(lines[0]);
+    if (!isExempted(exempt, "panel-layout")) {
+      out.push({
+        file: rel,
+        line: 1,
+        rule: "panel-layout",
+        text: basename(rel),
+        hint: "every sheet panel mounts <SheetPanelLayout> as its root anatomy (header/toolbar/content/footer)",
+      });
+    }
+  }
+
+  // panel-button-testid — attribute-block pass: a `<button` opening tag
+  // spans multiple lines and its handlers carry `=>`, so the tag is only
+  // known to be closed when a line TRIMMED ends with `>` (or `/>`). Scan
+  // at most 15 lines; `data-testid` seen anywhere before close clears it.
+  const panelTestidRule = LINE_RULES.find((r) => r.id === "panel-button-testid");
+  if (
+    rules.has("panel-button-testid") &&
+    panelTestidRule &&
+    !panelTestidRule.allowPaths?.test(rel) &&
+    (!panelTestidRule.appliesTo || panelTestidRule.appliesTo.test(rel))
+  ) {
+    const exemptAt = (i: number) =>
+      parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCommentOnly(line) || !line.includes("<button")) continue;
+      let hasTestid = false;
+      for (let j = i; j < lines.length && j - i < 15; j++) {
+        const l = lines[j];
+        if (l.includes("data-testid")) {
+          hasTestid = true;
+          break;
+        }
+        const tr = l.trimEnd();
+        if (tr.endsWith(">") || tr.endsWith("/>")) break;
+      }
+      if (hasTestid) continue;
+      const exempt = exemptAt(i);
+      if (isExempted(exempt, "panel-button-testid")) continue;
+      out.push({
+        file: rel,
+        line: i + 1,
+        rule: "panel-button-testid",
+        text: line.trim(),
+        hint: "interactive controls carry data-testid (<scope>-<purpose>, kebab-case) — E2E locators are brittle-on-purpose by convention",
+      });
+    }
   }
 
   // nav-decl-access — a file declaring a ModuleNavDeclaration must set
