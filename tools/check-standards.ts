@@ -128,6 +128,8 @@ type RuleId =
   | "panel-control-id"
   | "panel-select-dropdown"
   | "panel-button-testid"
+  | "panel-switch"
+  | "panel-search-clearable"
   | "i18n-entity-fallback";
 
 interface Rule {
@@ -160,6 +162,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "dal-access", "layer-repo-import", "raw-switch", "button-variant-toolbar",
   "panel-layout", "panel-content-scroll", "panel-raw-label",
   "panel-control-id", "panel-select-dropdown", "panel-button-testid",
+  "panel-switch", "panel-search-clearable",
   "i18n-entity-fallback",
 ]);
 const GATED_LINE_RULES: Rule[] = [
@@ -182,6 +185,13 @@ const GATED_LINE_RULES: Rule[] = [
   // attribute block may span lines and carry `=>` inside handlers, which
   // a `[^>]*` line pattern cannot see past. Never-match keeps it inert here.
   { id: "panel-button-testid", pattern: /(?!)/, hint: "interactive controls carry data-testid (<scope>-<purpose>, kebab-case) — E2E locators are brittle-on-purpose by convention" },
+  // Panel-scoped stricter rules — inside a sheet panel there is NO
+  // sanctioned raw Switch / no opt-out of the eraser affordance: the
+  // raw-switch allowPaths must never extend into panels (FiltersPanel's
+  // AND/OR Switch escaped exactly that way), and SearchInput's eraser is
+  // the shared trailing-CTA anatomy, not a per-panel choice.
+  { id: "panel-switch", pattern: /<Switch[\s>/]/, hint: "binary/mode toggles inside panels are ButtonGroup segmented (mode buttons, aria-pressed) — raw Switch has no sanctioned use in sheet-panel anatomy" },
+  { id: "panel-search-clearable", pattern: /clearable\s*=\s*[{("'`]?false/, hint: "the eraser affordance is structural (disabled when empty) — a panel must not opt out of it" },
   { id: "i18n-entity-fallback", pattern: /\$t\([^)]*\|\|/, hint: "no entity-specific i18n fallback inside shared entity-list code — label_key resolves or the raw key shows" },
 ];
 

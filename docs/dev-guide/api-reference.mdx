@@ -3352,6 +3352,15 @@ New formats are additive literals (never breaking).
 
 **Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "slug" \| "no_space" \| "lang"`
 
+### `MetaColumnOptionsSource`
+
+Dynamic option vocabulary for combo-backed controls — declared on the
+COLUMN (`MetaColumn.options_source`), never on a form placement:
+the same contract feeds forms, list filters and docs generation.
+Closed union on purpose — an unknown source is a construction error.
+
+**Type:** `"census.emits" \| "census.callables" \| "audit.actors"`
+
 ### `MetaColumnType`
 
 UI column renderer type. NOTE: this is the UI type, not the DB type —
@@ -3927,6 +3936,15 @@ Email — same RFC-5322-simplified regex the config validator and the FE
  refine use (documented shared in `sdk/src/config/config-validator.ts`).
 
 **Type:** `RegExp`
+
+### `FILTER_OPERATOR_ICON`
+
+Canonical `FilterOperator → Lucide icon` map — the ONE operator-icon
+vocabulary every filter surface renders (advanced operator combobox,
+filter chips, summaries). Values are `@lucide/svelte` icon names,
+consumed via `DynamicIcon`.
+
+**Type:** `Record<FilterOperator, string>`
 
 ### `fromPG`
 
@@ -4920,12 +4938,12 @@ Smallest integer `>= d`.
 
 Validate a wire entity object against `meta.columns`.
 Required = `nullable === false` AND client-writable — `audited`
-columns and `meta.uid` (server-generated identity) are system-managed
-(filled server-side) and never arrive on the wire, so an absent one is
-NOT a violation. A PRESENT empty value still fails `nullable === false`
-— clients must not send managed fields at all. Mirrors the form, where
-required only ever applies to declared placements
-(`placement.required ?? nullable`).
+columns, `meta.uid` (server-generated identity) and `managed` columns
+(server-filled keys, e.g. an identity `@Key`) are system-managed and
+never arrive on the wire, so an absent one is NOT a violation. A
+PRESENT empty value still fails `nullable === false` — clients must
+not send managed fields at all. Mirrors the form, where required only
+ever applies to declared placements (`placement.required ?? nullable`).
 Unknown entity keys are ignored — system columns (`uuid`, `version`)
 need no column.
 

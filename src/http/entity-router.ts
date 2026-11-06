@@ -23,6 +23,7 @@
  *   purge        DELETE /:uuid/purge              -> service.purge(uuid, ?version)
  *   restore      POST   /:uuid/restore            -> service.restore(uuid, ?version)
  *   audit        GET    /:uuid/audit [query]      -> service.audit(uuid, page, limit)
+ *   auditActors  GET    /audit-actors             -> service.auditActors() (iff implemented; `list` permission)
  *
  * Differences vs the BE version (all structural, no feature drift):
  * - schemas are plain validators `(raw) => T` — the SDK stays zod-free; the
@@ -75,6 +76,11 @@ export interface EntityServiceLike<TEntity = unknown> {
   bulkDelete(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   bulkRestore(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   audit(uuid: string, page: number, limit: number): Promise<unknown>;
+  /** `options_source:"audit.actors"` vocabulary feed — the entity's own
+   *  audit actor columns distinct, label-resolved through
+   *  `public.user_profiles`. Optional: `GET /audit-actors` registers only
+   *  when the service implements it (dal-pg `makeEntityService` does). */
+  auditActors?(): Promise<{ value: string; label: string }[]>;
   /** Row stream for `export` — the SAME query/filter contract as `list`. */
   stream(query: Record<string, unknown>): AsyncIterable<Record<string, unknown>>;
 }
@@ -685,6 +691,28 @@ export function makeEntityRouter<TEntity = unknown>(
       return service.audit(uuid, q.page, q.limit);
     },
   });
+
+  // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
+  // DISTINCT writers of this entity's audit columns, label-resolved
+  // server-side. Gated on the `list` permission (filter options are a
+  // list-UX read) and registered only when the service implements it —
+  // it is a data endpoint, not a `meta.actions` op.
+  // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
+  // DISTINCT writers of this entity's audit columns, label-resolved
+  // server-side. Gated on the `list` permission (filter options are a
+  // list-UX read). Registered UNCONDITIONALLY for auditable entities —
+  // a lazy service getter must not be touched at mount time (property
+  // access constructs the service before initDal); the check happens
+  // per-request inside the handler, where 404 means "not implemented".
+  if (config.permissions.list) {
+    routes.push({
+      method: "GET",
+      path: `${base}/audit-actors`,
+      permissions: config.permissions.list,
+      auth: "user",
+      handler: async () => ({ items: (await service.auditActors?.()) ?? [] }),
+    });
+  }
 
   // Resolved-pair enforcement at CONSTRUCTION — deriveActions merges
   // crud_action chrome + actions_overrides onto each standard op, and a
