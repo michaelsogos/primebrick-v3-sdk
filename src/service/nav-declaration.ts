@@ -95,9 +95,11 @@ function isPositiveWireInt(v: unknown): boolean {
 const FORM_FIELD_KEYS = new Set([
   "key", "col", "span", "row", "row_span", "section",
   "default_value", "placeholder_key", "required", "readonly",
-  "widget", "options_source", "allow_create",
 ]);
-const FORM_FIELD_OPTIONS_SOURCES = new Set(["census.emits", "census.callables"]);
+/** Keys hoisted onto `MetaColumn` — a placement carrying them is a
+ *  declaration bug, rejected with the target named explicitly (a bare
+ *  "unknown key" would hide where the contract now lives). */
+const PLACEMENT_MOVED_KEYS = new Set(["widget", "options_source", "allow_create"]);
 
 function validateFormPage(form: unknown, path: string): string | null {
   if (!form || typeof form !== "object" || Array.isArray(form)) {
@@ -121,6 +123,10 @@ function validateFormPage(form: unknown, path: string): string | null {
     }
     const pd = fp as Record<string, unknown>;
     for (const k of Object.keys(pd)) {
+      if (PLACEMENT_MOVED_KEYS.has(k)) {
+        return `${fpp} ('${pd["key"]}'): '${k}' belongs on MetaColumn (meta.columns['${pd["key"]}']) — ` +
+          `it is the column's semantic input contract, not page layout; move it to the entity meta`;
+      }
       if (!FORM_FIELD_KEYS.has(k)) {
         return `${fpp}: unknown placement key '${k}' — closed set`;
       }
@@ -137,18 +143,15 @@ function validateFormPage(form: unknown, path: string): string | null {
         return `${fpp} ('${pd["key"]}'): ${k} must be a positive integer (grid placement)`;
       }
     }
-    for (const k of ["required", "readonly", "allow_create"] as const) {
+    for (const k of ["required", "readonly"] as const) {
       if (pd[k] !== undefined && typeof pd[k] !== "boolean") {
         return `${fpp} ('${pd["key"]}'): ${k} must be a boolean`;
       }
     }
-    for (const k of ["section", "placeholder_key", "widget"] as const) {
+    for (const k of ["section", "placeholder_key"] as const) {
       if (pd[k] !== undefined && typeof pd[k] !== "string") {
         return `${fpp} ('${pd["key"]}'): ${k} must be a string`;
       }
-    }
-    if (pd["options_source"] !== undefined && !FORM_FIELD_OPTIONS_SOURCES.has(pd["options_source"] as string)) {
-      return `${fpp} ('${pd["key"]}'): options_source must be one of ${[...FORM_FIELD_OPTIONS_SOURCES].join(", ")}`;
     }
   }
   if (f["validators"] !== undefined) {

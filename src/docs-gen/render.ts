@@ -259,9 +259,11 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         required,
         constraints,
         default: pl.default_value !== undefined ? extJsonStringify(pl.default_value) : undefined,
-        widget: typeof pl.widget === "string" ? pl.widget : undefined,
-        options_source: pl.options_source as FormFieldFacts["options_source"],
-        allow_create: pl.allow_create === true,
+        // Control/options contract lives on the COLUMN (MetaColumn) —
+        // placements only position fields.
+        widget: typeof col?.widget === "string" ? col.widget : undefined,
+        options_source: col?.options_source as FormFieldFacts["options_source"],
+        allow_create: col?.allow_create === true,
         readonly: pl.readonly === true,
         col,
         section: typeof pl.section === "string" ? pl.section : undefined,

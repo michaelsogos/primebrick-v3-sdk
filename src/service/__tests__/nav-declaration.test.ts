@@ -310,7 +310,7 @@ describe("page_props.form — entity-form archetype declaration", () => {
       validateNavDeclaration("job", formed({
         fields: [
           { key: "name", span: 2 },
-          { key: "event_subject", options_source: "census.emits", placeholder_key: "job.ph" },
+          { key: "event_subject", placeholder_key: "job.ph" },
           { key: "enabled", default_value: true, required: true },
         ],
         validators: ["target_matches_lane"],
@@ -343,9 +343,13 @@ describe("page_props.form — entity-form archetype declaration", () => {
       .toMatch(/required must be a boolean/);
   });
 
-  it("rejects an unknown options_source and non-string validators", () => {
-    expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", options_source: "api" }] }), "system"))
-      .toMatch(/options_source must be one of census\.emits, census\.callables/);
+  it("rejects control-contract keys hoisted to MetaColumn + non-string validators", () => {
+    // widget/options_source/allow_create moved to meta.columns — a placement
+    // carrying them is a hard reject naming the target, not an unknown-key.
+    for (const k of ["widget", "options_source", "allow_create"]) {
+      expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", [k]: "x" }] }), "system"))
+        .toMatch(new RegExp(`'${k}' belongs on MetaColumn`));
+    }
     expect(validateNavDeclaration("job", formed({ fields: [{ key: "a" }], validators: [42] }), "system"))
       .toMatch(/validators: must be an array of non-empty validator keys/);
   });
