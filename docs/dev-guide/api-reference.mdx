@@ -3368,6 +3368,32 @@ UI column renderer type. NOTE: this is the UI type, not the DB type —
 
 **Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline" \| "ref" \| "ref_count"`
 
+### `MetaColumnUom`
+
+Numeric unit-of-measure contract — the column's semantic quantity unit.
+`"percent"`: pure display transform (display = canonical × 100, emitted =
+display ÷ 100) — the canonical value stays a fraction; NO sibling field.
+`"currency"`: money semantics — `field` names the SIBLING column that
+persists the ISO code per row (mandatory); `source` defaults to
+`"currencies"` (the shared ISO list).
+`"custom"`: any other UoM (kg, ms, items, …) — `field` persists the code,
+`source` drives the selector options, `symbol` overrides the adornment.
+The `field` sibling requirement is verified by `withColumnConstraints`:
+a uom'd numeric without its code column is a construction error.
+
+**Type:** `{ kind: "percent" } \| { kind: "currency"; field: string; source: "currencies" } \| { kind: "custom"; field: string; source: MetaColumnUomSource; symbol: string }`
+
+### `MetaColumnUomSource`
+
+Option vocabulary a unit-of-measure selector may draw from.
+`"currencies"`: the ISO 4217 list resolved client-side (`getAllCurrencies`
+— same source the config-domain currency picker uses). `{entity}`: the
+UoM codes persist as rows of another entity (resolved via its `/list`).
+`{api_url}`: an explicit endpoint serving the options.
+Closed union on purpose — an unknown source is a construction error.
+
+**Type:** `"currencies" \| { entity: string } \| { api_url: string; value_field: string; label_field: string }`
+
 ### `MfaConsumeFn`
 
 **Type:** `(token: string, action: string, targetResource: string) => Promise<MfaConsumeResult>`
@@ -3515,6 +3541,10 @@ verifyNatsMessage+enforceNatsRbac chain. Return:
   - `null`      → denied (auth error to the caller / drop for pub/sub)
 
 **Type:** `(msg: Msg) => Promise<AuthUser \| null \| undefined>`
+
+### `NumericKind`
+
+**Type:** `"bigint" \| "number" \| "decimal"`
 
 ### `OpenApiRouteDoc`
 
@@ -6390,6 +6420,12 @@ roles path. Throws on empty payload or missing `sub` claim.
 |-----------|------|-------------|
 | payload | `JwtClaims \| null \| undefined` |  |
 | rolesPath | `string` |  |
+
+### `numericKindOf(col): NumericKind \| null`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `MetaColumn` |  |
 
 ### `operationIdFor(method, path): string`
 

@@ -130,6 +130,9 @@ type RuleId =
   | "panel-button-testid"
   | "panel-switch"
   | "panel-search-clearable"
+  | "panel-footer-chrome"
+  | "panel-toolbar-tools"
+  | "field-stock-chrome"
   | "i18n-entity-fallback";
 
 interface Rule {
@@ -163,6 +166,8 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-layout", "panel-content-scroll", "panel-raw-label",
   "panel-control-id", "panel-select-dropdown", "panel-button-testid",
   "panel-switch", "panel-search-clearable",
+  "panel-footer-chrome", "panel-toolbar-tools",
+  "field-stock-chrome",
   "i18n-entity-fallback",
 ]);
 const GATED_LINE_RULES: Rule[] = [
@@ -192,6 +197,18 @@ const GATED_LINE_RULES: Rule[] = [
   // the shared trailing-CTA anatomy, not a per-panel choice.
   { id: "panel-switch", pattern: /<Switch[\s>/]/, hint: "binary/mode toggles inside panels are ButtonGroup segmented (mode buttons, aria-pressed) — raw Switch has no sanctioned use in sheet-panel anatomy" },
   { id: "panel-search-clearable", pattern: /clearable\s*=\s*[{("'`]?false/, hint: "the eraser affordance is structural (disabled when empty) — a panel must not opt out of it" },
+  // panel-footer-chrome / panel-toolbar-tools — findings come from the
+  // structural pass in checkFile (snippet-range aware). Never-match keeps
+  // them inert as line rules: the FOOT contract is "content through
+  // <SheetPanelFooter>" and tools belong inside {#snippet toolbar}.
+  { id: "panel-footer-chrome", pattern: /(?!)/, hint: "panel FOOT content goes through <SheetPanelFooter> — right-aligned natural-width CTAs on the layout-owned muted strip (w-full/p-3 wrapper footers are the old pattern)" },
+  { id: "panel-toolbar-tools", pattern: /(?!)/, hint: "tools live inside {#snippet toolbar} (mode/connector ButtonGroup, SearchInput) — a tool in CONTENT lands under the toolbar border-b and reads as a second header" },
+  // Stock vendored-kit color tokens have no sanctioned use in field chrome:
+  // fills are bg-background / bg-transparent / bg-muted and the focus border
+  // comes from the variant chrome (foreground/50 ghost, primary-gradient
+  // field). `bg-input` produced the sky-tinted search-input background;
+  // `border-ring` produced the blue focus border beside neutral ghost rings.
+  { id: "field-stock-chrome", pattern: /\bbg-input\b|\bborder-ring\b/, hint: "stock vendored-kit tokens — field chrome is bg-background/bg-transparent + foreground/* or border-primary-gradient + ring-ring/50 (input-anatomy); never the kit's tinted fill / blue focus border" },
   { id: "i18n-entity-fallback", pattern: /\$t\([^)]*\|\|/, hint: "no entity-specific i18n fallback inside shared entity-list code — label_key resolves or the raw key shows" },
 ];
 
@@ -734,6 +751,79 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
         rule: "panel-button-testid",
         text: line.trim(),
         hint: "interactive controls carry data-testid (<scope>-<purpose>, kebab-case) — E2E locators are brittle-on-purpose by convention",
+      });
+    }
+  }
+
+  // panel-footer-chrome — a panel declaring FOOT content (`{#snippet footer}`
+  // or `footer={…}` prop) must render it through <SheetPanelFooter>: the
+  // layout owns the muted strip, the footer component owns right-aligned
+  // natural-width CTAs. Input-box feet (chat) are exempt via allowPaths.
+  const panelFooterRule = LINE_RULES.find((r) => r.id === "panel-footer-chrome");
+  if (
+    rules.has("panel-footer-chrome") &&
+    panelFooterRule &&
+    !panelFooterRule.allowPaths?.test(rel) &&
+    (!panelFooterRule.appliesTo || panelFooterRule.appliesTo.test(rel))
+  ) {
+    const declaresFoot = lines.some(
+      (l) => /\{#snippet\s+\w*[Ff]ooter\b/.test(l) || /\bfooter\s*=\s*\{/.test(l),
+    );
+    if (declaresFoot && !lines.some((l) => l.includes("<SheetPanelFooter"))) {
+      const footLine = lines.findIndex(
+        (l) => /\{#snippet\s+\w*[Ff]ooter\b/.test(l) || /\bfooter\s*=\s*\{/.test(l),
+      );
+      const exempt =
+        parseExempt(lines[footLine]) ?? (footLine > 0 ? parseExempt(lines[footLine - 1]) : null);
+      if (!isExempted(exempt, "panel-footer-chrome")) {
+        out.push({
+          file: rel,
+          line: footLine + 1,
+          rule: "panel-footer-chrome",
+          text: lines[footLine]?.trim() ?? "",
+          hint: "panel FOOT content goes through <SheetPanelFooter> — right-aligned natural-width CTAs on the layout-owned muted strip (w-full/p-3 wrapper footers are the old pattern)",
+        });
+      }
+    }
+  }
+
+  // panel-toolbar-tools — when a panel declares {#snippet toolbar}, tool
+  // elements (segmented ButtonGroup, SearchInput) must live INSIDE that
+  // snippet range: a tool rendered in CONTENT lands under the toolbar's
+  // border-b and reads as a second header band.
+  const panelToolsRule = LINE_RULES.find((r) => r.id === "panel-toolbar-tools");
+  if (
+    rules.has("panel-toolbar-tools") &&
+    panelToolsRule &&
+    !panelToolsRule.allowPaths?.test(rel) &&
+    (!panelToolsRule.appliesTo || panelToolsRule.appliesTo.test(rel)) &&
+    lines.some((l) => /\{#snippet\s+toolbar\b/.test(l))
+  ) {
+    const toolbarRanges: [number, number][] = [];
+    const stack: { name: string; line: number }[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const open = lines[i].match(/\{#snippet\s+(\w+)/);
+      if (open) stack.push({ name: open[1], line: i });
+      if (/\{\/snippet\}/.test(lines[i])) {
+        const top = stack.pop();
+        if (top?.name === "toolbar") toolbarRanges.push([top.line, i]);
+      }
+    }
+    const inToolbar = (i: number) =>
+      toolbarRanges.some(([a, b]) => i > a && i < b);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCommentOnly(line)) continue;
+      if (!/<ButtonGroup|<SearchInput\b/.test(line)) continue;
+      if (inToolbar(i)) continue;
+      const exempt = parseExempt(line) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
+      if (isExempted(exempt, "panel-toolbar-tools")) continue;
+      out.push({
+        file: rel,
+        line: i + 1,
+        rule: "panel-toolbar-tools",
+        text: line.trim(),
+        hint: "tools live inside {#snippet toolbar} (mode/connector ButtonGroup, SearchInput) — a tool in CONTENT lands under the toolbar border-b and reads as a second header",
       });
     }
   }

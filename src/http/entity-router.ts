@@ -620,6 +620,25 @@ export function makeEntityRouter<TEntity = unknown>(
     },
   });
 
+  // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
+  // DISTINCT writers of this entity's audit columns, label-resolved
+  // server-side. Gated on the `list` permission (filter options are a
+  // list-UX read). Registered UNCONDITIONALLY for auditable entities —
+  // a lazy service getter must not be touched at mount time (property
+  // access constructs the service before initDal); the check happens
+  // per-request inside the handler, where an absent implementation
+  // yields an empty vocabulary.
+  // MUST precede `/:uuid` — literal segments before param captures.
+  if (config.permissions.list) {
+    routes.push({
+      method: "GET",
+      path: `${base}/audit-actors`,
+      permissions: config.permissions.list,
+      auth: "user",
+      handler: async () => ({ items: (await service.auditActors?.()) ?? [] }),
+    });
+  }
+
   push("get", {
     method: "GET",
     path: `${base}/:uuid`,
@@ -691,28 +710,6 @@ export function makeEntityRouter<TEntity = unknown>(
       return service.audit(uuid, q.page, q.limit);
     },
   });
-
-  // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
-  // DISTINCT writers of this entity's audit columns, label-resolved
-  // server-side. Gated on the `list` permission (filter options are a
-  // list-UX read) and registered only when the service implements it —
-  // it is a data endpoint, not a `meta.actions` op.
-  // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
-  // DISTINCT writers of this entity's audit columns, label-resolved
-  // server-side. Gated on the `list` permission (filter options are a
-  // list-UX read). Registered UNCONDITIONALLY for auditable entities —
-  // a lazy service getter must not be touched at mount time (property
-  // access constructs the service before initDal); the check happens
-  // per-request inside the handler, where 404 means "not implemented".
-  if (config.permissions.list) {
-    routes.push({
-      method: "GET",
-      path: `${base}/audit-actors`,
-      permissions: config.permissions.list,
-      auth: "user",
-      handler: async () => ({ items: (await service.auditActors?.()) ?? [] }),
-    });
-  }
 
   // Resolved-pair enforcement at CONSTRUCTION — deriveActions merges
   // crud_action chrome + actions_overrides onto each standard op, and a
