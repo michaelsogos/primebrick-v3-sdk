@@ -38,7 +38,7 @@ import { isAccessKey } from "../auth/access.js";
 import { extJsonStringify } from "../json/ext-json.js";
 import { allowedKeyNamespaces, keyNamespaceOf } from "@primebrick/core";
 
-export const PAGE_ROUTE_KINDS = new Set(["list", "detail", "create", "page"]);
+export const PAGE_ROUTE_KINDS = new Set(["list", "detail", "create", "page", "dict"]);
 
 /**
  * Leaf nav segments allowed to stay singular when they resolve to no
@@ -199,6 +199,72 @@ function validateNoItemAccess(obj: Record<string, unknown>, path: string): strin
   return null;
 }
 
+/**
+ * Validate one `routes[]` entry — shared by the module's own census and
+ * each sibling's (`siblings[].routes`). `strictlyUnderAny` binds the
+ * prefix set of the DECLARING block (module or sibling).
+ */
+function validateRouteEntry(
+  rd: Record<string, unknown>,
+  path: string,
+  strictlyUnderAny: (p: string) => boolean,
+): string | null {
+  if (typeof rd["route"] !== "string" || !(rd["route"] as string).startsWith("/")) {
+    return `${path}: route must be an absolute FE path`;
+  }
+  const route = rd["route"] as string;
+  if (!strictlyUnderAny(route)) {
+    return `${path}: route '${route}' must live strictly under a declared route_prefix — the bare prefix is the module namespace, never a page`;
+  }
+  if (typeof rd["kind"] !== "string" || !PAGE_ROUTE_KINDS.has(rd["kind"] as string)) {
+    return `${path}: kind must be one of ${[...PAGE_ROUTE_KINDS].join("|")}`;
+  }
+  const kind = rd["kind"] as string;
+  const leaf = leafOf(route);
+  const rawLeaf = route.split("/").filter(Boolean).pop() ?? "";
+  // R1 — list-shaped pages are plural: entities are singular, their routes
+  // are the plural table/page surface (`/customers`, `/job-schedules`).
+  // `dict` shares the shape: its page IS the entity's plural surface.
+  if ((kind === "list" || kind === "dict") && leaf !== null && !isPluralLeaf(leaf)) {
+    return `${path}: ${kind} route '${route}' must end in a plural segment (got '${leaf}') — convention: entities singular, pages/routes plural`;
+  }
+  // `dict` binds an entity surface — the archetype resolves meta.rows off it.
+  if (kind === "dict" && (typeof rd["entity"] !== "string" || !rd["entity"])) {
+    return `${path}: dict route '${route}' must declare its entity`;
+  }
+  // R3 — create/detail shapes are derived, never free-chosen:
+  // `create` leaf is THE convention; detail leaf is a [param].
+  if (kind === "create" && leaf !== "create") {
+    return `${path}: create route '${route}' must end in '/create' (the single convention — '/new' is rejected)`;
+  }
+  if (kind === "detail" && !DETAIL_LEAF_RE.test(rawLeaf)) {
+    return `${path}: detail route '${route}' must end in a '[param]' segment (got '${rawLeaf}')`;
+  }
+  if (rd["component_url"] !== undefined && typeof rd["component_url"] !== "string") {
+    return `${path}: component_url must be a string`;
+  }
+  if (rd["description_key"] !== undefined && (typeof rd["description_key"] !== "string" || !rd["description_key"])) {
+    return `${path}: description_key must be a non-empty i18n key`;
+  }
+  if (rd["chrome"] !== undefined && rd["chrome"] !== "host" && rd["chrome"] !== "remote") {
+    return `${path}: chrome must be 'host' or 'remote'`;
+  }
+  if (rd["chrome"] === "remote" && typeof rd["component_url"] !== "string") {
+    return `${path}: chrome:'remote' is only valid on remote routes (component_url required)`;
+  }
+  if (rd["page_props"] !== undefined) {
+    if (!rd["page_props"] || typeof rd["page_props"] !== "object" || Array.isArray(rd["page_props"])) {
+      return `${path}: page_props must be an object`;
+    }
+    const pp = rd["page_props"] as Record<string, unknown>;
+    if (pp["form"] !== undefined) {
+      const formErr = validateFormPage(pp["form"], `${path}.page_props.form`);
+      if (formErr) return formErr;
+    }
+  }
+  return validateNoItemAccess(rd, path);
+}
+
 function validateNavLink(
   code: string,
   strictlyUnderAny: (p: string) => boolean,
@@ -344,57 +410,90 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
         return `endpoints.nav.routes[${i}]: route declaration must be an object`;
       }
       const rd = r as Record<string, unknown>;
-      if (typeof rd["route"] !== "string" || !(rd["route"] as string).startsWith("/")) {
-        return `endpoints.nav.routes[${i}]: route must be an absolute FE path`;
+      const routeErr = validateRouteEntry(rd, `endpoints.nav.routes[${i}]`, strictlyUnderAny);
+      if (routeErr) return routeErr;
+      declaredRoutes.set(rd["route"] as string, rd["kind"] as string);
+    }
+  }
+  // Siblings — second module nodes lifted next to this module under the
+  // same root (the service's own "Impostazioni" sibling). Each sibling's
+  // prefixes MUST nest strictly under one of the module's own prefixes, so
+  // longest-prefix ownership resolves its pages to the sibling node and
+  // its access namespace stays `<moduleNs>.<id>`. Same nav/route rules,
+  // never a second `access` axis — the namespace is DERIVED, not declared.
+  if (d["siblings"] !== undefined) {
+    if (!Array.isArray(d["siblings"])) return "endpoints.nav.siblings must be an array";
+    const seenIds = new Set<string>();
+    for (let i = 0; i < (d["siblings"] as unknown[]).length; i++) {
+      const s = (d["siblings"] as unknown[])[i];
+      const sp = `endpoints.nav.siblings[${i}]`;
+      if (!s || typeof s !== "object" || Array.isArray(s)) {
+        return `${sp}: sibling declaration must be an object`;
       }
-      const route = rd["route"] as string;
-      if (!strictlyUnderAny(route)) {
-        return `endpoints.nav.routes[${i}]: route '${route}' must live strictly under a declared route_prefix — the bare prefix is the module namespace, never a page`;
-      }
-      if (typeof rd["kind"] !== "string" || !PAGE_ROUTE_KINDS.has(rd["kind"] as string)) {
-        return `endpoints.nav.routes[${i}]: kind must be one of ${[...PAGE_ROUTE_KINDS].join("|")}`;
-      }
-      const kind = rd["kind"] as string;
-      const leaf = leafOf(route);
-      const rawLeaf = route.split("/").filter(Boolean).pop() ?? "";
-      // R1 — list pages are plural: entities are singular, their routes
-      // are the plural table/page surface (`/customers`, `/job-schedules`).
-      if (kind === "list" && leaf !== null && !isPluralLeaf(leaf)) {
-        return `endpoints.nav.routes[${i}]: list route '${route}' must end in a plural segment (got '${leaf}') — convention: entities singular, pages/routes plural`;
-      }
-      // R3 — create/detail shapes are derived, never free-chosen:
-      // `create` leaf is THE convention; detail leaf is a [param].
-      if (kind === "create" && leaf !== "create") {
-        return `endpoints.nav.routes[${i}]: create route '${route}' must end in '/create' (the single convention — '/new' is rejected)`;
-      }
-      if (kind === "detail" && !DETAIL_LEAF_RE.test(rawLeaf)) {
-        return `endpoints.nav.routes[${i}]: detail route '${route}' must end in a '[param]' segment (got '${rawLeaf}')`;
-      }
-      if (rd["component_url"] !== undefined && typeof rd["component_url"] !== "string") {
-        return `endpoints.nav.routes[${i}]: component_url must be a string`;
-      }
-      if (rd["description_key"] !== undefined && (typeof rd["description_key"] !== "string" || !rd["description_key"])) {
-        return `endpoints.nav.routes[${i}]: description_key must be a non-empty i18n key`;
-      }
-      if (rd["chrome"] !== undefined && rd["chrome"] !== "host" && rd["chrome"] !== "remote") {
-        return `endpoints.nav.routes[${i}]: chrome must be 'host' or 'remote'`;
-      }
-      if (rd["chrome"] === "remote" && typeof rd["component_url"] !== "string") {
-        return `endpoints.nav.routes[${i}]: chrome:'remote' is only valid on remote routes (component_url required)`;
-      }
-      if (rd["page_props"] !== undefined) {
-        if (!rd["page_props"] || typeof rd["page_props"] !== "object" || Array.isArray(rd["page_props"])) {
-          return `endpoints.nav.routes[${i}]: page_props must be an object`;
-        }
-        const pp = rd["page_props"] as Record<string, unknown>;
-        if (pp["form"] !== undefined) {
-          const formErr = validateFormPage(pp["form"], `endpoints.nav.routes[${i}].page_props.form`);
-          if (formErr) return formErr;
+      const sd = s as Record<string, unknown>;
+      for (const k of Object.keys(sd)) {
+        if (!["id", "label_key", "icon", "route_prefixes", "nav", "routes"].includes(k)) {
+          return `${sp}: unknown key '${k}' — closed contract {id,label_key,icon?,route_prefixes,nav,routes?}`;
         }
       }
-      const routeAccessErr = validateNoItemAccess(rd, `endpoints.nav.routes[${i}]`);
-      if (routeAccessErr) return routeAccessErr;
-      declaredRoutes.set(route, kind);
+      if (typeof sd["id"] !== "string" || !/^[a-z][a-z0-9_]*$/.test(sd["id"])) {
+        return `${sp}: id must be a snake_case slug — the emitted module id is '${code}-<id>'`;
+      }
+      const sibId = sd["id"] as string;
+      if (sibId === code || seenIds.has(sibId)) {
+        return `${sp} ('${sibId}'): sibling id must differ from the module code and be unique`;
+      }
+      seenIds.add(sibId);
+      if (typeof sd["label_key"] !== "string" || !sd["label_key"]) {
+        return `${sp} ('${sibId}'): missing label_key`;
+      }
+      const sibNs = keyNamespaceOf(sd["label_key"] as string);
+      if (sibNs === null || !allowedKeyNamespaces(code).has(sibNs)) {
+        return `${sp} ('${sibId}'): label_key '${sd["label_key"]}' is outside the module namespace '${code}.*' and CORE namespaces`;
+      }
+      if (sd["icon"] !== undefined && typeof sd["icon"] !== "string") {
+        return `${sp} ('${sibId}'): icon must be a lucide name string`;
+      }
+      if (!Array.isArray(sd["route_prefixes"]) || (sd["route_prefixes"] as unknown[]).length === 0) {
+        return `${sp} ('${sibId}'): route_prefixes must be a non-empty array`;
+      }
+      const sibPrefixes: string[] = [];
+      for (const p of sd["route_prefixes"] as unknown[]) {
+        if (typeof p !== "string" || !p.startsWith("/")) {
+          return `${sp} ('${sibId}'): every prefix must be an absolute FE path`;
+        }
+        if (!strictlyUnderAny(p)) {
+          return `${sp} ('${sibId}'): prefix '${p}' must nest strictly under one of the module's route_prefixes — the sibling lives under the same root, never beside it`;
+        }
+        sibPrefixes.push(p);
+      }
+      const sibStrictlyUnderAny = (p: string) => sibPrefixes.some((px) => p.startsWith(px + "/"));
+      if (!Array.isArray(sd["nav"])) {
+        return `${sp} ('${sibId}'): nav must be an array of {id,label_key,href} links`;
+      }
+      let sibDefaults = 0;
+      const sibLinks = sd["nav"] as unknown[];
+      for (let j = 0; j < sibLinks.length; j++) {
+        const err = validateNavLink(code, sibStrictlyUnderAny, sibLinks[j], `${sp}.nav[${j}]`);
+        if (err) return err;
+      }
+      for (const l of collectNavLinks(sibLinks)) if (l["default"] === true) sibDefaults++;
+      if (sibDefaults > 1) {
+        return `${sp} ('${sibId}'): at most one leaf may flag default:true — the sibling's landing leaf`;
+      }
+      if (sd["routes"] !== undefined) {
+        if (!Array.isArray(sd["routes"])) return `${sp} ('${sibId}'): routes must be an array`;
+        for (let j = 0; j < (sd["routes"] as unknown[]).length; j++) {
+          const r = (sd["routes"] as unknown[])[j];
+          if (!r || typeof r !== "object" || Array.isArray(r)) {
+            return `${sp} ('${sibId}').routes[${j}]: route declaration must be an object`;
+          }
+          const rd = r as Record<string, unknown>;
+          const routeErr = validateRouteEntry(rd, `${sp} ('${sibId}').routes[${j}]`, sibStrictlyUnderAny);
+          if (routeErr) return routeErr;
+          declaredRoutes.set(rd["route"] as string, rd["kind"] as string);
+        }
+      }
     }
   }
   // Sheets — remote `mountSheet` panels owned by this module. The engine is
@@ -460,13 +559,21 @@ export function validateNavDeclaration(code: string, decl: unknown, partOf: stri
   // plural-checked at R1; to any other kind is fine; a link resolving to
   // nothing must be plural or explicitly allowlisted — otherwise a
   // singular-looking page can slip in undeclared.
-  for (const href of collectNavHrefs(d["nav"] as unknown[])) {
-    const kind = declaredRoutes.get(href);
-    if (kind !== undefined) continue;
-    const leaf = leafOf(href);
-    if (leaf === null) continue;
-    if (!isPluralLeaf(leaf) && !SINGULAR_NAV_ALLOWLIST.has(leaf)) {
-      return `endpoints.nav.nav: href '${href}' resolves to no declared route and its leaf '${leaf}' is neither plural nor allowlisted — declare the route or fix the leaf`;
+  const allNavTrees: unknown[][] = [d["nav"] as unknown[]];
+  if (Array.isArray(d["siblings"])) {
+    for (const s of d["siblings"] as Record<string, unknown>[]) {
+      if (Array.isArray(s?.["nav"])) allNavTrees.push(s["nav"] as unknown[]);
+    }
+  }
+  for (const navTree of allNavTrees) {
+    for (const href of collectNavHrefs(navTree)) {
+      const kind = declaredRoutes.get(href);
+      if (kind !== undefined) continue;
+      const leaf = leafOf(href);
+      if (leaf === null) continue;
+      if (!isPluralLeaf(leaf) && !SINGULAR_NAV_ALLOWLIST.has(leaf)) {
+        return `endpoints.nav.nav: href '${href}' resolves to no declared route and its leaf '${leaf}' is neither plural nor allowlisted — declare the route or fix the leaf`;
+      }
     }
   }
   // R5 — exactly one leaf nav item flags the module default. It must

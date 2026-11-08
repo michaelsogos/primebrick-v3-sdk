@@ -92,11 +92,17 @@
  * A missing/short reason is itself a violation.
  *
  * Usage:
- *   bun tools/check-standards.ts <srcDir> [--profile=consumer|lib] [--tests]
+ *   bun tools/check-standards.ts <srcDir> [--profile=consumer|lib|fe] [--tests]
  * Exit 0 = clean, 1 = violations.
+ *
+ * Auto-scan: when the invoked repo contains `fe/src` (remote-module bundle),
+ * that tree is ALWAYS scanned too under the `fe` profile + the same
+ * config-gated rules — presence, not config, is the trigger; findings print
+ * as `fe/src/<file>`. This is the single canonical tool: repos invoke it via
+ * sibling path (`bun ../../primebrick-v3-sdk/tools/check-standards.ts src`).
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { HONEST_FORMAT_HINTS } from "@primebrick/core";
 
@@ -117,6 +123,7 @@ type RuleId =
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
+  | "seed-audit-trail"
   | "nav-decl-access"
   | "schema-honest-format"
   | "raw-switch"
@@ -132,8 +139,11 @@ type RuleId =
   | "panel-search-clearable"
   | "panel-footer-chrome"
   | "panel-toolbar-tools"
+  | "native-control"
   | "field-stock-chrome"
-  | "i18n-entity-fallback";
+  | "i18n-entity-fallback"
+  | "page-scaffold-ownership"
+  | "icon-no-fallback";
 
 interface Rule {
   id: RuleId;
@@ -156,6 +166,12 @@ const LINE_RULES: Rule[] = [
   { id: "new-repository", pattern: /\bnew\s+Repository\s*\(/, hint: "use dal.entityService()/dal.tableAuditPort()" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
   { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
+  {
+    id: "native-control",
+    pattern: /<(input|select|textarea)\b/,
+    hint: "raw HTML control — use the canonical wrappers (components/input/, ComboSelect, Textarea…)",
+    allowPaths: /^lib\/components\/(input|input-group|textarea)\//,
+  },
 ];
 
 // Config-gated rules — populated from `.devin/check-standards.json` (repo
@@ -168,7 +184,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-switch", "panel-search-clearable",
   "panel-footer-chrome", "panel-toolbar-tools",
   "field-stock-chrome",
-  "i18n-entity-fallback",
+  "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
 ]);
 const GATED_LINE_RULES: Rule[] = [
   { id: "dal-access", pattern: /\b(?:initDal|getDal)\s*\(/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal() only inside the declared allowlist" },
@@ -178,6 +194,17 @@ const GATED_LINE_RULES: Rule[] = [
   // by checkRawSwitch (structural pass below), so no overlap.
   { id: "raw-switch", pattern: /import\s+(?:type\s+)?\{[^}]*\bSwitch\b[^}]*\}\s*from\s*["']@primebrick\/ui["']/, hint: "labelled booleans MUST use SwitchField (switch-first anatomy) — raw Switch is composite-internal only (allowPaths for sanctioned composites)" },
   { id: "button-variant-toolbar", pattern: /variant\s*=\s*\{?\s*["'`]soft["'`]/, hint: "toolbar action CTAs are solid variants only (default/destructive/warning; `outline` for secondary) — `soft` is reserved for Layout-1 in-card secondary CTAs" },
+  // page-scaffold-ownership — the bordered rounded page-body container is
+  // mounted ONCE by AppShell for every (app) page (remote chunks render
+  // inside it too, never drawing it). Self-wrapping is an anatomy drift:
+  // allowPaths = AppShell + pages pending conversion to the inherited wrap.
+  { id: "page-scaffold-ownership", pattern: /<AppPageScaffold\b/, hint: "AppPageScaffold is mounted once by AppShell — pages never self-wrap; the bordered box is inherited chrome" },
+  // icon-no-fallback — a field-mapped icon renders iff the mapped field
+  // carries a value: absent data → absent element, never an invented
+  // default icon. Catches `name={x ?? 'icon'}` on DynamicIcon AND
+  // `*icon* = x ?? 'icon'` assignments; field-to-field chains and
+  // `?? null`/`?? ''` type coercions stay legal.
+  { id: "icon-no-fallback", pattern: /name\s*=\s*\{[^}]*(?:\?\?|\|\|)\s*['"`][a-z0-9_-]+|\b\w*[Ii]con\b\s*[:=]\s*[^;{=]*(?:\?\?|\|\|)\s*['"`][a-z0-9_-]+/, hint: "invented icon fallback — a mapped icon renders iff the field carries a value ({#if icon}<DynamicIcon name={icon}/>); absent data → absent element, never a default" },
   // ── sheet-panel anatomy rules (scope via appliesTo → */sheets/panels/) ──
   // panel-layout's finding comes from the structural pass in checkFile —
   // the never-match pattern keeps the line loop inert.
@@ -228,6 +255,13 @@ interface StandardsConfig {
    * grandfathered by name. New patches must comply.
    */
   i18n_sql_exempt?: string[];
+  /**
+   * db-meta/patches filenames exempt from `seed-audit-trail` — shipped
+   * seed patches that predate the audit-trail rule can never be edited;
+   * a backfill patch remedies their data instead. New patches must comply
+   * (or carry `-- pb:no-audit-trail`).
+   */
+  seed_audit_exempt?: string[];
 }
 
 function escapeRe(s: string): string {
@@ -474,7 +508,7 @@ const CONSUMER_RULES = new Set<RuleId>([
   "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
   "schema-honest-format",
 ]);
-const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults"]);
+const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control"]);
 // `fe` — browser SPA: no base line rules (server-side contracts don't
 // apply); the gated rules above activate via .devin/check-standards.json.
 const FE_RULES = new Set<RuleId>([]);
@@ -914,6 +948,61 @@ function checkTranslationSeedPatches(repoRoot: string, exemptFiles: ReadonlySet<
   return out;
 }
 
+// seed-audit-trail — seeds bypass the DAL: a patch that INSERTs into an
+// auditable entity table (isAuditable in db-meta/snapshot-entities.json)
+// must write the <t>_audit rows itself, or carry `-- pb:no-audit-trail`.
+const SQL_INSERT_TARGET = /\bINSERT\s+INTO\s+"?(\w+)"?\s*\.\s*"?(\w+)"?/gi;
+const SQL_INSERT_AUDIT = /\bINSERT\s+INTO\s+"?(\w+)"?\s*\.\s*"?(\w+_audit)"?/gi;
+
+/** Scan db-meta/patches/*.sql for seeds into auditable tables lacking the audit-trail write. */
+function checkSeedAuditTrail(repoRoot: string, exemptFiles: ReadonlySet<string>): Violation[] {
+  const out: Violation[] = [];
+  const dir = join(repoRoot, "db-meta", "patches");
+  let files: string[];
+  let auditable: Set<string>;
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".sql") && !exemptFiles.has(f));
+    const snap = JSON.parse(readFileSync(join(repoRoot, "db-meta", "snapshot-entities.json"), "utf8"));
+    auditable = new Set(
+      Object.entries(snap.tables ?? {})
+        .filter(([, t]) => (t as { isAuditable?: boolean }).isAuditable === true)
+        .map(([k]) => k.toLowerCase()),
+    );
+  } catch {
+    return out; // no db-meta or no entity snapshot — rule does not apply
+  }
+  if (!auditable.size) return out;
+  for (const f of files) {
+    const raw = readFileSync(join(dir, f), "utf8");
+    if (/--\s*pb:no-audit-trail/.test(raw)) continue;
+    const auditInserts = new Set(
+      [...raw.matchAll(SQL_INSERT_AUDIT)].map((m) => `${m[1]!.toLowerCase()}.${m[2]!.toLowerCase()}`),
+    );
+    const lines = raw.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s*--/.test(line)) continue;
+      SQL_INSERT_TARGET.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = SQL_INSERT_TARGET.exec(line))) {
+        const schema = m[1]!.toLowerCase();
+        const table = m[2]!.toLowerCase();
+        if (table.endsWith("_audit")) continue;
+        const fq = `${schema}.${table}`;
+        if (!auditable.has(fq) || auditInserts.has(`${fq}_audit`)) continue;
+        out.push({
+          file: `db-meta/patches/${f}`,
+          line: i + 1,
+          rule: "seed-audit-trail" as RuleId,
+          text: line.trim().slice(0, 120),
+          hint: `${fq} is auditable — seeds must write the ${table}_audit rows (or '-- pb:no-audit-trail'); @AuditTrail never fires for SQL seeds`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 // ─── main ────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -934,6 +1023,7 @@ const rules = new Set(
 // them per-repo and carries their allowPaths/appliesTo (injected onto the
 // rule objects here — patterns stay fixed in code).
 const cfg = loadStandardsConfig();
+const cfgEnabled = new Set<RuleId>();
 for (const [id, opts] of Object.entries(cfg.rules ?? {})) {
   if (!GATED_RULE_IDS.has(id as RuleId)) continue;
   const rule = GATED_LINE_RULES.find((r) => r.id === id);
@@ -944,6 +1034,7 @@ for (const [id, opts] of Object.entries(cfg.rules ?? {})) {
   }
   LINE_RULES.push(rule);
   rules.add(rule.id);
+  cfgEnabled.add(rule.id);
 }
 
 const violations: Violation[] = [];
@@ -955,10 +1046,31 @@ for (const file of walk(dir)) {
   violations.push(...checkFile(file, dir, rules, i18nNamespaces));
 }
 
+// Remote-module surfaces (`fe/src`) are browser code inside service repos —
+// the consumer profile encodes server-side contracts and would false-positive
+// there, so they went unscanned for a generation of sheet panels. Scan them
+// ALWAYS with the `fe` profile when the directory exists: presence, not
+// config, is the trigger. srcDir stays `cwd` so findings print as
+// `fe/src/<file>` and `appliesTo: ["fe/src/"]` scopes the panel rules.
+const feDir = join(process.cwd(), "fe", "src");
+const dirNorm = dir.replace(/\\/g, "/").replace(/\/+$/, "");
+if (dirNorm !== "fe/src" && existsSync(feDir)) {
+  const feRules = new Set<RuleId>([...FE_RULES, ...cfgEnabled]);
+  for (const file of walk(feDir)) {
+    if (!includeTests && isTestFile(file)) continue;
+    violations.push(...checkFile(file, process.cwd(), feRules, i18nNamespaces));
+  }
+}
+
 // i18n-sql-ns — repo-level scan of db-meta/patches (outside srcDir);
 // always-on — the schema→namespace seed boundary is a repo invariant.
 // `i18n_sql_exempt` grandfathers shipped pre-boundary patches by filename.
 violations.push(...checkTranslationSeedPatches(process.cwd(), new Set(cfg.i18n_sql_exempt ?? [])));
+
+// seed-audit-trail — repo-level scan of db-meta/patches (outside srcDir);
+// always-on when db-meta/snapshot-entities.json declares auditable
+// entities. `seed_audit_exempt` grandfathers shipped pre-rule patches.
+violations.push(...checkSeedAuditTrail(process.cwd(), new Set(cfg.seed_audit_exempt ?? [])));
 
 // truncated-sibling — always-on; sweeps every file in the REPO (cwd),
 // not just srcDir and not just .ts — the classic victims are root files

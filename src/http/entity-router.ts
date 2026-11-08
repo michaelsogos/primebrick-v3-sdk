@@ -83,6 +83,9 @@ export interface EntityServiceLike<TEntity = unknown> {
   auditActors?(): Promise<{ value: string; label: string }[]>;
   /** Row stream for `export` — the SAME query/filter contract as `list`. */
   stream(query: Record<string, unknown>): AsyncIterable<Record<string, unknown>>;
+  /** The entity's `dict` facet — populated by dal-pg `DomainService` when
+   *  the entity class carries `@Dict`; injected into served meta. */
+  dictFacet?: import("@primebrick/core").DictFacet;
 }
 
 export type EntityAction =
@@ -462,6 +465,7 @@ function assembleMeta(
       expose_editing_value: true,
     },
     actions: deriveActions(cfg, registered),
+    ...(cfg.service.dictFacet !== undefined ? { dict: cfg.service.dictFacet } : {}),
   };
 }
 
