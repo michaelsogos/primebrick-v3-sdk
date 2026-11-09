@@ -123,6 +123,7 @@ type RuleId =
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
+  | "i18n-key-grammar"
   | "seed-audit-trail"
   | "nav-decl-access"
   | "schema-honest-format"
@@ -138,6 +139,7 @@ type RuleId =
   | "panel-switch"
   | "panel-search-clearable"
   | "panel-footer-chrome"
+  | "panel-footer-start"
   | "panel-toolbar-tools"
   | "native-control"
   | "field-stock-chrome"
@@ -182,7 +184,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-layout", "panel-content-scroll", "panel-raw-label",
   "panel-control-id", "panel-select-dropdown", "panel-button-testid",
   "panel-switch", "panel-search-clearable",
-  "panel-footer-chrome", "panel-toolbar-tools",
+  "panel-footer-chrome", "panel-footer-start", "panel-toolbar-tools",
   "field-stock-chrome",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
 ]);
@@ -229,6 +231,7 @@ const GATED_LINE_RULES: Rule[] = [
   // them inert as line rules: the FOOT contract is "content through
   // <SheetPanelFooter>" and tools belong inside {#snippet toolbar}.
   { id: "panel-footer-chrome", pattern: /(?!)/, hint: "panel FOOT content goes through <SheetPanelFooter> — right-aligned natural-width CTAs on the layout-owned muted strip (w-full/p-3 wrapper footers are the old pattern)" },
+  { id: "panel-footer-start", pattern: /(?!)/, hint: "SheetPanelFooter {#snippet start} carries legend/meta content only (KeyboardHints, meta text) — interactive controls (Button) are CTAs and live in the right-aligned group" },
   { id: "panel-toolbar-tools", pattern: /(?!)/, hint: "tools live inside {#snippet toolbar} (mode/connector ButtonGroup, SearchInput) — a tool in CONTENT lands under the toolbar border-b and reads as a second header" },
   // Stock vendored-kit color tokens have no sanctioned use in field chrome:
   // fills are bg-background / bg-transparent / bg-muted and the focus border
@@ -689,13 +692,47 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       I18N_KEY_LITERAL.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = I18N_KEY_LITERAL.exec(line))) {
-        if (!i18nNamespaces.has(m[1])) {
+        const lit = m[1]!;
+        if (!lit.includes(".")) continue; // field-name, not an i18n key
+        const ns = lit.split(".")[0]!;
+        if (!i18nNamespaces.has(ns)) {
           out.push({
             file: rel,
             line: i + 1,
             rule: "i18n-key-ns" as RuleId,
             text: line.trim(),
-            hint: `i18n key namespace '${m[1]}' is outside this repo's allowlist {${[...i18nNamespaces].join(", ")}} — declarations may reference own + CORE (app/system) namespaces only`,
+            hint: `i18n key namespace '${ns}' is outside this repo's allowlist {${[...i18nNamespaces].join(", ")}} — declarations may reference own + CORE (app/system) namespaces only`,
+          });
+        } else if (!KEY_GRAMMAR.test(lit)) {
+          out.push({
+            file: rel,
+            line: i + 1,
+            rule: "i18n-key-grammar" as RuleId,
+            text: line.trim(),
+            hint: `i18n key '${lit}' violates the segment grammar — every segment must be [a-z0-9_]+ (lowercase snake_case), ≥2 dot-separated segments`,
+          });
+        }
+      }
+      T_CALL_LITERAL.lastIndex = 0;
+      while ((m = T_CALL_LITERAL.exec(line))) {
+        const lit = m[1]!;
+        if (!lit.includes(".")) continue;
+        const ns = lit.split(".")[0]!;
+        if (!i18nNamespaces.has(ns)) {
+          out.push({
+            file: rel,
+            line: i + 1,
+            rule: "i18n-key-ns" as RuleId,
+            text: line.trim(),
+            hint: `t() references namespace '${ns}' outside this repo's allowlist {${[...i18nNamespaces].join(", ")}} — callsites may reference own + CORE (app/system) namespaces only`,
+          });
+        } else if (!KEY_GRAMMAR.test(lit)) {
+          out.push({
+            file: rel,
+            line: i + 1,
+            rule: "i18n-key-grammar" as RuleId,
+            text: line.trim(),
+            hint: `t() literal '${lit}' violates the segment grammar — every segment must be [a-z0-9_]+ (lowercase snake_case), ≥2 dot-separated segments`,
           });
         }
       }
@@ -821,6 +858,50 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     }
   }
 
+  // panel-footer-start — inside <SheetPanelFooter>, {#snippet start} is the
+  // LEFT slot reserved for legend/meta content (KeyboardHints, meta text).
+  // Interactive controls found there are CTAs misplaced out of the
+  // right-aligned group — flag them.
+  const panelStartRule = LINE_RULES.find((r) => r.id === "panel-footer-start");
+  if (
+    rules.has("panel-footer-start") &&
+    panelStartRule &&
+    !panelStartRule.allowPaths?.test(rel) &&
+    (!panelStartRule.appliesTo || panelStartRule.appliesTo.test(rel)) &&
+    lines.some((l) => l.includes("<SheetPanelFooter"))
+  ) {
+    // Ranges: <SheetPanelFooter …> … </SheetPanelFooter> → {#snippet start}
+    // … {/snippet} inside them → interactive lines inside the snippet.
+    const footerRanges: [number, number][] = [];
+    let footOpen = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/<SheetPanelFooter\b/.test(lines[i])) footOpen = i;
+      if (footOpen >= 0 && /<\/SheetPanelFooter>/.test(lines[i])) {
+        footerRanges.push([footOpen, i]);
+        footOpen = -1;
+      }
+    }
+    for (const [fa, fb] of footerRanges) {
+      let startOpen = -1;
+      for (let i = fa + 1; i < fb; i++) {
+        if (/\{#snippet\s+start\b/.test(lines[i])) startOpen = i;
+        else if (/\{\/snippet\}/.test(lines[i])) startOpen = -1;
+        else if (startOpen >= 0 && /<Button\b|<button\b/.test(lines[i])) {
+          const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
+          if (!isExempted(exempt, "panel-footer-start")) {
+            out.push({
+              file: rel,
+              line: i + 1,
+              rule: "panel-footer-start",
+              text: lines[i].trim(),
+              hint: "CTAs live in the right-aligned SheetPanelFooter group — {#snippet start} is for legend/meta content only",
+            });
+          }
+        }
+      }
+    }
+  }
+
   // panel-toolbar-tools — when a panel declares {#snippet toolbar}, tool
   // elements (segmented ButtonGroup, SearchInput) must live INSIDE that
   // snippet range: a tool rendered in CONTENT lands under the toolbar's
@@ -896,14 +977,22 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
 // segment must be in the repo's configured `i18n_namespaces` allowlist.
 // Single-segment values (`sort_key: "key"` — a field name, not i18n) are
 // skipped by requiring a dot in the literal.
-const I18N_KEY_LITERAL = /\b(?:\w*_key|tooltip|tooltip_title)\s*:\s*["'`]([a-z][a-z0-9_]*)\.[a-z0-9_.]*["'`]/g;
+// i18n-key-grammar — same literal, full capture: every dot-separated
+// segment must be `[a-z0-9_]+` (the ONE grammar, mirrors @primebrick/core
+// TRANSLATION_KEY_GRAMMAR — this tool is zero-dep by design). Also covers
+// `t(`/`$t(` callsite literals via T_CALL_LITERAL below.
+const KEY_GRAMMAR = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
+const I18N_KEY_LITERAL = /\b(?:\w*_key|tooltip|tooltip_title)\s*:\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
+const T_CALL_LITERAL = /\b\$?t\(\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
 
 // i18n-sql-ns — db-meta seed boundary: a patch may insert translation keys
 // only inside the namespace owned by the target schema. Canonical rule
 // (mirrors @primebrick/core `translationKeyNamespace` — this tool is
 // zero-dep by design): `public` → `app`, else the schema name itself.
 const SQL_INSERT_TRANSLATIONS = /INSERT\s+INTO\s+"?(\w+)"?\.translations/i;
-const SQL_TUPLE_KEY = /\(\s*'([a-z][a-z0-9_]*)\./g;
+// First tuple literal when key-shaped (`ns.rest` — no `'` inside, so `[^']*`
+// is safe): captures the WHOLE key so grammar applies, not just the prefix.
+const SQL_TUPLE_KEY = /\(\s*'([a-z][a-z0-9_]*\.[^']*)'/g;
 
 function sqlKeyNamespace(schema: string): string {
   return schema === "public" ? "app" : schema;
@@ -931,13 +1020,22 @@ function checkTranslationSeedPatches(repoRoot: string, exemptFiles: ReadonlySet<
         let m: RegExpExecArray | null;
         while ((m = SQL_TUPLE_KEY.exec(line))) {
           const expected = sqlKeyNamespace(targetSchema);
-          if (m[1] !== expected) {
+          const lit = m[1]!;
+          if (!lit.startsWith(`${expected}.`)) {
             out.push({
               file: `db-meta/patches/${f}`,
               line: i + 1,
               rule: "i18n-sql-ns" as RuleId,
               text: line.trim(),
               hint: `keys seeded into ${targetSchema}.translations must start with '${expected}.' — a schema owns only its own namespace`,
+            });
+          } else if (!KEY_GRAMMAR.test(lit)) {
+            out.push({
+              file: `db-meta/patches/${f}`,
+              line: i + 1,
+              rule: "i18n-key-grammar" as RuleId,
+              text: line.trim(),
+              hint: `seeded key '${lit}' violates the segment grammar — every segment must be [a-z0-9_]+ (lowercase snake_case), ≥2 dot-separated segments`,
             });
           }
         }
