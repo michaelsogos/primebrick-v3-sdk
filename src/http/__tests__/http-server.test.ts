@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { createHttpServer } from "../http-server.js";
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
+import { createHttpServer, resolveHttpBindHost } from "../http-server.js";
 import { HealthCheck } from "../health-check.js";
 import { extJsonParse } from "../../json/ext-json.js";
 import type { Server } from "http";
@@ -100,5 +100,62 @@ describe("HealthCheck", () => {
     const hc = new HealthCheck(dbPing, { bad: async () => ({ ok: false }) });
     const results = await hc.runAll();
     expect(hc.isHealthy(results)).toBe(false);
+  });
+});
+
+describe("resolveHttpBindHost", () => {
+  const originalEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalEnv;
+  });
+
+  it("defaults to 127.0.0.1 outside production", () => {
+    delete process.env.NODE_ENV;
+    expect(resolveHttpBindHost(null)).toBe("127.0.0.1");
+  });
+
+  it("defaults to 0.0.0.0 under NODE_ENV=production", () => {
+    process.env.NODE_ENV = "production";
+    expect(resolveHttpBindHost(null)).toBe("0.0.0.0");
+  });
+
+  it("an explicit config value wins in every environment", () => {
+    delete process.env.NODE_ENV;
+    expect(resolveHttpBindHost("::1")).toBe("::1");
+    process.env.NODE_ENV = "production";
+    expect(resolveHttpBindHost("::")).toBe("::");
+    expect(resolveHttpBindHost("10.0.0.5")).toBe("10.0.0.5");
+  });
+});
+
+describe("HttpServer bind host", () => {
+  it("binds IPv4 loopback by default — IPv6 loopback stays unreachable", async () => {
+    const server = await createHttpServer({ port: 0 });
+    try {
+      const addr = server.address();
+      expect(addr && typeof addr === "object" ? addr.address : addr).toBe("127.0.0.1");
+      const port = (addr as { port: number }).port;
+      const { status } = await fetchUrl(`http://127.0.0.1:${port}/health`);
+      expect(status).toBe(200);
+      await expect(fetchUrl(`http://[::1]:${port}/health`)).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("binds IPv6 loopback when hostname is ::1 — IPv4 stays unreachable", async () => {
+    const server = await createHttpServer({ port: 0, hostname: "::1" });
+    try {
+      const addr = server.address();
+      expect(addr && typeof addr === "object" ? addr.address : addr).toBe("::1");
+      const port = (addr as { port: number }).port;
+      const { status } = await fetchUrl(`http://[::1]:${port}/health`);
+      expect(status).toBe(200);
+      await expect(fetchUrl(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

@@ -1767,6 +1767,9 @@ The unified health response returned by `/health` on both BE and US.
 | Field | Type | Description |
 |-------|------|-------------|
 | port | `number` |  |
+| hostname | `string` | Address the server binds to. Omitted → `resolveHttpBindHost()` platform
+default. Pass `::` for dual-stack or `::1` for IPv6 loopback when the
+deployment explicitly requires it. |
 | healthCheck | `HealthCheck` |  |
 | serviceName | `string` |  |
 | serviceVersion | `string` | Service version (from package.json) — included in /health response. |
@@ -4030,6 +4033,16 @@ consumed via `DynamicIcon`.
 
 **Type:** `Record<FilterOperator, string>`
 
+### `FILTER_OPERATOR_KEY`
+
+Canonical `FilterOperator → translation-key segment` map — the ONE
+vocabulary joining filter operators to `system.entities.list.operators.*`
+keys. Key segments are `[a-z0-9_]+` (translation-key grammar) — the bare
+operator symbols (`=`, `!=`, `<`, …) can never be segments, so labels are
+looked up through this map, never through the raw operator value.
+
+**Type:** `Record<FilterOperator, string>`
+
 ### `fromPG`
 
 Alias of `dec()` — parse a PostgreSQL `numeric`/`decimal` text value.
@@ -4861,6 +4874,22 @@ jobs, system API keys). Audit columns will record the literal string
 
 **Type:** `Decimal`
 
+### `TRANSLATION_KEY_GRAMMAR`
+
+The ONE key grammar — `[a-z0-9_]+` dot-separated segments, ≥2 segments.
+Shared contract: BE guards, check-standards rules and the per-schema
+`translations_key_shape` CHECK constraint all enforce this exact shape
+(DAL engine and the zero-dep lint keep byte-identical local copies —
+change here, mirror there).
+
+**Type:** `RegExp`
+
+### `TRANSLATION_KEY_SEGMENT`
+
+Single-segment grammar — the unit the full-key grammar repeats.
+
+**Type:** `RegExp`
+
 ### `TYPE_CAPABILITIES`
 
 Capability matrix keyed by ConfigType. Frozen at module init — treat as
@@ -5393,10 +5422,6 @@ Register the identity provider once at boot:
 | p | `InternalIdentityProvider` |  |
 
 ### `createHttpServer(options): Promise<Server<typeof IncomingMessage, typeof ServerResponse>>`
-
-Minimal HTTP server with health endpoint. Uses native http module (no Express).
-All errors (unhandled routes, route handler crashes, auth errors) are returned
-as RFC 7807 Problem Details JSON — same format as the BE error handler.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6395,6 +6420,16 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 |-----------|------|-------------|
 | raw | `unknown` |  |
 
+### `isValidTranslationKey(key): boolean`
+
+`true` when every segment is `[a-z0-9_]+` and the key is namespaced
+(≥2 segments). Namespace *ownership* is a separate check —
+compare `keyNamespaceOf(key)` against `translationKeyNamespace(schema)`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+
 ### `isValidUrl(v): boolean`
 
 | Parameter | Type | Description |
@@ -6930,6 +6965,23 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 
 Clear the singleton (for tests or graceful shutdown).
 
+### `resolveHttpBindHost(configured): string`
+
+One bind-host policy for the whole stack. `server.listen(port)` with no
+host binds the `::` wildcard on Windows/Bun — an IPv6 socket that also
+accepts IPv4-mapped traffic, shows up as `[::]` in netstat, and exposes
+the port on every interface. Explicit host keeps the bind honest:
+
+- `configured` (the `http_bind_host` config row, US services only) wins —
+  the sanctioned opt-in for `::` (dual-stack), `::1`, `0.0.0.0`, a LAN IP.
+- absent → `0.0.0.0` under `NODE_ENV=production` (containers/LB need a
+  reachable socket — IPv4 wildcard, never an implicit IPv6 one);
+  `127.0.0.1` otherwise (dev services never leave the loopback by accident).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| configured | `string \| null` |  |
+
 ### `resolvePath(payload, path): unknown`
 
 Minimal JSONPath resolver: `$` = root, `$.a.b.c` = nested lookup.
@@ -7413,6 +7465,16 @@ Wire form — `"…d"` suffixed string.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `translationKeyGrammarError(key): string \| null`
+
+First grammar violation as a human-readable reason, `null` when legal.
+Consumers compose it into their own error shape (HTTP 400, engine
+throw, lint hint).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
 
 ### `translationKeyNamespace(schema): string`
 

@@ -70,6 +70,7 @@ import {
   GracefulShutdown,
   NatsClient,
   createHttpServer,
+  resolveHttpBindHost,
   HealthCheck,
   requireEnv,
   assertDbEnv,
@@ -752,6 +753,9 @@ export async function createMicroservice(
 
   const healthCheck = new HealthCheck(healthCheckPort, customChecks);
   const httpPort = parseInt(configLoader.require("http_port"), 10);
+  // `http_bind_host` config row = opt-in override (`::`, `::1`, `0.0.0.0`,
+  // LAN IP); absent → platform default (0.0.0.0 prod / 127.0.0.1 dev).
+  const httpBindHost = resolveHttpBindHost(configLoader.get("http_bind_host"));
 
   // Route-handler enforcement — the service surface is closed-by-design:
   // only factory-produced handlers (makeRpcRouter / makeOpenApiHandler /
@@ -813,6 +817,7 @@ export async function createMicroservice(
     serviceName: options.serviceName,
     serviceVersion,
     serviceUrl: baseUrl,
+    hostname: httpBindHost,
     routeHandler,
     clientShieldRegistry,
     identityExemptPaths: options.identityExemptPaths,
