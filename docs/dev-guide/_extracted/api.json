@@ -79324,9 +79324,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/http-server.ts",
-					"line": 88,
+					"line": 91,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/http-server.ts#L88"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/http-server.ts#L91"
 				}
 			],
 			"signatures": [
@@ -79339,9 +79339,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/http-server.ts",
-							"line": 88,
+							"line": 91,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/http-server.ts#L88"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/http-server.ts#L91"
 						}
 					],
 					"parameters": [

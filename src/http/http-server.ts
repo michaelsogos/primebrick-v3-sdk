@@ -82,7 +82,10 @@ function sendRfcError(
  *   `127.0.0.1` otherwise (dev services never leave the loopback by accident).
  */
 export function resolveHttpBindHost(configured?: string | null): string {
-  return configured ?? (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+  // An empty/blank row is semantically absent — without this guard
+  // listen(port, "") would silently re-bind the :: wildcard this fixes.
+  const host = configured?.trim();
+  return host || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
 }
 
 export async function createHttpServer(options: HttpServerOptions): Promise<Server> {

@@ -121,6 +121,12 @@ describe("resolveHttpBindHost", () => {
     expect(resolveHttpBindHost(null)).toBe("0.0.0.0");
   });
 
+  it("treats an empty/blank configured value as absent", () => {
+    delete process.env.NODE_ENV;
+    expect(resolveHttpBindHost("")).toBe("127.0.0.1");
+    expect(resolveHttpBindHost("   ")).toBe("127.0.0.1");
+  });
+
   it("an explicit config value wins in every environment", () => {
     delete process.env.NODE_ENV;
     expect(resolveHttpBindHost("::1")).toBe("::1");
