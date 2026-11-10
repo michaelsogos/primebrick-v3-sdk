@@ -31,6 +31,22 @@
  *                   dependent (esbuild/tsx never emits it; bun collapses
  *                   unions to the concrete type). Without an explicit option,
  *                   an optional property silently snapshots as NOT NULL.
+ *   entity-type-declared
+ *                   In @Entity classes, a column prop whose annotation maps
+ *                   to NON-text storage (`Date`, `bigint`, `number`,
+ *                   `boolean`, `UUID`, `Decimal`, `Vector`, `ISODate`,
+ *                   `ISOTime`, `unknown`/`any`/`object`/`Record`, arrays,
+ *                   `Uint8Array`/`Buffer`) MUST carry a decorator-visible
+ *                   type declaration: `@Column({ jsType })`, an explicit
+ *                   `pgType`, a semantic-pin decorator (@AuditableField /
+ *                   @DeletableField / @SynchronizableField), or a
+ *                   non-manual @Key (identity keys pin int8). The TS
+ *                   annotation is erased at transpile — without the option
+ *                   the column silently resolves `pg_type:"text"` at
+ *                   runtime (wrong widget, wrong flags, lying contract,
+ *                   missing ILIKE text-cast → 42883 on search).
+ *                   `string`/string-literal-union and unknown named aliases
+ *                   are NOT flagged — they legitimately map to text.
  *   truncated-sibling
  *                   A file whose name is a proper prefix of a sibling's name
  *                   with byte-identical content — the signature of a write
@@ -118,7 +134,9 @@ type RuleId =
   | "new-repository"
   | "pool-ping"
   | "entity-nullable-explicit"
+  | "entity-type-declared"
   | "column-flag-defaults"
+  | "error-detail-stringify"
   | "dal-access"
   | "layer-repo-import"
   | "i18n-key-ns"
@@ -138,9 +156,11 @@ type RuleId =
   | "panel-button-testid"
   | "panel-switch"
   | "panel-search-clearable"
+  | "panel-raw-input"
   | "panel-footer-chrome"
   | "panel-footer-start"
   | "panel-toolbar-tools"
+  | "panel-chrome-class"
   | "native-control"
   | "field-stock-chrome"
   | "i18n-entity-fallback"
@@ -159,6 +179,10 @@ interface Rule {
 
 const LINE_RULES: Rule[] = [
   { id: "ext-json", pattern: /\bJSON\.(?:stringify|parse)\b/, hint: "use extJsonStringify/extJsonParse" },
+  // Serialized content in `detail`/`message`/`extra` fields is a contract
+  // violation: `detail` carries human text, structured payloads live in
+  // `extra` as NATIVE objects (the body serializer owns the only encode).
+  { id: "error-detail-stringify", pattern: /(?:detail|message|error_detail|extra)\s*[:=]\s*[^\n;]*\b(?:JSON\.stringify|extJsonStringify)|\b(?:new\s+\w*Error|sendRfcError|replyError)\s*\([^)\n]*\b(?:JSON\.stringify|extJsonStringify)/, hint: "never serialize into error detail/message/extra — detail is human text; structured payloads go in `extra` as native objects" },
   { id: "pg-import", pattern: /(?:from\s+["']pg["']|require\(\s*["']pg["']\s*\))/, hint: "driver access only via dal-pg" },
   { id: "pg-pool", pattern: /\bnew\s+Pool\s*\(/, hint: "pools are owned by the Dal gateway" },
   { id: "raw-query", pattern: /\.query\s*\(/, hint: "raw SQL — use Repository/entity DSL" },
@@ -183,8 +207,9 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "dal-access", "layer-repo-import", "raw-switch", "button-variant-toolbar",
   "panel-layout", "panel-content-scroll", "panel-raw-label",
   "panel-control-id", "panel-select-dropdown", "panel-button-testid",
-  "panel-switch", "panel-search-clearable",
+  "panel-switch", "panel-search-clearable", "panel-raw-input",
   "panel-footer-chrome", "panel-footer-start", "panel-toolbar-tools",
+  "panel-chrome-class",
   "field-stock-chrome",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
 ]);
@@ -212,7 +237,7 @@ const GATED_LINE_RULES: Rule[] = [
   // the never-match pattern keeps the line loop inert.
   { id: "panel-layout", pattern: /(?!)/, hint: "every sheet panel mounts <SheetPanelLayout> as its root anatomy (header/toolbar/content/footer)" },
   { id: "panel-content-scroll", pattern: /contentClass\s*=\s*["'{`][^"'`}]*\boverflow\b/, hint: "CONTENT is the only scrollable region — SheetPanelLayout owns overflow; contentClass carries padding/spacing only" },
-  { id: "panel-raw-label", pattern: /<label[\s>]/, hint: "field labels come from PrimeField/FormField — a raw <label> bypasses the icon/help/id contract" },
+  { id: "panel-raw-label", pattern: /<(?:label|Label)[\s/>]/, hint: "field labels come from PrimeField/FormField — a raw <label> or the bare <Label> component bypasses the icon/help/id contract" },
   { id: "panel-control-id", pattern: /\{#snippet\s+control\(\s*\)\}/, hint: "the control snippet MUST destructure { id } and apply it to the control — the label for/id pair is structural, not optional" },
   { id: "panel-select-dropdown", pattern: /\bDropdownMenuCheckboxItem\b|closeOnSelect\s*=/, hint: "select anatomy goes through the dispatcher/ComboSelect — hand-built dropdown selects are the duplicated-filter drift" },
   // panel-button-testid — findings come from the structural pass: the
@@ -226,6 +251,10 @@ const GATED_LINE_RULES: Rule[] = [
   // the shared trailing-CTA anatomy, not a per-panel choice.
   { id: "panel-switch", pattern: /<Switch[\s>/]/, hint: "binary/mode toggles inside panels are ButtonGroup segmented (mode buttons, aria-pressed) — raw Switch has no sanctioned use in sheet-panel anatomy" },
   { id: "panel-search-clearable", pattern: /clearable\s*=\s*[{("'`]?false/, hint: "the eraser affordance is structural (disabled when empty) — a panel must not opt out of it" },
+  // bare <Input> in a panel is the primitive without the contract —
+  // TextInput (fields) and SearchInput (searches) both OWN the eraser +
+  // trailing-CTA anatomy; raw Input is for inside-component use only.
+  { id: "panel-raw-input", pattern: /<Input[\s/>]/, hint: "panel text inputs MUST be TextInput (fields) or SearchInput (searches) — the eraser affordance is structural and component-owned; bare <Input> is composite-internal only" },
   // panel-footer-chrome / panel-toolbar-tools — findings come from the
   // structural pass in checkFile (snippet-range aware). Never-match keeps
   // them inert as line rules: the FOOT contract is "content through
@@ -233,6 +262,10 @@ const GATED_LINE_RULES: Rule[] = [
   { id: "panel-footer-chrome", pattern: /(?!)/, hint: "panel FOOT content goes through <SheetPanelFooter> — right-aligned natural-width CTAs on the layout-owned muted strip (w-full/p-3 wrapper footers are the old pattern)" },
   { id: "panel-footer-start", pattern: /(?!)/, hint: "SheetPanelFooter {#snippet start} carries legend/meta content only (KeyboardHints, meta text) — interactive controls (Button) are CTAs and live in the right-aligned group" },
   { id: "panel-toolbar-tools", pattern: /(?!)/, hint: "tools live inside {#snippet toolbar} (mode/connector ButtonGroup, SearchInput) — a tool in CONTENT lands under the toolbar border-b and reads as a second header" },
+  // panel-chrome-class — findings come from the structural pass: a stock
+  // component's opening tag + its class attribute may span lines, so the
+  // line loop cannot see them together. Never-match keeps it inert here.
+  { id: "panel-chrome-class", pattern: /(?!)/, hint: "stock component chrome is the contract — class= carries LAYOUT only (min-w-0/w-full/grow/shrink/self/margins/position); height, font size/weight, padding, radius and shadows are component-owned" },
   // Stock vendored-kit color tokens have no sanctioned use in field chrome:
   // fills are bg-background / bg-transparent / bg-muted and the focus border
   // comes from the variant chrome (foreground/50 ghost, primary-gradient
@@ -300,7 +333,7 @@ function loadStandardsConfig(): StandardsConfig {
 // single-line; the block above a property is collected via @/comment prefix.
 const CLASS_DECL = /^\s*(?:export\s+)?(?:abstract\s+)?class\s+\w+/;
 const ENTITY_PROP_OPTIONAL =
-  /^\s*(?:(?:public|private|protected|readonly|declare|static)\s+)*([A-Za-z_]\w*)\s*(\?)?\s*:\s*(.+?);?\s*(?:\/\/.*)?$/;
+  /^\s*(?:(?:public|private|protected|readonly|declare|static)\s+)*([A-Za-z_]\w*)\s*([?!])?\s*:\s*(.+?);?\s*(?:\/\/.*)?$/;
 const NULL_UNION = /\|\s*null\b/;
 const NULLABLE_IMPLYING_DECORATOR = /@(?:DeletableField|CloneField|IsNotColumn)\b/;
 
@@ -312,6 +345,21 @@ function decoratorBlockAbove(lines: string[], i: number): string {
   return block;
 }
 
+type ClassScope = { depth: number; entity: boolean; pending: boolean };
+
+/** Pop closed class scopes; a `pending` scope is a multi-line class
+ *  declaration (`class X` … `extends Y` … `{`) whose `{` hasn't arrived
+ *  yet — it must NOT pop on the next line (depth still ≤ entry depth). */
+function popClosedScopes(stack: ClassScope[], depth: number, line: string): void {
+  while (stack.length && !stack[stack.length - 1].pending && depth <= stack[stack.length - 1].depth)
+    stack.pop();
+  const top = stack[stack.length - 1];
+  if (top?.pending) {
+    if (line.includes("{")) top.pending = false;
+    else if (line.includes(";")) stack.pop(); // `declare class X;` — no body
+  }
+}
+
 function checkEntityNullableExplicit(
   lines: string[],
   rel: string,
@@ -319,13 +367,13 @@ function checkEntityNullableExplicit(
   exemptAt: (i: number) => { rules: Set<string>; hasReason: boolean } | null,
 ): Violation[] {
   const out: Violation[] = [];
-  const stack: { depth: number; entity: boolean }[] = [];
+  const stack: ClassScope[] = [];
   let depth = 0;
   const inEntity = () => stack.some((s) => s.entity);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    while (stack.length && depth <= stack[stack.length - 1].depth) stack.pop();
+    popClosedScopes(stack, depth, line);
 
     if (CLASS_DECL.test(line)) {
       const startDepth = depth;
@@ -333,7 +381,11 @@ function checkEntityNullableExplicit(
         if (ch === "{") depth++;
         if (ch === "}") depth--;
       }
-      stack.push({ depth: startDepth, entity: /@Entity\b/.test(decoratorBlockAbove(lines, i)) });
+      stack.push({
+        depth: startDepth,
+        entity: /@Entity\b/.test(decoratorBlockAbove(lines, i)),
+        pending: !line.includes("{"),
+      });
       continue;
     }
 
@@ -365,6 +417,121 @@ function checkEntityNullableExplicit(
               hint: nullableDecl
                 ? "optional/null-union entity prop needs @Column({ nullable: true }) or @DeletableField/@CloneField"
                 : "non-optional entity prop must not declare nullable: true — drop it or make the prop optional",
+            });
+          }
+        }
+      }
+    }
+
+    for (const ch of line) {
+      if (ch === "{") depth++;
+      if (ch === "}") depth--;
+    }
+  }
+  return out;
+}
+
+// ── entity-type-declared ────────────────────────────────────────────────
+// Structural rule (same class-scope walker as entity-nullable-explicit): a
+// column prop whose annotation maps to NON-text pg storage must carry a
+// runtime-visible type declaration — `jsType:`/`pgType:` in the column
+// decorator options, a semantic-pin decorator (audit/deletable/
+// synchronizable pin their storage by contract), or a non-manual @Key
+// (identity keys pin int8). The annotation is erased at transpile so a
+// prop without declaration silently resolves `pg_type:"text"` at runtime.
+// Exempt: @IsNotColumn/@Calculated (no physical column), `string`/
+// string-literal-union annotations (text IS their storage), and unknown
+// named aliases (could be string unions — unresolvable structurally).
+const TYPE_DECL_OPTION = /\b(?:jsType|pgType)\s*:/;
+const SEMANTIC_PIN_DECORATOR = /@(?:AuditableField|DeletableField|SynchronizableField)\b/;
+const NON_COLUMN_DECORATOR = /@(?:IsNotColumn|Calculated)\b/;
+const COLUMN_DECORATOR = /@(?:Column|Key|Unique|Index|ForeignKey|PartitionField|CloneField)\b/;
+const KEY_IDENTITY_DECORATOR = /@Key\b/;
+const KEY_MANUAL_GENERATED = /generated\s*:\s*["']manual["']/;
+// Annotations that statically map to non-text storage — mirrors
+// pgTypeFromAnnotation. `number` is included (float8 inference; int4
+// columns must declare pgType). Named aliases are deliberately absent.
+const NON_TEXT_ANNOTATION =
+  /^(?:Date|bigint|BigInt|number|Number|boolean|Boolean|UUID|Decimal|Vector|ISODate|ISOTime|unknown|any|object|Record|Uint8Array|Buffer)$/;
+
+/** First annotation token that maps to non-text storage, or null when the
+ *  prop's annotation is text-compatible/unresolvable (no flag needed). */
+function nonTextAnnotationToken(typeText: string): string | null {
+  const tokens = typeText
+    .replace(/;\s*$/, "")
+    .split("|")
+    .map((t) => t.trim())
+    .filter((t) => t !== "null" && t !== "undefined" && t !== "");
+  for (const t of tokens) {
+    if (t.endsWith("[]") || t.startsWith("Array<")) return t;
+    if (t.startsWith("Record<") || t.startsWith("{")) return t;
+    if (NON_TEXT_ANNOTATION.test(t)) return t;
+  }
+  return null;
+}
+
+function checkEntityTypeDeclared(
+  lines: string[],
+  rel: string,
+  isExempted: (exempt: { rules: Set<string>; hasReason: boolean } | null, id: string) => boolean,
+  exemptAt: (i: number) => { rules: Set<string>; hasReason: boolean } | null,
+): Violation[] {
+  const out: Violation[] = [];
+  const stack: ClassScope[] = [];
+  let depth = 0;
+  const inEntity = () => stack.some((s) => s.entity);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    popClosedScopes(stack, depth, line);
+
+    if (CLASS_DECL.test(line)) {
+      const startDepth = depth;
+      for (const ch of line) {
+        if (ch === "{") depth++;
+        if (ch === "}") depth--;
+      }
+      stack.push({
+        depth: startDepth,
+        entity: /@Entity\b/.test(decoratorBlockAbove(lines, i)),
+        pending: !line.includes("{"),
+      });
+      continue;
+    }
+
+    if (inEntity()) {
+      const m = line.match(ENTITY_PROP_OPTIONAL);
+      const offending = m ? nonTextAnnotationToken(m[3]) : null;
+      if (m && offending) {
+        const block = decoratorBlockAbove(lines, i);
+        // A non-manual @Key pins int8 — it covers `bigint` annotations only;
+        // any other non-string annotation on a key still needs an explicit
+        // pgType (the pin would otherwise force int8 over e.g. uuid).
+        const keyCovers =
+          KEY_IDENTITY_DECORATOR.test(block) &&
+          !KEY_MANUAL_GENERATED.test(block) &&
+          /^(?:bigint|BigInt)$/.test(offending);
+        const bad =
+          COLUMN_DECORATOR.test(block) &&
+          !keyCovers &&
+          !TYPE_DECL_OPTION.test(block) &&
+          !SEMANTIC_PIN_DECORATOR.test(block) &&
+          !NON_COLUMN_DECORATOR.test(block);
+        if (bad) {
+          const exempt =
+            exemptAt(i) ??
+            block
+              .split("\n")
+              .map((l) => parseExempt(l))
+              .find(Boolean) ??
+            null;
+          if (!isExempted(exempt, "entity-type-declared")) {
+            out.push({
+              file: rel,
+              line: i + 1,
+              rule: "entity-type-declared",
+              text: line.trim(),
+              hint: `"${offending}" column prop needs a runtime type declaration — @Column({ jsType }) or explicit pgType — the annotation is erased at transpile and the column silently resolves "text"`,
             });
           }
         }
@@ -509,7 +676,7 @@ const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
   "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
-  "schema-honest-format",
+  "schema-honest-format", "entity-type-declared",
 ]);
 const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control"]);
 // `fe` — browser SPA: no base line rules (server-side contracts don't
@@ -745,6 +912,12 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     out.push(...checkEntityNullableExplicit(lines, rel, isExempted, exemptAt));
   }
 
+  if (rules.has("entity-type-declared")) {
+    const exemptAt = (i: number) =>
+      parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
+    out.push(...checkEntityTypeDeclared(lines, rel, isExempted, exemptAt));
+  }
+
   if (rules.has("schema-honest-format")) {
     const exemptAt = (i: number) =>
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
@@ -822,6 +995,52 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
         rule: "panel-button-testid",
         text: line.trim(),
         hint: "interactive controls carry data-testid (<scope>-<purpose>, kebab-case) — E2E locators are brittle-on-purpose by convention",
+      });
+    }
+  }
+
+  // panel-chrome-class — attribute-block pass: on a stock component the
+  // literal class= carries LAYOUT utilities only (min-w-0/w-full/grow/
+  // shrink/self/margins/position). Geometry + typography utilities
+  // (h-N, text-<size>, font-*, p*-N, rounded, ring, shadow, opacity)
+  // reshape the component-owned chrome — the bespoke-look drift. Dynamic
+  // class={expr} is opaque to the audit (shared chrome constants live
+  // there); only literal class strings are checked.
+  const panelChromeRule = LINE_RULES.find((r) => r.id === "panel-chrome-class");
+  if (
+    rules.has("panel-chrome-class") &&
+    panelChromeRule &&
+    !panelChromeRule.allowPaths?.test(rel) &&
+    (!panelChromeRule.appliesTo || panelChromeRule.appliesTo.test(rel))
+  ) {
+    const STOCK_COMP =
+      /<(Input|TextInput|Textarea|ComboSelect|SearchInput|NumericInput|CopyButton|Button|ButtonGroup|Badge|Switch|SwitchField|Checkbox|CheckboxField|Label|Select)\b/;
+    // Token boundary = start-or-whitespace (tailwind classes are
+    // space-separated): `\b` would match `w-0` inside `min-w-0` and `p-1`
+    // inside `gap-1` — both sanctioned layout utilities.
+    const CHROME_UTIL =
+      /(?:^|\s)(?:h-(?:\d|\[)|min-h-|max-h-|w-(?:\d|\[)|text-(?:xs|sm|base|lg|xl|\d+xl|\[)|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|sans|serif|mono)|leading-|tracking-|p[xytblrse]?-(?:\d|\[)|rounded|ring-|shadow-|opacity-)/;
+    const CLASS_ATTR = /\bclass\s*=\s*["']([^"']*)["']/;
+    const exemptAt = (i: number) =>
+      parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCommentOnly(line) || !STOCK_COMP.test(line)) continue;
+      let block = line;
+      for (let j = i + 1; j < lines.length && j - i < 15; j++) {
+        if (lines[j - 1].trimEnd().endsWith(">") || lines[j - 1].trimEnd().endsWith("/>")) break;
+        block += "\n" + lines[j];
+      }
+      const m = block.match(CLASS_ATTR);
+      if (!m || !CHROME_UTIL.test(m[1])) continue;
+      const exempt = exemptAt(i);
+      if (isExempted(exempt, "panel-chrome-class")) continue;
+      out.push({
+        file: rel,
+        line: i + 1,
+        rule: "panel-chrome-class",
+        text: line.trim(),
+        hint: "stock component chrome is the contract — class= carries LAYOUT only (min-w-0/w-full/grow/shrink/self/margins/position); height, font size/weight, padding, radius and shadows are component-owned",
       });
     }
   }
