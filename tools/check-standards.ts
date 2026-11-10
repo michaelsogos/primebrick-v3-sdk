@@ -47,6 +47,10 @@
  *                   missing ILIKE text-cast → 42883 on search).
  *                   `string`/string-literal-union and unknown named aliases
  *                   are NOT flagged — they legitimately map to text.
+ *                   A declared jsType must MATCH the annotation: `Date`
+ *                   takes only "instant", `bigint` only "bigint",
+ *                   `Decimal`/`Vector` only their codec; annotations
+ *                   without a codec take NO jsType (pgType instead).
  *   truncated-sibling
  *                   A file whose name is a proper prefix of a sibling's name
  *                   with byte-identical content — the signature of a write
@@ -453,6 +457,33 @@ const KEY_MANUAL_GENERATED = /generated\s*:\s*["']manual["']/;
 // columns must declare pgType). Named aliases are deliberately absent.
 const NON_TEXT_ANNOTATION =
   /^(?:Date|bigint|BigInt|number|Number|boolean|Boolean|UUID|Decimal|Vector|ISODate|ISOTime|unknown|any|object|Record|Uint8Array|Buffer)$/;
+const JSTYPE_DECLARED = /\bjsType\s*:\s*["']([^"']+)["']/;
+// The only valid jsType per annotation — a `Date` prop can only say
+// "instant", a `bigint` prop only "bigint", etc. Annotations without a
+// codec (UUID/boolean/number/json/arrays) take NO jsType: they declare
+// the physical type via pgType instead.
+const JSTYPE_FOR_ANNOTATION: Record<string, string> = {
+  Date: "instant",
+  Decimal: "decimal",
+  Vector: "vector",
+  bigint: "bigint",
+  BigInt: "bigint",
+};
+
+/** The jsType the annotation REQUIRES, or null when none exists. */
+function expectedJsTypeFor(typeText: string): string | null {
+  const tokens = typeText
+    .replace(/;\s*$/, "")
+    .split("|")
+    .map((t) => t.trim())
+    .filter((t) => t !== "null" && t !== "undefined" && t !== "");
+  for (const t of tokens) {
+    if (t.endsWith("[]") || t.includes("<") || t.startsWith("{")) continue;
+    const j = JSTYPE_FOR_ANNOTATION[t];
+    if (j) return j;
+  }
+  return null;
+}
 
 /** First annotation token that maps to non-text storage, or null when the
  *  prop's annotation is text-compatible/unresolvable (no flag needed). */
@@ -501,38 +532,56 @@ function checkEntityTypeDeclared(
 
     if (inEntity()) {
       const m = line.match(ENTITY_PROP_OPTIONAL);
-      const offending = m ? nonTextAnnotationToken(m[3]) : null;
-      if (m && offending) {
+      if (!m) {
+        // not a prop line
+      } else {
         const block = decoratorBlockAbove(lines, i);
-        // A non-manual @Key pins int8 — it covers `bigint` annotations only;
-        // any other non-string annotation on a key still needs an explicit
-        // pgType (the pin would otherwise force int8 over e.g. uuid).
-        const keyCovers =
-          KEY_IDENTITY_DECORATOR.test(block) &&
-          !KEY_MANUAL_GENERATED.test(block) &&
-          /^(?:bigint|BigInt)$/.test(offending);
-        const bad =
-          COLUMN_DECORATOR.test(block) &&
-          !keyCovers &&
-          !TYPE_DECL_OPTION.test(block) &&
-          !SEMANTIC_PIN_DECORATOR.test(block) &&
-          !NON_COLUMN_DECORATOR.test(block);
-        if (bad) {
-          const exempt =
-            exemptAt(i) ??
-            block
-              .split("\n")
-              .map((l) => parseExempt(l))
-              .find(Boolean) ??
-            null;
-          if (!isExempted(exempt, "entity-type-declared")) {
-            out.push({
-              file: rel,
-              line: i + 1,
-              rule: "entity-type-declared",
-              text: line.trim(),
-              hint: `"${offending}" column prop needs a runtime type declaration — @Column({ jsType }) or explicit pgType — the annotation is erased at transpile and the column silently resolves "text"`,
-            });
+        if (COLUMN_DECORATOR.test(block) && !NON_COLUMN_DECORATOR.test(block)) {
+          const annotation = m[3].replace(/;\s*$/, "").trim();
+          const declaredJs = block.match(JSTYPE_DECLARED)?.[1];
+          const expectedJs = expectedJsTypeFor(m[3]);
+          const offending = nonTextAnnotationToken(m[3]);
+          let hint: string | null = null;
+          if (declaredJs !== undefined) {
+            // A declared jsType must MATCH the annotation — `Date` takes
+            // only "instant", `bigint` only "bigint", and annotations
+            // without a codec (UUID/boolean/number/json/arrays) take NO
+            // jsType at all: they declare storage via pgType.
+            if (declaredJs !== expectedJs) {
+              hint =
+                expectedJs === null
+                  ? `jsType:"${declaredJs}" has no meaning for "${annotation}" — jsType exists only for instant/decimal/vector/bigint props; declare the physical type with pgType`
+                  : `jsType:"${declaredJs}" contradicts the annotation — "${annotation}" props take jsType:"${expectedJs}"`;
+            }
+          } else if (offending !== null) {
+            // A non-manual @Key pins int8 — it covers `bigint` annotations
+            // only; any other non-string annotation on a key still needs
+            // an explicit pgType (the pin would force int8 over e.g. uuid).
+            const keyCovers =
+              KEY_IDENTITY_DECORATOR.test(block) &&
+              !KEY_MANUAL_GENERATED.test(block) &&
+              /^(?:bigint|BigInt)$/.test(offending);
+            if (!keyCovers && !TYPE_DECL_OPTION.test(block) && !SEMANTIC_PIN_DECORATOR.test(block)) {
+              hint = `"${offending}" column prop needs a runtime type declaration — @Column({ jsType }) or explicit pgType — the annotation is erased at transpile and the column silently resolves "text"`;
+            }
+          }
+          if (hint) {
+            const exempt =
+              exemptAt(i) ??
+              block
+                .split("\n")
+                .map((l) => parseExempt(l))
+                .find(Boolean) ??
+              null;
+            if (!isExempted(exempt, "entity-type-declared")) {
+              out.push({
+                file: rel,
+                line: i + 1,
+                rule: "entity-type-declared",
+                text: line.trim(),
+                hint,
+              });
+            }
           }
         }
       }
