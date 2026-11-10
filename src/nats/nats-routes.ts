@@ -27,7 +27,7 @@ import { extJsonParse, extJsonStringify } from "../json/ext-json.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";
 import { enforceNatsRbac, RbacDeniedError } from "../auth/rbac-enforce.js";
 import { AuthError } from "../auth/verify.js";
-import { ValidationError } from "../http/rpc-router.js";
+import { toValidationError, ValidationError } from "../http/rpc-router.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
 import type { AuthUser } from "../auth/types.js";
 import { logger } from "../lifecycle/logger.js";
@@ -181,8 +181,7 @@ function runContract<TReq>(
     const parsed = route.payload_schema ? route.payload_schema.parse(raw) : (raw as TReq);
     return route.validate ? route.validate(parsed) : parsed;
   } catch (e) {
-    if (e instanceof ValidationError) throw e;
-    throw new ValidationError(e instanceof Error ? e.message : String(e));
+    throw toValidationError(e);
   }
 }
 
@@ -316,8 +315,8 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
 
     (async () => {
       for await (const msg of sub) {
-        const replyError = (code: string, message: string) => {
-          if (msg.reply) msg.respond(encode({ error: { code, message } }));
+        const replyError = (code: string, message: string, extra?: Record<string, unknown>) => {
+          if (msg.reply) msg.respond(encode({ error: { code, message, ...(extra ? { extra } : {}) } }));
         };
         const t0 = performance.now();
         try {
@@ -349,7 +348,7 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
           } else if (err instanceof RbacDeniedError) {
             replyError("RBAC_PERMISSION_DENIED", err.message);
           } else if (err instanceof ValidationError) {
-            replyError("VALIDATION_ERROR", err.message);
+            replyError("VALIDATION_ERROR", err.message, err.extra);
           } else {
             logger.error(`${route.subject} request handler error`, { tags: ["nats-routes"], error: err });
             replyError("INTERNAL_ERROR", err instanceof Error ? err.message : String(err));

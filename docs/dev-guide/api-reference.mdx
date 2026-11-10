@@ -897,13 +897,17 @@ Cache-first; falls back to DB on miss.
 |----------|------|-------------|
 | internal_code | `string` | Stable machine code surfaced in the RFC 7807 body — FE error handling
  keys off it (e.g. "VERSION_REQUIRED"), never off the message. |
+| extra | `Record<string, unknown>` | Structured payload surfaced as RFC 7807 `extra` — a NATIVE object (the
+ FE error viewer renders `extra.issues` as a table). Never serialized:
+ `detail`/`message` carry the human-readable summary only. |
 
-#### `ValidationError(message, internal_code)`
+#### `ValidationError(message, internal_code, extra)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | message | `string` |  |
 | internal_code | `string` |  |
+| extra | `Record<string, unknown>` |  |
 
 ## Interfaces
 
@@ -6480,6 +6484,17 @@ First dotted segment of a translation key — `job.entities.x` → `job`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | key | `string` |  |
+
+### `listColumnKeys(columns): { sortable: string[]; searchable: string[]; filterable: string[] }`
+
+Wire key sets derived from the RESOLVED `meta.columns` — sort_key enum,
+`search_in` scope, and `filters[i][field]` allowlists must mirror the
+served contract (system columns are injected by derivation; never
+compute these from the authored column list, which lacks them).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| columns | `MetaColumn[]` |  |
 
 ### `listNonSentinelPermissions(): string[]`
 

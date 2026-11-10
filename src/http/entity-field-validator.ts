@@ -54,7 +54,9 @@ export function entityFieldValidator(
       { partial: opts.partial },
     );
     if (issues.length > 0) {
-      throw new ValidationError(`Entity validation failed: ${summarize(issues)}`);
+      throw new ValidationError(`Entity validation failed: ${summarize(issues)}`, "VALIDATION_ERROR", {
+        issues: issues.map((i) => ({ path: i.path, code: i.code, message: i.message })),
+      });
     }
     return { entity: entity as Record<string, unknown> };
   };

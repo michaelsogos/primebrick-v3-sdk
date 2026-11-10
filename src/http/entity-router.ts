@@ -53,6 +53,7 @@ import {
 import { entityFieldValidator } from "./entity-field-validator.js";
 import {
   makeRpcRouter,
+  toValidationError,
   ValidationError,
   type RouteHandler,
   type RpcRoute,
@@ -332,13 +333,14 @@ function requireUuidParam(ctx: RpcRouteContext): string {
 
 /** Schema validators are plain `(raw) => T` functions — consumers wire
  *  `zodSchema.parse` directly, whose ZodError must surface as HTTP 400,
- *  not an unhandled 500. Any non-ValidationError throw is wrapped. */
+ *  not an unhandled 500. Any non-ValidationError throw is wrapped —
+ *  `toValidationError` lifts `issues[]` into `extra` and keeps `detail`
+ *  human-readable. */
 function runValidator<T>(fn: (input: never) => T, input: unknown): T {
   try {
     return fn(input as never);
   } catch (e) {
-    if (e instanceof ValidationError) throw e;
-    throw new ValidationError(e instanceof Error ? e.message : String(e));
+    throw toValidationError(e);
   }
 }
 
