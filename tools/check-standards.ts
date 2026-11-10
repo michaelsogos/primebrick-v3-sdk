@@ -339,12 +339,31 @@ const CLASS_DECL = /^\s*(?:export\s+)?(?:abstract\s+)?class\s+\w+/;
 const ENTITY_PROP_OPTIONAL =
   /^\s*(?:(?:public|private|protected|readonly|declare|static)\s+)*([A-Za-z_]\w*)\s*([?!])?\s*:\s*(.+?);?\s*(?:\/\/.*)?$/;
 const NULL_UNION = /\|\s*null\b/;
-const NULLABLE_IMPLYING_DECORATOR = /@(?:DeletableField|CloneField|IsNotColumn)\b/;
+// `@Calculated` props are SQL projections, not physical columns: `?` means
+// "may be absent on non-read paths" — presence is never guaranteed — so the
+// optional marker is legal without `nullable:true`; NULL-valued results are
+// declared via @Calculated(expr, { nullable:true }) for the meta channel.
+const NULLABLE_IMPLYING_DECORATOR = /@(?:DeletableField|CloneField|IsNotColumn|Calculated)\b/;
 
 function decoratorBlockAbove(lines: string[], i: number): string {
   let block = "";
-  for (let j = i - 1; j >= 0 && /^\s*(?:@|\/\/|\/\*|\*)/.test(lines[j]); j--) {
-    block = lines[j] + "\n" + block;
+  // Decorator calls may span lines (`@Calculated(\n  expr,\n  { opts }\n)`):
+  // walk up while a decorator-prefix line OR inside an unclosed call —
+  // `)` increments the reverse paren depth, `(` decrements it; the `@` head
+  // line that balances the depth is itself a prefix line, so collection
+  // continues naturally above it (doc comments, stacked decorators).
+  let closeDepth = 0;
+  for (let j = i - 1; j >= 0; j--) {
+    const line = lines[j];
+    for (const ch of line) {
+      if (ch === ")") closeDepth++;
+      if (ch === "(") closeDepth--;
+    }
+    if (closeDepth > 0 || /^\s*(?:@|\/\/|\/\*|\*)/.test(line)) {
+      block = line + "\n" + block;
+      continue;
+    }
+    break;
   }
   return block;
 }
@@ -448,8 +467,11 @@ function checkEntityNullableExplicit(
 // named aliases (could be string unions — unresolvable structurally).
 const TYPE_DECL_OPTION = /\b(?:jsType|pgType)\s*:/;
 const SEMANTIC_PIN_DECORATOR = /@(?:AuditableField|DeletableField|SynchronizableField)\b/;
-const NON_COLUMN_DECORATOR = /@(?:IsNotColumn|Calculated)\b/;
-const COLUMN_DECORATOR = /@(?:Column|Key|Unique|Index|ForeignKey|PartitionField|CloneField)\b/;
+const NON_COLUMN_DECORATOR = /@(?:IsNotColumn)\b/;
+// `@Calculated` counts as a column decorator for entity-type-declared: the
+// annotation is erased identically, and `@Calculated(expr, { pgType })` is
+// its runtime declaration channel.
+const COLUMN_DECORATOR = /@(?:Column|Key|Unique|Index|ForeignKey|PartitionField|CloneField|Calculated)\b/;
 const KEY_IDENTITY_DECORATOR = /@Key\b/;
 const KEY_MANUAL_GENERATED = /generated\s*:\s*["']manual["']/;
 // Annotations that statically map to non-text storage — mirrors
