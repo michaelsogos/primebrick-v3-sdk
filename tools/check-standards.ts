@@ -458,6 +458,16 @@ const KEY_MANUAL_GENERATED = /generated\s*:\s*["']manual["']/;
 const NON_TEXT_ANNOTATION =
   /^(?:Date|bigint|BigInt|number|Number|boolean|Boolean|UUID|Decimal|Vector|ISODate|ISOTime|unknown|any|object|Record|Uint8Array|Buffer)$/;
 const JSTYPE_DECLARED = /\bjsType\s*:\s*["']([^"']+)["']/;
+// `jsType: SomeClass` — a class-ctor declaration (jsonb instance revival),
+// as opposed to a builtin codec string literal above.
+const JSTYPE_CTOR_DECLARED = /\bjsType\s*:\s*([A-Z][A-Za-z0-9_]*)\b/;
+// PascalCase named annotation (`ExecutionConfig`, `RuleFilter[]`) — a class
+// or type-alias whose name is erased at transpile, so it needs a runtime
+// declaration (`jsType:<ctor>` for a class prop, `pgType` for an alias).
+const NAMED_ANNOTATION = /^([A-Z][A-Za-z0-9_]*)(\[\])?$/;
+// `export type X = "a" | "b"` — a string-literal union alias: text storage
+// is already correct, no runtime declaration needed.
+const STRING_UNION_TYPE_DECL = /(?:export\s+)?type\s+([A-Z][A-Za-z0-9_]*)\s*=\s*["'`]/;
 // The only valid jsType per annotation — a `Date` prop can only say
 // "instant", a `bigint` prop only "bigint", etc. Annotations without a
 // codec (UUID/boolean/number/json/arrays) take NO jsType: they declare
@@ -511,6 +521,9 @@ function checkEntityTypeDeclared(
   const stack: ClassScope[] = [];
   let depth = 0;
   const inEntity = () => stack.some((s) => s.entity);
+  const stringUnionNames = new Set(
+    lines.map((l) => l.match(STRING_UNION_TYPE_DECL)?.[1]).filter((n): n is string => n !== undefined),
+  );
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -539,8 +552,10 @@ function checkEntityTypeDeclared(
         if (COLUMN_DECORATOR.test(block) && !NON_COLUMN_DECORATOR.test(block)) {
           const annotation = m[3].replace(/;\s*$/, "").trim();
           const declaredJs = block.match(JSTYPE_DECLARED)?.[1];
+          const declaredJsCtor = block.match(JSTYPE_CTOR_DECLARED)?.[1];
           const expectedJs = expectedJsTypeFor(m[3]);
           const offending = nonTextAnnotationToken(m[3]);
+          const namedAnn = annotation.match(NAMED_ANNOTATION);
           let hint: string | null = null;
           if (declaredJs !== undefined) {
             // A declared jsType must MATCH the annotation — `Date` takes
@@ -553,6 +568,16 @@ function checkEntityTypeDeclared(
                   ? `jsType:"${declaredJs}" has no meaning for "${annotation}" — jsType exists only for instant/decimal/vector/bigint props; declare the physical type with pgType`
                   : `jsType:"${declaredJs}" contradicts the annotation — "${annotation}" props take jsType:"${expectedJs}"`;
             }
+          } else if (declaredJsCtor !== undefined) {
+            // `jsType: <Ctor>` is valid only on a named class annotation and
+            // must name the SAME class — a mismatched ctor revives the wrong
+            // type on every hydration.
+            const annName = namedAnn?.[1];
+            if (!annName || stringUnionNames.has(annName)) {
+              hint = `jsType:${declaredJsCtor} has no meaning for "${annotation}" — a class-ctor jsType belongs on a class-typed prop; declare the physical type with pgType`;
+            } else if (declaredJsCtor !== annName) {
+              hint = `jsType:${declaredJsCtor} contradicts the annotation — "${annotation}" props take jsType:${annName}`;
+            }
           } else if (offending !== null) {
             // A non-manual @Key pins int8 — it covers `bigint` annotations
             // only; any other non-string annotation on a key still needs
@@ -564,6 +589,20 @@ function checkEntityTypeDeclared(
             if (!keyCovers && !TYPE_DECL_OPTION.test(block) && !SEMANTIC_PIN_DECORATOR.test(block)) {
               hint = `"${offending}" column prop needs a runtime type declaration — @Column({ jsType }) or explicit pgType — the annotation is erased at transpile and the column silently resolves "text"`;
             }
+          } else if (
+            namedAnn &&
+            !stringUnionNames.has(namedAnn[1]) &&
+            !TYPE_DECL_OPTION.test(block) &&
+            !SEMANTIC_PIN_DECORATOR.test(block) &&
+            !KEY_IDENTITY_DECORATOR.test(block)
+          ) {
+            // A named (class/type-alias) annotation is erased at transpile
+            // just like `boolean` — without a declaration the column
+            // resolves "text". `jsType:<ctor>` declares a class prop
+            // (instance revival, jsonb storage); `pgType` declares an
+            // alias/Record prop (plain object). String-literal union
+            // aliases are exempt: text is already the honest storage.
+            hint = `"${annotation}" column prop needs a runtime type declaration — @Column({ jsType: ${namedAnn[1]} }) for a class prop, or explicit pgType — the annotation is erased at transpile and the column silently resolves "text"`;
           }
           if (hint) {
             const exempt =
