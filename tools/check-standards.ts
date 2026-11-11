@@ -111,9 +111,16 @@
  *   // standards-exempt-file: <rule-id>[,<rule-id>…] — <reason (required)>
  * A missing/short reason is itself a violation.
  *
+ * Baseline (declared-debt gate): `.devin/check-standards-baseline.json` in
+ * the repo root carries `{ "violations": [{file,rule,text}] }` — entries
+ * suppressed on every run; any violation NOT in the baseline fails.
+ * Identity = file+rule+full line text (line numbers excluded: insertions
+ * elsewhere must not resurrect hidden debt; editing the line IS new debt).
+ * Stale entries warn, never fail. Regenerate: `--write-baseline`.
+ *
  * Usage:
- *   bun tools/check-standards.ts <srcDir> [--profile=consumer|lib|fe] [--tests]
- * Exit 0 = clean, 1 = violations.
+ *   bun tools/check-standards.ts <srcDir> [--profile=consumer|lib|fe] [--tests] [--write-baseline]
+ * Exit 0 = clean, 1 = violations, 2 = malformed baseline/usage.
  *
  * Auto-scan: when the invoked repo contains `fe/src` (remote-module bundle),
  * that tree is ALWAYS scanned too under the `fe` profile + the same
@@ -122,9 +129,13 @@
  * sibling path (`bun ../../primebrick-v3-sdk/tools/check-standards.ts src`).
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
-import { HONEST_FORMAT_HINTS } from "@primebrick/core";
+// Zero-dep by contract: the honesty matrix is imported from the sibling
+// core checkout BY RELATIVE PATH (workspace layout — same shape in CI:
+// checkouts sit side by side). Never @primebrick/core — that would force
+// an install step the tool must not need.
+import { HONEST_FORMAT_HINTS } from "../../primebrick-v3-core/src/honest-format-hints.ts";
 
 type RuleId =
   | "ext-json"
@@ -1503,6 +1514,66 @@ violations.push(...checkSeedAuditTrail(process.cwd(), new Set(cfg.seed_audit_exe
 // not just srcDir and not just .ts — the classic victims are root files
 // (AGENTS.md, package.json) and docs/, which srcDir never covers.
 violations.push(...checkTruncatedSiblings(process.cwd()));
+
+// ── baseline mode ────────────────────────────────────────────────────────────
+// `.devin/check-standards-baseline.json` declares known debt so the gate can
+// enforce "never add debt" mechanically: declared violations are suppressed,
+// anything else fails the run. Identity = file + rule + full line text (line
+// numbers deliberately excluded — insertions elsewhere must not resurrect
+// hidden debt; a content edit IS a new violation). Stale entries (paid debt
+// or moved lines) warn but don't fail — regen with --write-baseline.
+const BASELINE_PATH = join(process.cwd(), ".devin", "check-standards-baseline.json");
+interface BaselineEntry {
+  file: string;
+  rule: string;
+  text: string;
+}
+const baselineKey = (e: { file: string; rule: string; text: string }) =>
+  `${e.file}${e.rule}${e.text.trim()}`;
+
+if (args.includes("--write-baseline")) {
+  const data = {
+    violations: violations.map((v) => ({ file: v.file, rule: v.rule, text: v.text.trim() })),
+  };
+  writeFileSync(BASELINE_PATH, JSON.stringify(data, null, 2) + "\n");
+  console.log(
+    `check-standards: baseline written — ${violations.length} violation(s) declared → ${BASELINE_PATH}`,
+  );
+  process.exit(0);
+}
+
+let baseline: BaselineEntry[] | null = null;
+if (existsSync(BASELINE_PATH)) {
+  try {
+    baseline = (JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as { violations?: BaselineEntry[] })
+      .violations ?? [];
+  } catch {
+    console.error(`check-standards: malformed baseline at ${BASELINE_PATH} — cannot verify debt`);
+    process.exit(2);
+  }
+}
+
+if (baseline) {
+  const declared = new Map<string, number>();
+  for (const e of baseline) declared.set(baselineKey(e), (declared.get(baselineKey(e)) ?? 0) + 1);
+  const fresh: Violation[] = [];
+  for (const v of violations) {
+    const k = baselineKey(v);
+    const n = declared.get(k) ?? 0;
+    if (n > 0) declared.set(k, n - 1);
+    else fresh.push(v);
+  }
+  const suppressed = violations.length - fresh.length;
+  const stale = [...declared.values()].reduce((a, n) => a + n, 0);
+  if (suppressed > 0)
+    console.log(`check-standards: ${suppressed} violation(s) suppressed by baseline (declared debt)`);
+  if (stale > 0)
+    console.log(
+      `check-standards: baseline carries ${stale} stale entr${stale === 1 ? "y" : "ies"} — paid debt or moved lines; regenerate with --write-baseline`,
+    );
+  violations.length = 0;
+  violations.push(...fresh);
+}
 
 for (const v of violations) {
   console.log(`${v.file}:${v.line}  [${v.rule}] ${v.text.slice(0, 140)}  → ${v.hint}`);
