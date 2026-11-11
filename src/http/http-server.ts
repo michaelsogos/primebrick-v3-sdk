@@ -10,12 +10,6 @@ import { mapDalError } from "../errors/dal-error-mapper.js";
 
 export interface HttpServerOptions {
   port: number;
-  /**
-   * Address the server binds to. Omitted → `resolveHttpBindHost()` platform
-   * default. Pass `::` for dual-stack or `::1` for IPv6 loopback when the
-   * deployment explicitly requires it.
-   */
-  hostname?: string;
   healthCheck?: HealthCheck;
   serviceName?: string;
   /** Service version (from package.json) — included in /health response. */
@@ -75,17 +69,15 @@ function sendRfcError(
  * accepts IPv4-mapped traffic, shows up as `[::]` in netstat, and exposes
  * the port on every interface. Explicit host keeps the bind honest:
  *
- * - `configured` (the `http_bind_host` config row, US services only) wins —
- *   the sanctioned opt-in for `::` (dual-stack), `::1`, `0.0.0.0`, a LAN IP.
- * - absent → `0.0.0.0` under `NODE_ENV=production` (containers/LB need a
- *   reachable socket — IPv4 wildcard, never an implicit IPv6 one);
- *   `127.0.0.1` otherwise (dev services never leave the loopback by accident).
+ * - `0.0.0.0` under `NODE_ENV=production` (containers/LB need a reachable
+ *   socket — IPv4 wildcard, never an implicit IPv6 one);
+ * - `127.0.0.1` otherwise (dev services never leave the loopback).
+ *
+ * There is no opt-in: no config row, no option field — an IPv6 or
+ * interface-specific bind is simply not a supported deployment shape.
  */
-export function resolveHttpBindHost(configured?: string | null): string {
-  // An empty/blank row is semantically absent — without this guard
-  // listen(port, "") would silently re-bind the :: wildcard this fixes.
-  const host = configured?.trim();
-  return host || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+export function resolveHttpBindHost(): string {
+  return process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1";
 }
 
 export async function createHttpServer(options: HttpServerOptions): Promise<Server> {
@@ -243,7 +235,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
     });
   });
 
-  const hostname = options.hostname ?? resolveHttpBindHost();
+  const hostname = resolveHttpBindHost();
   // Resolve only once the socket is actually bound — callers (and tests)
   // legitimately read server.address()/hit /health right after await.
   await new Promise<void>((resolve, reject) => {

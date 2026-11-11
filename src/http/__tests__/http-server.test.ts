@@ -113,26 +113,12 @@ describe("resolveHttpBindHost", () => {
 
   it("defaults to 127.0.0.1 outside production", () => {
     delete process.env.NODE_ENV;
-    expect(resolveHttpBindHost(null)).toBe("127.0.0.1");
+    expect(resolveHttpBindHost()).toBe("127.0.0.1");
   });
 
   it("defaults to 0.0.0.0 under NODE_ENV=production", () => {
     process.env.NODE_ENV = "production";
-    expect(resolveHttpBindHost(null)).toBe("0.0.0.0");
-  });
-
-  it("treats an empty/blank configured value as absent", () => {
-    delete process.env.NODE_ENV;
-    expect(resolveHttpBindHost("")).toBe("127.0.0.1");
-    expect(resolveHttpBindHost("   ")).toBe("127.0.0.1");
-  });
-
-  it("an explicit config value wins in every environment", () => {
-    delete process.env.NODE_ENV;
-    expect(resolveHttpBindHost("::1")).toBe("::1");
-    process.env.NODE_ENV = "production";
-    expect(resolveHttpBindHost("::")).toBe("::");
-    expect(resolveHttpBindHost("10.0.0.5")).toBe("10.0.0.5");
+    expect(resolveHttpBindHost()).toBe("0.0.0.0");
   });
 });
 
