@@ -36,7 +36,9 @@ import type { EntityChangedMarker } from "./types.js";
 export interface MarkerAuditParams {
   entityClassName: string;
   tableName: string;
-  entityId: bigint;
+  /** Mirrors dal `AuditParams.entityId` — null once the entity migrated to
+   *  a uuid primary key (its `*_audit` table drops the column). */
+  entityId: bigint | null;
   entityUuid: string;
   action: string;
   changedAt: Date;

@@ -100801,17 +100801,50 @@
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Mirrors dal "
+							},
+							{
+								"kind": "code",
+								"text": "`AuditParams.entityId`"
+							},
+							{
+								"kind": "text",
+								"text": " — null once the entity migrated to\r\n a uuid primary key (its "
+							},
+							{
+								"kind": "code",
+								"text": "`*_audit`"
+							},
+							{
+								"kind": "text",
+								"text": " table drops the column)."
+							}
+						]
+					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 39,
+							"line": 41,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L39"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L41"
 						}
 					],
 					"type": {
-						"type": "intrinsic",
-						"name": "bigint"
+						"type": "union",
+						"types": [
+							{
+								"type": "intrinsic",
+								"name": "bigint"
+							},
+							{
+								"type": "literal",
+								"value": null
+							}
+						]
 					}
 				},
 				{
@@ -100823,9 +100856,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 40,
+							"line": 42,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L40"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L42"
 						}
 					],
 					"type": {
@@ -100842,9 +100875,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 41,
+							"line": 43,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L41"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L43"
 						}
 					],
 					"type": {
@@ -100861,9 +100894,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 42,
+							"line": 44,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L42"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L44"
 						}
 					],
 					"type": {
@@ -100886,9 +100919,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 43,
+							"line": 45,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L43"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L45"
 						}
 					],
 					"type": {
@@ -100905,9 +100938,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 44,
+							"line": 46,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L44"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L46"
 						}
 					],
 					"type": {
@@ -100924,9 +100957,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 45,
+							"line": 47,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L45"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L47"
 						}
 					],
 					"type": {
@@ -100959,9 +100992,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-													"line": 45,
+													"line": 47,
 													"character": 26,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L45"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L47"
 												}
 											],
 											"type": {
@@ -100978,9 +101011,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-													"line": 45,
+													"line": 47,
 													"character": 40,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L45"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L47"
 												}
 											],
 											"type": {
@@ -101079,9 +101112,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 53,
+							"line": 55,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L53"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L55"
 						}
 					],
 					"signatures": [
@@ -101094,9 +101127,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-									"line": 53,
+									"line": 55,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L53"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L55"
 								}
 							],
 							"parameters": [
@@ -101145,9 +101178,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-					"line": 52,
+					"line": 54,
 					"character": 17,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L52"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L54"
 				}
 			]
 		},
@@ -101160,9 +101193,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-					"line": 65,
+					"line": 67,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L65"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L67"
 				}
 			],
 			"signatures": [
@@ -101175,9 +101208,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/presence/marker-audit-port.ts",
-							"line": 65,
+							"line": 67,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L65"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/presence/marker-audit-port.ts#L67"
 						}
 					],
 					"parameters": [

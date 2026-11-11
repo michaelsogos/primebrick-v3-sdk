@@ -1922,7 +1922,8 @@ convention). Structurally assignable from the real `AuditParams`:
 |-------|------|-------------|
 | entityClassName | `string` |  |
 | tableName | `string` |  |
-| entityId | `bigint` |  |
+| entityId | `bigint \| null` | Mirrors dal `AuditParams.entityId` — null once the entity migrated to
+ a uuid primary key (its `*_audit` table drops the column). |
 | entityUuid | `string` |  |
 | action | `string` |  |
 | changedAt | `Date` |  |
