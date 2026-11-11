@@ -5266,9 +5266,11 @@ Smallest integer `>= d`.
 
 Validate a wire entity object against `meta.columns`.
 Required = `nullable === false` AND client-writable — `audited`
-columns, `meta.uid` (server-generated identity) and `managed` columns
-(server-filled keys, e.g. an identity `@Key`) are system-managed and
-never arrive on the wire, so an absent one is NOT a violation. A
+columns, `meta.uid` (server-generated identity), `managed` columns
+(server-filled keys, e.g. an identity `@Key`) and `kind:"calculated" /
+"virtual"` columns (server/decorator-computed read projections — never
+writable) are system-managed and never arrive on the wire, so an
+absent one is NOT a violation. A
 PRESENT empty value still fails `nullable === false` — clients must
 not send managed fields at all. Mirrors the form, where required only
 ever applies to declared placements (`placement.required ?? nullable`).
@@ -6548,12 +6550,13 @@ identically — validation of existence is the remote build's job.
 |-----------|------|-------------|
 | exportName | `string` |  |
 
-### `makeDbMigrationRouteHandler(boot, state): RouteHandler`
+### `makeDbMigrationRouteHandler(boot, state, onRecovered): RouteHandler`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | boot | `DbMigrationBootOptions` |  |
 | state | `MigrationBootState` |  |
+| onRecovered | `() => Promise<void>` | Fired once when a remediation run flips degraded → clean (e.g. deferred onReady). |
 
 ### `makeEntityRouter(config): RouteHandler`
 

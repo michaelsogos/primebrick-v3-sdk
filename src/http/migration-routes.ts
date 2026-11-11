@@ -17,9 +17,10 @@
 
 import { makeRpcRouter, type RouteHandler, type RpcRoute } from "./rpc-router.js";
 import { Permission } from "../auth/permissions.js";
-import type {
-  DbMigrationBootOptions,
-  MigrationBootState,
+import {
+  rerunMigrations,
+  type DbMigrationBootOptions,
+  type MigrationBootState,
 } from "../microservice/db-migration-step.js";
 import { logger } from "../lifecycle/logger.js";
 
@@ -28,24 +29,21 @@ export const MIGRATION_ROUTE_PREFIX = "/api/v1/system/db-migration";
 export function makeDbMigrationRouteHandler(
   boot: DbMigrationBootOptions,
   state: MigrationBootState,
+  /** Fired once when a remediation run flips degraded → clean (e.g. deferred onReady). */
+  onRecovered?: () => Promise<void>,
 ): RouteHandler {
   const pool = () => boot.pool();
   const schema = () => boot.schema();
 
   const rerun = async (actor: string) => {
-    const result = await boot.engine.runMigrations({
-      pool: pool(),
-      schema: schema(),
-      patchesDir: boot.patchesDir,
-      dbMetaDir: boot.dbMetaDir,
-      allowedTrust: boot.allowedTrust ?? ["release"],
-      actor,
-      logger,
-    });
-    state.result = result;
-    state.appliedCount = result.applied.length;
-    state.degraded = result.degraded;
-    state.lastError = result.failed[0]?.error ?? null;
+    const wasDegraded = state.degraded;
+    const result = await rerunMigrations(boot, state, actor);
+    if (wasDegraded && !result.degraded) {
+      logger.done("db-migration: remediation cleared degraded state — service recovered", {
+        tags: ["db-migration"],
+      });
+      await onRecovered?.();
+    }
     return result;
   };
 
