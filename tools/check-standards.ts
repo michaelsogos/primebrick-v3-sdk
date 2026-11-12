@@ -174,6 +174,7 @@ type RuleId =
   | "panel-raw-input"
   | "panel-footer-chrome"
   | "panel-footer-start"
+  | "panel-footer-cta"
   | "panel-toolbar-tools"
   | "panel-chrome-class"
   | "native-control"
@@ -223,7 +224,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-layout", "panel-content-scroll", "panel-raw-label",
   "panel-control-id", "panel-select-dropdown", "panel-button-testid",
   "panel-switch", "panel-search-clearable", "panel-raw-input",
-  "panel-footer-chrome", "panel-footer-start", "panel-toolbar-tools",
+  "panel-footer-chrome", "panel-footer-start", "panel-footer-cta", "panel-toolbar-tools",
   "panel-chrome-class",
   "field-stock-chrome",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
@@ -275,7 +276,8 @@ const GATED_LINE_RULES: Rule[] = [
   // them inert as line rules: the FOOT contract is "content through
   // <SheetPanelFooter>" and tools belong inside {#snippet toolbar}.
   { id: "panel-footer-chrome", pattern: /(?!)/, hint: "panel FOOT content goes through <SheetPanelFooter> — right-aligned natural-width CTAs on the layout-owned muted strip (w-full/p-3 wrapper footers are the old pattern)" },
-  { id: "panel-footer-start", pattern: /(?!)/, hint: "SheetPanelFooter {#snippet start} carries legend/meta content only (KeyboardHints, meta text) — interactive controls (Button) are CTAs and live in the right-aligned group" },
+  { id: "panel-footer-start", pattern: /(?!)/, hint: "SheetPanelFooter {#snippet start} carries legend/meta content only (status badges, KeyboardHints, meta text) — interactive controls (button/Button/link) are CTAs and live in the right-aligned default group" },
+  { id: "panel-footer-cta", pattern: /(?!)/, hint: "the SheetPanelFooter default group carries CTAs only (buttons/links) — a bare Badge or status text is legend/meta content and lives in {#snippet start}" },
   { id: "panel-toolbar-tools", pattern: /(?!)/, hint: "tools live inside {#snippet toolbar} (mode/connector ButtonGroup, SearchInput) — a tool in CONTENT lands under the toolbar border-b and reads as a second header" },
   // panel-chrome-class — findings come from the structural pass: a stock
   // component's opening tag + its class attribute may span lines, so the
@@ -817,6 +819,35 @@ function isCommentOnly(line: string): boolean {
   return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*");
 }
 
+// commentLineMask — marks every line that lives entirely inside a comment,
+// so markup-scanning passes never see comment bodies (the classic false
+// positive: a `<!--` note mentioning `<button>` read as a real control).
+// Covers `//`, `/*…*/` script comments AND `<!--…-->` markup comments,
+// including multi-line blocks; single-line `isCommentOnly` stays for the
+// line-rule loop (script-side scanning).
+function commentLineMask(lines: string[]): boolean[] {
+  const mask = new Array<boolean>(lines.length).fill(false);
+  let inBlock = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (inBlock) {
+      mask[i] = true;
+      if (t.includes("-->") || t.includes("*/")) inBlock = false;
+      continue;
+    }
+    if (t.startsWith("<!--")) {
+      mask[i] = true;
+      if (!t.includes("-->")) inBlock = true;
+      continue;
+    }
+    if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) {
+      mask[i] = true;
+      if (t.startsWith("/*") && !t.includes("*/")) inBlock = true;
+    }
+  }
+  return mask;
+}
+
 function parseExempt(line: string, fileLevel = false): { rules: Set<string>; hasReason: boolean } | null {
   // Rule ids contain hyphens (ext-json) — the reason separator must be the
   // em-dash surrounded by spaces: `// standards-exempt: <ids> — <reason>`.
@@ -891,6 +922,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
   const out: Violation[] = [];
   const lines = readFileSync(file, "utf8").split("\n");
   const rel = relative(srcDir, file).replace(/\\/g, "/");
+  const commentMask = commentLineMask(lines);
 
   // Per-file rule scope: allowPaths skips the file entirely for that rule;
   // appliesTo restricts where the rule fires at all.
@@ -1096,7 +1128,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (isCommentOnly(line) || !line.includes("<button")) continue;
+      if (commentMask[i] || !line.includes("<button")) continue;
       let hasTestid = false;
       for (let j = i; j < lines.length && j - i < 15; j++) {
         const l = lines[j];
@@ -1146,7 +1178,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (isCommentOnly(line) || !STOCK_COMP.test(line)) continue;
+      if (commentMask[i] || !STOCK_COMP.test(line)) continue;
       let block = line;
       for (let j = i + 1; j < lines.length && j - i < 15; j++) {
         if (lines[j - 1].trimEnd().endsWith(">") || lines[j - 1].trimEnd().endsWith("/>")) break;
@@ -1198,20 +1230,26 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     }
   }
 
-  // panel-footer-start — inside <SheetPanelFooter>, {#snippet start} is the
-  // LEFT slot reserved for legend/meta content (KeyboardHints, meta text).
-  // Interactive controls found there are CTAs misplaced out of the
-  // right-aligned group — flag them.
+  // panel-footer-start / panel-footer-cta — SheetPanelFooter is a split
+  // contract: {#snippet start} = the LEFT legend/meta slot (status badges,
+  // KeyboardHints, meta text — NO interactive controls); the default group
+  // = the RIGHT-aligned CTA slot (buttons/links ONLY — a bare Badge or
+  // status text there is legend/meta misplaced out of the start slot).
   const panelStartRule = LINE_RULES.find((r) => r.id === "panel-footer-start");
+  const panelCtaRule = LINE_RULES.find((r) => r.id === "panel-footer-cta");
+  const footerRuleActive = (rule: Rule | undefined, id: RuleId) =>
+    !!rule &&
+    rules.has(id) &&
+    !rule.allowPaths?.test(rel) &&
+    (!rule.appliesTo || rule.appliesTo.test(rel));
+  const startActive = footerRuleActive(panelStartRule, "panel-footer-start");
+  const ctaActive = footerRuleActive(panelCtaRule, "panel-footer-cta");
   if (
-    rules.has("panel-footer-start") &&
-    panelStartRule &&
-    !panelStartRule.allowPaths?.test(rel) &&
-    (!panelStartRule.appliesTo || panelStartRule.appliesTo.test(rel)) &&
+    (startActive || ctaActive) &&
     lines.some((l) => l.includes("<SheetPanelFooter"))
   ) {
-    // Ranges: <SheetPanelFooter …> … </SheetPanelFooter> → {#snippet start}
-    // … {/snippet} inside them → interactive lines inside the snippet.
+    // Ranges: <SheetPanelFooter …> … </SheetPanelFooter>; inside each,
+    // {#snippet start} … {/snippet} bounds the legend slot.
     const footerRanges: [number, number][] = [];
     let footOpen = -1;
     for (let i = 0; i < lines.length; i++) {
@@ -1222,11 +1260,18 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       }
     }
     for (const [fa, fb] of footerRanges) {
-      let startOpen = -1;
+      let sa = -1; // {#snippet start} line
+      let sb = -1; // its {/snippet} line
       for (let i = fa + 1; i < fb; i++) {
-        if (/\{#snippet\s+start\b/.test(lines[i])) startOpen = i;
-        else if (/\{\/snippet\}/.test(lines[i])) startOpen = -1;
-        else if (startOpen >= 0 && /<Button\b|<button\b/.test(lines[i])) {
+        if (/\{#snippet\s+start\b/.test(lines[i])) sa = i;
+        else if (/\{\/snippet\}/.test(lines[i]) && sa >= 0 && sb < 0) sb = i;
+        else if (
+          startActive &&
+          sa >= 0 &&
+          sb < 0 &&
+          !commentMask[i] &&
+          /<Button\b|<button\b|<a\b/.test(lines[i])
+        ) {
           const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
           if (!isExempted(exempt, "panel-footer-start")) {
             out.push({
@@ -1234,9 +1279,35 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
               line: i + 1,
               rule: "panel-footer-start",
               text: lines[i].trim(),
-              hint: "CTAs live in the right-aligned SheetPanelFooter group — {#snippet start} is for legend/meta content only",
+              hint: "CTAs live in the right-aligned SheetPanelFooter default group — {#snippet start} is for legend/meta content only (status badges, KeyboardHints, meta text)",
             });
           }
+        }
+      }
+      // A Badge nested inside an open <button>/<Button>/<a> is the CTA's
+      // chrome (the version-history drill badge) — only a standalone one
+      // is misplaced meta content.
+      if (ctaActive) {
+        let interactive = 0;
+        for (let i = fa + 1; i < fb; i++) {
+          if (sa >= 0 && i >= sa && i <= sb) continue;
+          if (commentMask[i]) continue;
+          const opens = (lines[i].match(/<(?:button|Button|a)\b/g) ?? []).length;
+          const closes = (lines[i].match(/<\/(?:button|Button|a)>/g) ?? []).length;
+          if (interactive === 0 && opens === 0 && /<Badge\b/.test(lines[i])) {
+            const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
+            if (!isExempted(exempt, "panel-footer-cta")) {
+              out.push({
+                file: rel,
+                line: i + 1,
+                rule: "panel-footer-cta",
+                text: lines[i].trim(),
+                hint: "bare Badge in the CTA group — legend/meta content lives in {#snippet start}; wrap in a button/link only when it IS the drill affordance",
+              });
+            }
+          }
+          interactive += opens - closes;
+          if (interactive < 0) interactive = 0;
         }
       }
     }
@@ -1268,7 +1339,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       toolbarRanges.some(([a, b]) => i > a && i < b);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (isCommentOnly(line)) continue;
+      if (commentMask[i]) continue;
       if (!/<ButtonGroup|<SearchInput\b/.test(line)) continue;
       if (inToolbar(i)) continue;
       const exempt = parseExempt(line) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
