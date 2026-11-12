@@ -61,26 +61,29 @@ describe("check-standards — SheetPanelFooter split contract", () => {
     for (const f of fixtures) rmSync(f.root, { recursive: true, force: true });
   });
 
-  it("passes: badge in start + CTA group holds buttons only", () => {
+  it("passes: badge + badge-drill (button wrapping Badge) in start, CTAs on the right", () => {
     const { status, output } = make({
       "Ok.svelte": PANEL(`<SheetPanelFooter>
     {#snippet start()}
-      <Badge variant="outline">suspended</Badge>
+      <button type="button" data-testid="p-ver" title="v" onclick={noop}>
+        <Badge variant="outline" class="text-xs font-semibold border border-primary cursor-pointer hover:bg-primary/10">v3</Badge>
+      </button>
+      <Badge variant="destructive">deleted</Badge>
       <span>meta</span>
     {/snippet}
     <button type="button" data-testid="p-save" onclick={noop}>Save</button>
-    <button type="button" data-testid="p-ver" title="v"><Badge variant="outline">v3</Badge></button>
   </SheetPanelFooter>`),
     });
     expect(output).toContain("clean");
     expect(status).toBe(0);
   });
 
-  it("flags panel-footer-start: a button inside {#snippet start}", () => {
+  it("flags panel-footer-start: a text CTA (no Badge inside) inside {#snippet start}", () => {
     const { status, output } = make({
       "Bad.svelte": PANEL(`<SheetPanelFooter>
     {#snippet start()}
       <button type="button" data-testid="p-x" onclick={noop}>x</button>
+      <Button data-testid="p-y">y</Button>
     {/snippet}
   </SheetPanelFooter>`),
     });

@@ -1174,6 +1174,17 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     const CHROME_UTIL =
       /(?:^|\s)(?:h-(?:\d|\[)|min-h-|max-h-|w-(?:\d|\[)|text-(?:xs|sm|base|lg|xl|\d+xl|\[)|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|sans|serif|mono)|leading-|tracking-|p[xytblrse]?-(?:\d|\[)|rounded|ring-|shadow-|opacity-)/;
     const CLASS_ATTR = /\bclass\s*=\s*["']([^"']*)["']/;
+    // Canonical version-history badge anatomy (FormPageLayout /
+    // ConfigListRow / sheet footers) — contract chrome, not drift: every
+    // class token must belong to this set for the carve to apply.
+    const VERSION_BADGE_ANATOMY = new Set([
+      "text-xs",
+      "font-semibold",
+      "border",
+      "border-primary",
+      "cursor-pointer",
+      "hover:bg-primary/10",
+    ]);
     const exemptAt = (i: number) =>
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     for (let i = 0; i < lines.length; i++) {
@@ -1186,6 +1197,13 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       }
       const m = block.match(CLASS_ATTR);
       if (!m || !CHROME_UTIL.test(m[1])) continue;
+      if (
+        /<Badge\b/.test(block) &&
+        m[1]
+          .split(/\s+/)
+          .every((t) => VERSION_BADGE_ANATOMY.has(t))
+      )
+        continue;
       const exempt = exemptAt(i);
       if (isExempted(exempt, "panel-chrome-class")) continue;
       out.push({
@@ -1272,15 +1290,31 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
           !commentMask[i] &&
           /<Button\b|<button\b|<a\b/.test(lines[i])
         ) {
-          const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
-          if (!isExempted(exempt, "panel-footer-start")) {
-            out.push({
-              file: rel,
-              line: i + 1,
-              rule: "panel-footer-start",
-              text: lines[i].trim(),
-              hint: "CTAs live in the right-aligned SheetPanelFooter default group — {#snippet start} is for legend/meta content only (status badges, KeyboardHints, meta text)",
-            });
+          // A <button>/<a> whose content is a <Badge> is a badge-affordance
+          // — the version-history drill: visually a legend badge, not a
+          // commit CTA. The wrapper exists to attach the click handler.
+          let badgeAffordance = false;
+          if (!/<Button\b/.test(lines[i])) {
+            for (let j = i; j < Math.min(i + 10, fb); j++) {
+              if (/<Badge\b/.test(lines[j])) {
+                badgeAffordance = true;
+                break;
+              }
+              if (/<\/button>|<\/a>/.test(lines[j])) break;
+              if (j > i && /<button\b|<a\b|<Button\b/.test(lines[j])) break;
+            }
+          }
+          if (!badgeAffordance) {
+            const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
+            if (!isExempted(exempt, "panel-footer-start")) {
+              out.push({
+                file: rel,
+                line: i + 1,
+                rule: "panel-footer-start",
+                text: lines[i].trim(),
+                hint: "commit CTAs live in the right-aligned SheetPanelFooter default group — {#snippet start} is for legend/meta content (status badges, meta text; a button-wrapped Badge stays: it IS a badge)",
+              });
+            }
           }
         }
       }
