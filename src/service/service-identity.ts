@@ -163,6 +163,20 @@ export function resolveServiceCode(identity: PackageIdentity, configuredCode?: s
   return code;
 }
 
+/**
+ * Runtime slot for the service code resolved at `createMicroservice()` —
+ * the same static identity stamped in the UA. Set once at boot; the getter
+ * falls back to deriving it from the deployed artifact so tests/tooling
+ * calling governed helpers outside a full boot still resolve correctly.
+ */
+let currentServiceCodeSlot: string | undefined;
+export function setCurrentServiceCode(code: string): void {
+  currentServiceCodeSlot = code;
+}
+export function currentServiceCode(): string {
+  return (currentServiceCodeSlot ??= resolveServiceCode(detectPackageIdentity()));
+}
+
 /** Detected runtime, e.g. `Bun/1.2.19` or `Node/24.14.1`. */
 function runtimeTag(): string {
   const bun = (process.versions as Record<string, string | undefined>).bun;

@@ -11,9 +11,9 @@
  *   - The schedule declaration is a stored, rollup-subject message carrying
  *     `Nats-Schedule` + `Nats-Schedule-Target`; republishing on the same
  *     subject REPLACES the schedule.
- *   - Custom headers (incl. the L1 client-shield key and forwarded auth
- *     headers) are copied verbatim onto the fired message — L1 identity of
- *     the declaring service survives the delayed fire.
+ *   - Custom headers (incl. the L1 client-shield key and the correlation
+ *     headers `x-job-schedule-subject`) are copied verbatim onto the fired
+ *     message — publisher identity and correlation survive the delayed fire.
  *   - Fired messages are written into the stream and NEVER dispatched to
  *     core subscribers — due consumers MUST be durable JetStream consumers
  *     (NatsClient.jetstreamSubscribe).
@@ -35,6 +35,13 @@
  *
  * The JOBS stream subjects are therefore the four data lanes ONLY — never
  * a bare `jobs.>`.
+ *
+ * GOVERNED API ONLY: services arm/disarm exclusively through
+ * `armJobSchedule`/`disarmJobSchedule` (control-plane request/reply onto
+ * primebrick-job — awaited end-to-end, declaration + mirror written
+ * atomically with read-back and compensation). The raw publish mechanism
+ * is NOT exported: it lives inside the job-handler, the only service that
+ * may write `jobs.schedule.*`/`jobs.cancel.*`.
  */
 
 /** Canonical JOBS stream capture set — schedule/due/result/cancel lanes only. */
@@ -48,12 +55,14 @@ export const JOB_STREAM_SUBJECTS = [
 /** Control-plane route for schedule declarations (primebrick-job). */
 export const JOB_SCHEDULE_REQUEST_SUBJECT = "jobs.ctl.schedule.request";
 
-import type { MsgHdrs } from "@nats-io/transport-node";
-import { NatsClient } from "./nats-client.js";
+/** Control-plane route for schedule cancellations (primebrick-job). */
+export const JOB_SCHEDULE_CANCEL_SUBJECT = "jobs.ctl.schedule.cancel";
+
+import type { MsgHdrs, NatsConnection } from "@nats-io/transport-node";
+import { callNats } from "./nats-routes.js";
 import { verifyNatsPublisher } from "./service-shield.js";
-import { verifyNatsMessage } from "../auth/verify-nats.js";
-import { enforceNatsRbac } from "../auth/rbac-enforce.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
+import { currentServiceCode } from "../service/service-identity.js";
 import type { AuthUser } from "../auth/types.js";
 
 export const JOB_SCHEDULE_HEADERS = {
@@ -65,20 +74,25 @@ export const JOB_SCHEDULE_HEADERS = {
   scheduler: "Nats-Scheduler",
 } as const;
 
-export interface EnsureJobScheduleOpts {
+export interface ArmJobScheduleRequest {
   /**
-   * Unique schedule subject — `jobs.schedule.<svc>.<name>[.<entity-id>]`.
-   * One schedule per subject; republishing replaces it atomically.
+   * Job name within the caller's namespace — the declaration subject is
+   * derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
+   * arm outside its own namespace (the job-handler enforces the same
+   * server-side). Dots allowed for sub-namespacing
+   * (`partition-maintenance.<id>`).
    */
-  scheduleSubject: string;
-  /** `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | cron expression. */
+  name: string;
+  /** `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). */
   schedule: string;
-  /** Subject the stored message is republished to at fire time —
-   *  `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
-   *  stream's subjects. */
+  /**
+   * Subject the stored message is republished to at fire time —
+   * `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
+   * stream's subjects.
+   */
   target: string;
   /** Payload stored on the schedule message — fired verbatim unless
-   *  `source` is set. Serialized via extJson by jetstreamPublish. */
+   *  `source` is set. */
   payload?: unknown;
   /** Fire-time indirection (ADR-51): at fire time the scheduler reads the
    *  LATEST message on this subject and fires THAT as the payload — the
@@ -86,78 +100,106 @@ export interface EnsureJobScheduleOpts {
   source?: string;
   /** `Nats-Schedule-TTL` — auto-purge the schedule after this duration. */
   ttl?: string;
-  /**
-   * Extra headers stamped on the declaration and forwarded VERBATIM to the
-   * fired message. For `jobs.due.user.*` targets pass the triggering
-   * message's auth headers via `forwardAuthHeaders()` so the executor can
-   * run the full L2+RBAC chain on the ORIGINATING user.
-   */
-  forwardHeaders?: Record<string, string>;
 }
 
 /**
- * Arm a JetStream schedule. Publishes the declaration message — the NATS
- * server itself republishes `payload`/`source` to `target` per `schedule`.
- *
- * Callers do NOT publish on `jobs.schedule.*` directly in production:
- * the governed entry point is the `jobs.schedule.request` route on
- * primebrick-job, which validates the caller's namespace and records the
- * declaration in `job.job_schedules`. This helper is what THAT service
- * calls (and is also usable by tests/tooling).
+ * Derive the declaration subject for this service — the static service
+ * code resolved from the deployed artifact, so a caller can never
+ * mis-namespace itself. Names are restricted to subject-safe tokens.
  */
-export async function ensureJobSchedule(opts: EnsureJobScheduleOpts): Promise<bigint> {
-  const hdrs: Record<string, string> = {
-    ...opts.forwardHeaders,
-    [JOB_SCHEDULE_HEADERS.schedule]: opts.schedule,
-    [JOB_SCHEDULE_HEADERS.target]: opts.target,
-  };
-  if (opts.ttl) hdrs[JOB_SCHEDULE_HEADERS.ttl] = opts.ttl;
-  if (opts.source) hdrs[JOB_SCHEDULE_HEADERS.source] = opts.source;
-  return NatsClient.jetstreamPublish(opts.scheduleSubject, opts.payload ?? null, hdrs);
-}
-
-/**
- * Disarm a previously armed schedule. The cancellation MUST go to a
- * different subject than `scheduleSubject` (a same-subject publish would
- * just replace the declaration).
- */
-export async function cancelJobSchedule(
-  scheduleSubject: string,
-  cancelSubject: string,
-): Promise<bigint> {
-  if (cancelSubject === scheduleSubject) {
+export function scheduleSubjectFor(name: string): string {
+  if (!/^[a-z0-9_][a-z0-9_.-]*$/.test(name)) {
     throw new Error(
-      "cancelJobSchedule: cancelSubject must differ from scheduleSubject (same-subject publish replaces the schedule)",
+      `scheduleSubjectFor: invalid job name "${name}" — expected ^[a-z0-9_][a-z0-9_.-]*$`,
     );
   }
-  return NatsClient.jetstreamPublish(cancelSubject, null, {
-    [JOB_SCHEDULE_HEADERS.next]: "purge",
-    [JOB_SCHEDULE_HEADERS.scheduler]: scheduleSubject,
-  });
+  return `jobs.schedule.${currentServiceCode()}.${name}`;
+}
+
+/**
+ * THE governed way to arm a schedule — the only public API. Issues a
+ * `callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
+ * awaits the COMPLETE operation: JetStream declaration → stored-message
+ * read-back → `job.job_schedules` mirror upsert (with purge compensation
+ * on mirror failure). Rejects on validation/namespace/internal errors —
+ * the caller retries or surfaces the error; it never falls back to a
+ * direct publish (the raw mechanism is job-handler internal).
+ */
+export async function armJobSchedule(
+  req: ArmJobScheduleRequest,
+  opts: { timeoutMs?: number; connection?: NatsConnection } = {},
+): Promise<{ seq?: bigint; skipped?: "terminal-once" }> {
+  const res = await callNats<{ armed: boolean; seq?: string; skipped?: "terminal-once" }>(
+    JOB_SCHEDULE_REQUEST_SUBJECT,
+    {
+      schedule_subject: scheduleSubjectFor(req.name),
+      schedule: req.schedule,
+      target: req.target,
+      ...(req.payload !== undefined ? { payload: req.payload } : {}),
+      ...(req.source !== undefined ? { source: req.source } : {}),
+      ...(req.ttl !== undefined ? { ttl: req.ttl } : {}),
+    },
+    opts,
+  );
+  // A terminal-once skip is a successful no-op: the one-shot already
+  // completed its lifecycle and must never re-declare (a past @at would
+  // fire immediately). No seq exists in that case.
+  if (res.skipped !== undefined) return { skipped: res.skipped };
+  return { seq: BigInt(res.seq!) };
+}
+
+/**
+ * THE governed way to disarm a schedule — awaited end-to-end: purge
+ * publish → read-back confirms the declaration is gone → mirror flips to
+ * `disarmed`. Idempotent: disarming an already-disarmed/absent schedule
+ * resolves cleanly.
+ */
+export async function disarmJobSchedule(
+  name: string,
+  opts: { timeoutMs?: number; connection?: NatsConnection } = {},
+): Promise<void> {
+  await callNats(
+    JOB_SCHEDULE_CANCEL_SUBJECT,
+    { schedule_subject: scheduleSubjectFor(name) },
+    opts,
+  );
 }
 
 /**
  * Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
  *
- *   - "system" lane → L1 client shield only (verifyNatsPublisher). The fired
- *     message carries the DECLARING service's static identity — verified
- *     verbatim. No user context exists by design; the handler receives no
- *     authUser.
- *   - "user" lane → L1 + full L2 chain: gateway-secret + serialized AuthUser
- *     + RBAC `permissions`. An expired rotating secret or missing permission
- *     returns null → the consumer `term()`s the message (terminal denial —
- *     recorded as a failed run by the result tap).
+ * What a due message CAN prove at the gate:
+ *   - L1 publisher identity — the schedule declaration was published by an
+ *     enrolled service (its static client-shield key survives the rotating
+ *     secret because it lives outside that scheme).
+ *   - For the user lane: the structural presence of the actor claim
+ *     (`x-user-id`) that the ARM attested.
+ *
+ * What it deliberately does NOT check: the arm-time serialized AuthUser
+ * and the rotating client-shield secret frozen in the fired headers —
+ * both die ~65 minutes after arming (rotation 60m + grace 5m), which
+ * would kill every long-lived user-lane schedule. Authorization is
+ * re-derived AT FIRE TIME instead: the consumer runs the freshness
+ * checkpoint (see due-forwarder's `freshAuthHeaders` →
+ * `auth.ctl.resolve_user`), which re-resolves the actor with CURRENT
+ * permissions or refuses the fire (fail-closed). RBAC belongs on the
+ * callable's own route — evaluated on FRESH headers — never at this
+ * gate: arm-time permissions would keep firing for a since-revoked
+ * grant until the secret happened to rotate.
+ *
+ *   - "system" lane → L1 only; the handler receives no authUser.
+ *   - "user" lane   → L1 + actor-claim presence; the handler ALSO
+ *     receives no authUser at the gate (it resolves its own). A due
+ *     message without the claim is malformed → `null` → the consumer
+ *     `term()`s it (terminal denial — redelivery can never fix it).
  */
 export function dueLaneVerify(
   lane: "system" | "user",
-  permissions?: readonly string[],
 ): (msg: { subject?: string; headers?: MsgHdrs }) => Promise<AuthUser | null | undefined> {
   return async (msg) => {
     if (!(await verifyNatsPublisher(msg))) return null;
     if (lane === "system") return undefined;
-    const user = await verifyNatsMessage(msg as never, getAuthConfig());
-    enforceNatsRbac(user, permissions ?? []);
-    return user;
+    return forwardedActor(msg).actor_uuid ? undefined : null;
   };
 }
 
@@ -185,14 +227,16 @@ export function forwardAuthHeaders(msg: { headers?: MsgHdrs }): Record<string, s
 
 /**
  * Read the session actor's identity off an inbound message's auth headers
- * — `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47).
- * Header names resolve against the configured `gateway.headers` map with
- * the serializer defaults. Both absent on system-lane messages — the
- * values are reported, never invented.
+ * — `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47),
+ * `x-user-email` → `actor_email`. Header names resolve against the
+ * configured `gateway.headers` map with the serializer defaults. All
+ * absent on system-lane messages — the values are reported, never
+ * invented.
  */
 export function forwardedActor(msg: { headers?: MsgHdrs }): {
   actor_uuid?: string;
   actor_locale?: string;
+  actor_email?: string;
 } {
   const config = getAuthConfig();
   const h = config.gateway.headers;
@@ -201,5 +245,6 @@ export function forwardedActor(msg: { headers?: MsgHdrs }): {
   return {
     actor_uuid: get(h.user_id ?? "x-user-id"),
     actor_locale: get(h.locale ?? "x-user-locale"),
+    actor_email: get(h.email ?? "x-user-email"),
   };
 }

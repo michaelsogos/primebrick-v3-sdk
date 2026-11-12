@@ -40,6 +40,28 @@ pendingReview[], skipped[], securityEvents[] }`. A failed patch does
 `/system/migrations` page (retry / approve / resolve). Later patches in
 the module are not executed after a failure (ordering is mandatory).
 
+### Live recovery — "reboot without shutdown"
+
+The degraded flag is **not latched at boot** — recovery works on a running
+process:
+
+- **The 503 gate is live-read** — each domain request re-checks
+  `migrationState.degraded`; the moment remediation clears the flag the
+  same process serves traffic again.
+- **Admin remediation** — `POST /api/v1/system/db-migration/retry |
+  approve | resolve | drift-check` re-runs the engine in-process and
+  flips the state on success. `pending_review` patches are never
+  auto-approved — that decision stays human.
+- **Automatic retry** — while `degraded`, every heartbeat tick (30 s)
+  re-runs the engine. The heartbeat itself reads the flag live, so a
+  cleared state also flips `checks.db_migration.ok` and the BE registry
+  row back to `online` on the next tick.
+- **Deferred boot completion** — `onReady` is skipped on a degraded boot
+  and runs **once** on the first successful recovery (run-once,
+  concurrency-safe across concurrent heartbeat/admin triggers), followed
+  by the callable census re-registration — the full "reboot without
+  shutdown".
+
 ## The reload invariant
 
 **The migration engine is the only component allowed to read DB state

@@ -401,6 +401,8 @@ directly.
 
 #### `NatsClient.getJetStream(): JetStreamClient`
 
+#### `NatsClient.getJetStreamManager(): Promise<JetStreamManager>`
+
 #### `NatsClient.isConnected(): boolean`
 
 Check if the NATS connection is alive.
@@ -439,7 +441,7 @@ Each incoming message is decoded from UTF-8 and parsed with extJsonParse
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | subject | `string` | NATS subject to subscribe to |
-| handler | `(data: T, raw: Msg) => Promise<void>` | Async function receiving the parsed message data and raw Msg |
+| handler | `(data: T, raw: Msg) => Promise<unknown>` | Async function receiving the parsed message data and raw Msg |
 | opts | `{ queue: string }` |  |
 
 #### `NatsClient.ensureStream(name, subjects, opts): Promise<void>`
@@ -492,7 +494,7 @@ messages (concurrency), `maxDeliver` bounds retries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<void> }` |  |
+| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
 
 ### `NatsHeaderProvider`
 
@@ -895,13 +897,17 @@ Cache-first; falls back to DB on miss.
 |----------|------|-------------|
 | internal_code | `string` | Stable machine code surfaced in the RFC 7807 body — FE error handling
  keys off it (e.g. "VERSION_REQUIRED"), never off the message. |
+| extra | `Record<string, unknown>` | Structured payload surfaced as RFC 7807 `extra` — a NATIVE object (the
+ FE error viewer renders `extra.issues` as a table). Never serialized:
+ `detail`/`message` carry the human-readable summary only. |
 
-#### `ValidationError(message, internal_code)`
+#### `ValidationError(message, internal_code, extra)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | message | `string` |  |
 | internal_code | `string` |  |
+| extra | `Record<string, unknown>` |  |
 
 ## Interfaces
 
@@ -936,6 +942,26 @@ wrapped by `CachingApiKeyPort` for the shared Redis/in-memory cache.
 | is_system | `boolean` |  |
 | is_active | `boolean` |  |
 | expires_at | `Date \| null` |  |
+
+### `ArmJobScheduleRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| name | `string` | Job name within the caller's namespace — the declaration subject is
+derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
+arm outside its own namespace (the job-handler enforces the same
+server-side). Dots allowed for sub-namespacing
+(`partition-maintenance.<id>`). |
+| schedule | `string` | `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). |
+| target | `string` | Subject the stored message is republished to at fire time —
+`jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
+stream's subjects. |
+| payload | `unknown` | Payload stored on the schedule message — fired verbatim unless
+ `source` is set. |
+| source | `string` | Fire-time indirection (ADR-51): at fire time the scheduler reads the
+ LATEST message on this subject and fires THAT as the payload — the
+ schedule declaration never holds business state. |
+| ttl | `string` | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
 
 ### `AuthConfig`
 
@@ -991,6 +1017,25 @@ Preferred over openapiPath: services generate their spec at module
 load via `buildOpenApiSpec`/`entityCrudSpec`, so the pack always
 carries the runtime spec with zero file plumbing. |
 
+### `BulkCustomAction`
+
+UI configuration for a selection-aware bulk CTA (endpoint-backed op
+ with no row binding — e.g. `disarm_all`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| action_name | `string` | Action/op name — must resolve to an `entity_op`-declared route. |
+| translation_key | `string` | i18n key for the CTA label. |
+| icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
+| color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
+| required_permission | `string \| string[]` | Permission required to see/use the action. |
+| requires_selection | `boolean` | When true, the CTA is enabled only with rows selected and the body
+ receives `selected_uuids`; false = fires with an empty body
+ (selection-independent, e.g. `disarm_all`). Default true. |
+| require_step_up | `boolean` | Require a step-up MFA challenge before dispatch (destructive bulk). |
+| confirm_key | `string` | i18n key for a confirmation dialog message — when set, the action
+ asks before dispatching. |
+
 ### `CacheableRepository`
 
 Structural interface — a DAL Repository satisfies this without any import from the DAL.
@@ -1030,6 +1075,44 @@ HTTP response metadata for cached endpoints.
 |-------|------|-------------|
 | etag | `string` |  |
 | cached | `boolean` | True if the data came from Redis cache (vs fresh DB read). |
+
+### `CallablePayloadContract`
+
+The callable payload contract — ONE declaration, both faces:
+  - `schema`: the JSON Schema served to the census/FE/docs
+    (typically `z.toJSONSchema(zodSchema)`);
+  - `parse`:  the runtime validator bound to the SAME declaration
+    (typically `zodSchema.parse`) — MANDATORY, runs on every message
+    before the handler.
+
+A callable cannot list itself in `endpoints.callables` without runtime
+validation — the field carries both, so an unvalidated contract is
+undeclarable (enforcement over verification; no lint needed).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| schema | `Record<string, unknown>` |  |
+| parse | `(raw: unknown) => TReq` |  |
+
+### `CensusOption`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| subject | `string` |  |
+| label_key | `string` |  |
+| description_key | `string` |  |
+| service | `string` | Owning service code — labels resolve in ITS translation schema. |
+| kind | `string` |  |
+| permissions | `typeOperator` |  |
+| payload_schema | `Record<string, unknown>` |  |
+| entity | `{ key: string; entity: string; table: string }` |  |
+
+### `CheckEntityFieldsOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| partial | `boolean` | `partial: true` — update semantics: only present keys validated,
+ absent required fields skipped. Default false (create semantics). |
 
 ### `ClientKeyMaterial`
 
@@ -1188,6 +1271,52 @@ Params are `any` at the boundary: strictFunctionTypes contravariance would
 otherwise reject the dal signatures, and the concrete types cannot be
 named here anyway (SDK must not import dal-pg).
 
+### `DictFacet`
+
+The `dict` facet — runtime-injected on served meta when the entity
+class carries the `@Dict` marker (a dict base such as
+dal-pg `DictEntityBase`). Drives the `kind:"dict"` page archetype:
+a compact inline-editable list (rows add/edit in place).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| group_field | `string` | Column key grouping rows into fieldsets — absent renders a FLAT
+ sequence; grouping is opt-in per entity, never inferred. |
+| order_field | `string` | Column key owning row ordering (convention default: `sort` when the
+ entity declares it). Reorder CTAs mutate it and persist through the
+ page's atomic bulk save — no dedicated reorder endpoint. |
+
+### `DocRoute`
+
+One documentable route — normalized union of declared + static facts.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| route | `string` |  |
+| kind | `"create" \| "list" \| "detail" \| "page" \| "dict"` |  |
+| entity | `string` |  |
+| label_key | `string` |  |
+| description_key | `string` |  |
+| icon | `string` |  |
+| component_url | `string` |  |
+| presentation | `"page" \| "sheet"` |  |
+| form | `{ fields: Record<string, unknown>[]; validators: string[] }` | `page_props.form` — the entity-form archetype declaration. |
+| facts | `SveltePageFacts` | AST facts when a source file exists (host static or remote). |
+| delivery | `"remote" \| "host-static" \| "archetype"` | How this route is delivered. |
+
+### `DocSheet`
+
+A declared sheet surface — own doc page, referenced by parent pages.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | `string` |  |
+| label_key | `string` |  |
+| component_url | `string` |  |
+| default_options | `{ side: "left" \| "right"; modal: boolean; content_class: string }` |  |
+| facts | `SveltePageFacts` |  |
+| opened_by | `string[]` | Routes/pages that open this sheet (openSheet('&#60;key&#62;') call sites). |
+
 ### `DocsPackContentFile`
 
 One file of pack content — wire format.
@@ -1223,27 +1352,6 @@ One file of pack content — wire format.
 | files | `DocsPackContentFile[]` |  |
 | openapi | `string` | Raw openapi.json content, when the pack carries one. |
 
-### `EnsureJobScheduleOpts`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| scheduleSubject | `string` | Unique schedule subject — `jobs.schedule.<svc>.<name>[.<entity-id>]`.
-One schedule per subject; republishing replaces it atomically. |
-| schedule | `string` | `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | cron expression. |
-| target | `string` | Subject the stored message is republished to at fire time —
- `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
- stream's subjects. |
-| payload | `unknown` | Payload stored on the schedule message — fired verbatim unless
- `source` is set. Serialized via extJson by jetstreamPublish. |
-| source | `string` | Fire-time indirection (ADR-51): at fire time the scheduler reads the
- LATEST message on this subject and fires THAT as the payload — the
- schedule declaration never holds business state. |
-| ttl | `string` | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
-| forwardHeaders | `Record<string, string>` | Extra headers stamped on the declaration and forwarded VERBATIM to the
-fired message. For `jobs.due.user.*` targets pass the triggering
-message's auth headers via `forwardAuthHeaders()` so the executor can
-run the full L2+RBAC chain on the ORIGINATING user. |
-
 ### `EntityAction`
 
 One entry of `meta.actions` — the derived capability contract.
@@ -1261,7 +1369,21 @@ unavailable for everyone (route missing or product-disabled).
  action, absent when no route exists (`enabled: false`). Consumers
  dispatch writes to the declared endpoint instead of recomputing the
  `/api/v1/entities/{entity}` convention — required for ops living under
- non-standard prefixes (e.g. `/api/v1/auth/users`). |
+ non-standard prefixes (e.g. `/api/v1/auth/users`). An RPC route may
+ claim the slot via `entity_op.crud_action` — the declared override. |
+| label_key | `string` | CTA chrome overrides — translation key / icon / semantic color
+ replacing the standard rendering (e.g. soft-delete-as-disable →
+ "Deactivate" + `exec-stop` + destructive). Cosmetics only: gating,
+ dialogs and dispatch are untouched. Sources: `entity_op.cta` on a
+ `crud_action` route, or `meta.actions_overrides[op]`. |
+| icon | `string` |  |
+| color | `ActionColor` |  |
+| confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` for
+ single ops, `{count}`/`{entity}` for bulk). When set it replaces the
+ standard `app.common.{delete,restore}Entit{y,ies}Confirm` copy —
+ e.g. soft-delete-as-disable → "disattivare" + reversible note. |
+| busy_key | `string` | In-flight confirm-button label override (default `app.common.
+ {deleting,restoring}`) — e.g. "Disattivazione…" while disabling. |
 
 ### `EntityActionEndpoint`
 
@@ -1282,6 +1404,28 @@ Backing route of an `EntityAction` — emitted by the BE route scan.
 | permissions | `string[]` |  |
 | sentinel | `string` |  |
 | enabled | `boolean` |  |
+| endpoint | `{ method: string; path: string }` | Declared backing route — present on custom ops (and standard ops on
+ non-standard prefixes). Consumers dispatch writes to this endpoint
+ instead of recomputing the `/entities/{entity}` convention. |
+| label_key | `string` | CTA chrome — `actions_overrides`/`crud_action` overrides. Icon+label
+ +color travel as ONE contract; semantic icons bind their color. |
+| icon | `string` |  |
+| color | `ActionColor` |  |
+| confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` single,
+ `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. |
+| busy_key | `string` | In-flight confirm-button label override — see `EntityAction.busy_key`. |
+
+### `EntityCaps`
+
+Entity capability context the renderer needs (perms, stepUp, duplicate).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| perms | `Record<string, string[]>` |  |
+| extraScans | `string[]` |  |
+| duplicate | `boolean` |  |
+| stepUp | `Record<string, boolean>` |  |
+| auditable | `boolean` |  |
 
 ### `EntityChangedMarker`
 
@@ -1302,6 +1446,13 @@ realign, no stale/chip) only when `changed_by` AND `changed_by_session`
 both match this client; a save from another tab of the same user is
 foreign for merge/conflict purposes. |
 | changed_at | `number` | Epoch ms of the save. |
+
+### `EntityContext`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| meta_by_entity | `Record<string, Record<string, unknown>>` | entity → served meta (columns, table options, display, collaboration). |
+| caps_by_entity | `Record<string, EntityCaps>` | entity → capabilities (perms already resolved to strings). |
 
 ### `EntityExportConfig`
 
@@ -1324,6 +1475,13 @@ foreign for merge/conflict purposes. |
 | locale | `string` |  |
 | timezone | `string` |  |
 
+### `EntityFieldValidatorOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| partial | `boolean` | Update semantics — only present keys validated, absent required
+ fields skipped. Default false (create). |
+
 ### `EntityMeta`
 
 Static entity meta — the shape every `*.meta.ts` file MUST satisfy.
@@ -1342,8 +1500,8 @@ namespace write boundary (see `translation-keys.ts`) guarantees the
 keys actually live in that module's `<code>.translations` schema. |
 | title_key | `string` | Optional i18n key overriding the canonical page title.
 When absent, list/create/edit titles are built from the generic
-`system.entities.page_title.{list|create|edit}` templates interpolated
-with `system.entities.<translation_key>.{plural|singular}`.
+`system.entities.page_title.{list\|create\|edit}` templates interpolated
+with `system.entities.<translation_key>.{plural\|singular}`.
 Set only for custom pages needing a bespoke title — CRUD entity metas
 must not declare it. |
 | uid | `string` | Field key holding the entity primary key (usually `uuid`). |
@@ -1389,6 +1547,9 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
  resolution. Requires `permissions.export` (the route) and `meta`
  (the column driver). See `entity-export.ts`. |
+| custom_ops | `EntityCustomOp[]` | Custom ops emitted into `meta.actions` with their declared
+ `endpoint` — populated by `makeServiceRoutes` from
+ `RpcRoute.entity_op` bindings (never authored by hand). |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 | spec | `{ tag: string; label: string; listResponse: JsonSchema }` |  |
@@ -1417,10 +1578,18 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
  resolution. Requires `permissions.export` (the route) and `meta`
  (the column driver). See `entity-export.ts`. |
+| custom_ops | `EntityCustomOp[]` | Custom ops emitted into `meta.actions` with their declared
+ `endpoint` — populated by `makeServiceRoutes` from
+ `RpcRoute.entity_op` bindings (never authored by hand). |
 | guards | `Partial<Record<EntityAction, (ctx: RpcRouteContext) => void \| Promise<void>>>` | Async per-action guards invoked before the service call — the US
  replacement for Express action middlewares (MFA step-up, B9). |
 
 ### `EntityServiceLike`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| dictFacet | `DictFacet` | The entity's `dict` facet — populated by dal-pg `DomainService` when
+ the entity class carries `@Dict`; injected into served meta. |
 
 ### `EnvSchema`
 
@@ -1431,6 +1600,21 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | valid | `boolean` |  |
 | errors | `string[]` |  |
 | env | `Record<string, string \| undefined>` |  |
+
+### `EvaluatedEntityDecl`
+
+Minimum evaluated shape — matches `EntityRouteDecl`/`EntityRouterConfig`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| entityName | `string` |  |
+| entity | `string` |  |
+| meta | `Record<string, unknown>` |  |
+| permissions | `Record<string, typeOperator>` |  |
+| auditable | `boolean` |  |
+| duplicate | `boolean` |  |
+| guards | `Record<string, unknown>` |  |
+| stepUp | `Record<string, boolean>` | Legacy alias — BE caps-scans may carry middleware-derived step-up. |
 
 ### `ExportConfig`
 
@@ -1468,6 +1652,55 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 |-------|------|-------------|
 | excelStream | `WritableStream` |  |
 | csvStream | `WritableStream` |  |
+
+### `ExtractDeps`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| svelte | `SvelteCompilerPort` |  |
+| ts | `typeof ts` |  |
+
+### `ExtractedEndpoint`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| method | `string` |  |
+| path | `string` |  |
+
+### `ExtractedField`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| type | `string` |  |
+| required | `boolean` |  |
+| constraints | `string[]` |  |
+| default | `string` |  |
+| fromState | `boolean` |  |
+
+### `ExtractedNavigation`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| kind | `"same-tab" \| "new-tab"` |  |
+| target | `string` |  |
+
+### `ExtractedWidget`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| tag | `string` |  |
+| attrs | `Record<string, unknown>` |  |
+
+### `FieldIssue`
+
+A single validation finding. `path` is the entity field key (or a
+ dotted sub-path inside a JSON-Schema check).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| path | `string` |  |
+| code | `"required" \| "invalid_type" \| "too_small" \| "too_big" \| "invalid_string" \| "invalid_json" \| "schema_mismatch" \| "not_in_vocab"` |  |
+| message | `string` |  |
 
 ### `GatewayConfig`
 
@@ -1601,6 +1834,29 @@ and BE (service_registry_entity.ts:1-42). Now the shared shape lives here.
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
 
+### `JobResultMessage`
+
+Outcome message published on `jobs.result.<…>` after a correlated handler.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| status | `"succeeded" \| "failed"` | Run-row status vocabulary — `succeeded`/`failed` are the SAME words the
+`job.job_runs` row and the admin stats/sparkline surfaces use: the
+recorder folds this value verbatim, no mapping layer. |
+| run_id | `string` |  |
+| schedule_subject | `string` |  |
+| fire_seq | `number \| bigint` | Stream sequence of the consumed fire (JetStream consumers only).
+WIRE REALITY: ext-json decodes every JSON integer as `bigint` —
+publishers assign `number`, consumers MUST accept `bigint`. |
+| target | `string` | The subject the handler consumed — what the outcome refers to. |
+| duration_ms | `number \| bigint` | Handler wall time measured by the transport middleware — same
+ `number`-publish/`bigint`-receive contract as `fire_seq`. |
+| report | `unknown` | Structured report returned by the handler — folded into
+`job_runs.report` by the run-recorder. Only object returns are
+reported; scalar/void returns carry no report. |
+| error_code | `string` | Machine-readable failure class, e.g. "DENIED", "HANDLER_ERROR". |
+| error_detail | `string` |  |
+
 ### `ListFilterParamsOptions`
 
 | Field | Type | Description |
@@ -1633,6 +1889,18 @@ the `[service#version]` tag. The message itself must carry ONLY the
 message; subsystem labels belong here. In `json` format they appear as
 a structured `tags` array. |
 
+### `MapKeyDecl`
+
+One declared key of an `x_map_keys` declaration (e.g. a template's
+ `variables`): its synthesized schema drives icons, compat filtering
+ and per-leaf target typing; `required` drives upfront rows + gating.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| schema | `Record<string, unknown>` |  |
+| required | `boolean` |  |
+| description | `string` |  |
+
 ### `MappedDalError`
 
 | Field | Type | Description |
@@ -1651,7 +1919,8 @@ convention). Structurally assignable from the real `AuditParams`:
 |-------|------|-------------|
 | entityClassName | `string` |  |
 | tableName | `string` |  |
-| entityId | `bigint` |  |
+| entityId | `bigint \| null` | Mirrors dal `AuditParams.entityId` — null once the entity migrated to
+ a uuid primary key (its `*_audit` table drops the column). |
 | entityUuid | `string` |  |
 | action | `string` |  |
 | changedAt | `Date` |  |
@@ -1832,8 +2101,10 @@ Structural mirror of dal-pg's MigrationRunResult — no dal import.
 | rbacMode | `"any" \| "all"` |  |
 | verify | `NatsRouteVerify` | Service-identity verification — see NatsRoute.verify. |
 | enrollment | `boolean` | Enrollment channel — see NatsRoute.enrollment. |
-| validate | `(raw: unknown) => TReq` |  |
-| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema) — see NatsRoute.payload_schema.
+| validate | `(raw: TReq) => TReq` | Extra payload validator — runs AFTER the `payload_schema` contract
+ parse (see NatsRoute.validate). |
+| payload_schema | `CallablePayloadContract<TReq>` | Request payload contract — `{schema, parse}` (see
+CallablePayloadContract / NatsRoute.payload_schema).
 `request`-kind callables additionally let the caller capture the reply
 (execution outcome for run-recording). |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
@@ -1858,10 +2129,14 @@ client-shield check entirely (it must do the equivalent check itself,
 typically with `allowNewPrefix`). Only legal on routes whose purpose
 is first-time client enrollment (service.register): everywhere else a
 skipped L1 is a security hole and the flag must never be set. |
-| validate | `(raw: unknown) => TReq` | Payload validator — throws on invalid shape (zod .parse or manual). |
-| payload_schema | `Record<string, unknown>` | Request payload contract (JSON Schema). Declaring it lists the route in
-`endpoints.callables` — the census schedulers/rule-forms consume. Omit
-for private routes: a callable without a contract is not mappable. |
+| validate | `(raw: TReq) => TReq` | Extra payload validator — runs AFTER the `payload_schema` contract
+ parse, for checks the emitted JSON Schema cannot express (or any
+ route carrying no contract). Throws on invalid shape. |
+| payload_schema | `CallablePayloadContract<TReq>` | Request payload contract — `{schema, parse}` (see
+CallablePayloadContract). Declaring it lists the route in
+`endpoints.callables` — the census schedulers/rule-forms consume —
+AND wires the mandatory runtime validation. Omit for private routes:
+a callable without a contract is not mappable. |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
 | description_key | `string` |  |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<void>` | The ONE service call. |
@@ -1962,7 +2237,12 @@ Context the resolver reads meta values from.
 | Field | Type | Description |
 |-------|------|-------------|
 | actor_uuid | `string` | Who armed the rule (stored actor). |
-| rule_id | `string` |  |
+| actor_email | `string` | Email of the actor whose event triggered the arm — `x-user-email`
+ header. Absent on the system lane / anonymous events. |
+| creator_email | `string` | Email of the user who armed the rule (`trigger.created_by`, resolved
+ via `auth.ctl.resolve_user`). Absent when the creator no longer
+ resolves — fallback clauses decide the field's fate. |
+| trigger_id | `string` | The trigger the dispatch materialized from (job_trigger.uuid). |
 | fired_at | `number` | Fire timestamp (epoch ms) — set by the engine at dispatch. |
 | actor_locale | `string` | Locale (BCP-47, e.g. `it-IT`) of the actor whose event triggered the
  arm — read off the message's auth headers (`x-user-locale`). Absent
@@ -2069,6 +2349,52 @@ sent as the initial SSE `snapshot` event on connect.
 | allowed | `boolean` |  |
 | missing | `string[]` | Missing permissions (only populated when not allowed) |
 
+### `RemoteDispatchMap`
+
+Route→source-file resolution for remote module chunks: the `PAGES`/
+`PANELS` record literals (or a fixed mountPage/mountSheet body) in the
+chunk entry tell which `.svelte` owns which declared route/sheet key.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| pages | `Record<string, string>` | route path → fe-src-relative .svelte file. |
+| sheets | `Record<string, string>` | sheet key (`<module>.<name>`) → fe-src-relative .svelte file. |
+
+### `RenderContext`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| service_code | `string` | Owning service/module code (report tags). |
+| routes | `DocRoute[]` | Declared routes (collectDocRoutes output + host statics merged). |
+| sheets | `DocSheet[]` | Declared sheets. |
+| meta_by_entity | `Record<string, Record<string, unknown>>` | entity → served meta. |
+| caps_by_entity | `Record<string, EntityCaps>` | entity → caps (perms resolved, stepUp, duplicate, auditable). |
+| extra_routes | `ScannedRoute[]` | BE fallback — extra-scanned routes (empty for us services). |
+| perm_values | `Record<string, string>` | Permission enum values for the `<entity>.<op>` guess path. |
+| translations | `Record<string, string>` | Merged translation dict — own schema first (the T() source). |
+| census_options | `{ emits: CensusOption[]; callables: CensusOption[] }` | Census option vocabularies for `options_source` fields. |
+| foreign_entities | `string[]` | Entity names declared by OTHER services' nav/census — the ownership
+boundary. A route declaring a foreign entity is skipped (its doc is
+the owning service's job); an entity merely lacking local meta/caps
+is still local (e.g. BE's own service_registry surface). |
+| idp_name | `string` | Identity-provider display name (config-derived). |
+| access_namespace | `string` | Access namespace of the module — nav.access (e.g. `access.system.job`). |
+| out_dir | `string` | Output directory — pipeline-owned; ghosts are deleted. |
+| keep_files | `string[]` | `.mdx` filenames in `out_dir` that other generators own (reference
+docs emitted into the same `generated/` dir — e.g. BE's
+entity-api-catalog). Everything else not re-emitted this run is a
+ghost and is deleted. |
+| generated_base | `string` | Cross-doc link base for generated pages. |
+| dev_guide_base | `string` | Cross-doc link base for hand-written dev-guide pages. |
+
+### `RenderReport`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| emitted | `string[]` |  |
+| skipped | `{ route: string; reason: string }[]` |  |
+| ghosts_deleted | `string[]` |  |
+
 ### `ResolveInput`
 
 Port for resolving IDP subject to internal Primebrick UUID.
@@ -2121,6 +2447,13 @@ forwards them in headers.
 | scope | `string` | "global" or a service code — scopes the key namespace. |
 | name | `string` |  |
 
+### `RouterScanResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| caps_by_entity | `Record<string, EntityCaps>` |  |
+| extra_routes | `ScannedRoute[]` |  |
+
 ### `RowCustomAction`
 
 UI configuration for a non-standard row CTA (route-backed bare op).
@@ -2130,11 +2463,20 @@ UI configuration for a non-standard row CTA (route-backed bare op).
 | action_name | `string` | Action/op name — matches the bare op derived from the route
  (e.g. `change_password`). |
 | translation_key | `string` | i18n key for the CTA label. |
-| icon | `string` | Icon name (Lucide in the reference FE). |
-| text_color | `string` | Optional CSS color class for the label. |
+| icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
+| color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
 | disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
 | required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
  against the user's permission set). |
+| row_key | `string` | Row→body binding for endpoint-dispatched actions: the op's request
+ body receives `{[row_key]: row[row_key]}` — same convention as
+ sparkline `row_key` (e.g. `schedule_subject`). When absent and the
+ endpoint path carries `:param` placeholders, params substitute from
+ the row fields of the same name (`:uuid` ← `meta.uid`). |
+| visible_on | `{ field: string; values: string \| number \| boolean[] }` | Show the CTA only when the row's `status` (or `visible_on.field`)
+ equals one of these values — e.g. show `resume` only on `paused`
+ rows. Absent = always visible. Scalar comparison — boolean/number
+ fields are allowed (e.g. `enabled ∈ [false]` for an Enable CTA). |
 
 ### `RpcRoute`
 
@@ -2162,6 +2504,20 @@ the BE via `auth.mfa.consume`. Missing/invalid → 403 with
 this route in the service's auto-generated `/api/v1/openapi.json`.
 Routes without it are still documented (path+method+security derived),
 but `summary`/`description`/schemas make them first-class. |
+| entity_op | `{ entity: string; op: string; cta: EntityOpCta; crud_action: string }` | Entity-op binding — declares this route as a custom entity action.
+`makeServiceRoutes` emits `op` into `<entity>`'s `meta.actions` with
+this route's `method`/`path` as the declared endpoint, so consumers
+dispatch writes on the endpoint contract (row/bulk custom CTAs).
+The route itself stays a normal RPC route — wire is always
+`/api/v1/actions/…`-style, never entity CRUD paths.
+
+`crud_action` — DECLARED CRUD OVERRIDE: this route REPLACES the
+standard op (`"delete"`, `"restore"`, …) in `meta.actions` — the
+standard action entry keeps its CTA position/gating but dispatches to
+this endpoint, inheriting `cta` chrome (translation_key→label_key,
+icon, color). No custom action is synthesized. The companion
+entity-route for that op MUST be disabled explicitly in the entity
+router config — overrides are deliberate, never implicit. |
 | handler | `(ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>` | The ONE service call — business logic lives behind it, not here. |
 
 ### `RpcRouteContext`
@@ -2199,6 +2555,15 @@ after router construction, e.g. `authDependencySetters`). |
 | mfaConsume | `MfaConsumeFn` | Override for the MFA action-authorization consume — defaults to the
 governed `auth.mfa.consume` correlation call to the BE. Injectable for
 tests only. |
+
+### `ScannedRoute`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| method | `string` |  |
+| path | `string` |  |
+| perms | `string[]` |  |
+| stepUp | `boolean` |  |
 
 ### `SecretGetRequest`
 
@@ -2456,6 +2821,19 @@ All fields are optional: the BE only includes what it has configured.
 all microservices. Single point of configuration; changes are pushed
 via the `config.changed` broadcast subject. |
 
+### `ShellEntityDecl`
+
+EntityTablePage/EntityFormPage shell declaration extracted from the page.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| component | `string` |  |
+| entity | `string` |  |
+| basePath | `string` |  |
+| createAction | `boolean` |  |
+| editAction | `boolean` |  |
+| navStrategy | `string` |  |
+
 ### `ShieldRegistryLike`
 
 Structural view of the client registry needed for shield checks.
@@ -2514,6 +2892,37 @@ followed by a blank line. Comments are sent as `: <text>\n\n`.
 |-------|------|-------------|
 | closed | `boolean` | Whether the underlying connection has been closed. |
 
+### `SvelteCompilerPort`
+
+Minimal injected Svelte compiler surface (svelte/compiler `parse`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| parse | `(source: string, options: { modern: boolean }) => unknown` |  |
+
+### `SveltePageFacts`
+
+Extracted facts for one page/component source file — the same fact set
+the historical `pages.json` carried, extended with remote-source facts.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| route | `string` |  |
+| fields | `Record<string, ExtractedField>` | Form/state fields: name → &#123;type, required, constraints, default, fromState&#125;. |
+| endpoints | `ExtractedEndpoint[]` | Outbound API calls seen in source. |
+| navigations | `ExtractedNavigation[]` | goto/window.open/href CTAs. |
+| composables | `string[]` | use* composable names referenced. |
+| schemaVar | `string \| null` |  |
+| superRefines | `number` |  |
+| customActions | `string[]` | customActionHandlers keys on EntityTablePage/EntityFormPage. |
+| constUrls | `Record<string, string>` |  |
+| widgets | `ExtractedWidget[]` | Template widgets (FormField/Button/EntityTablePage/…) with attrs. |
+| i18nKeys | `string[]` | $t()/ctx.i18n.t() translation keys referenced. |
+| entityDecl | `ShellEntityDecl` | EntityTablePage/EntityFormPage shell declaration facts. |
+| remoteMount | `boolean` | RemotePageMount present on the page. |
+| sheetProps | `string[]` | Remote-source facts — `ctx.sheet.props.*` keys consumed by a sheet. |
+| sheetOpenings | `string[]` | Remote-source facts — `openSheet('<key>')` targets called by the source. |
+
 ### `TableMeta`
 
 Table options — present only on entities with a table page.
@@ -2527,6 +2936,9 @@ Table options — present only on entities with a table page.
 | row_custom_actions | `RowCustomAction[]` | UI config for non-standard row actions (e.g. change password).
  Standard ops (edit/delete/duplicate/preview) are derived from
  `meta.actions` — never declared here. |
+| bulk_custom_actions | `BulkCustomAction[]` | UI config for non-standard bulk CTAs rendered in the selection
+ toolbar (e.g. `disarm_all`) — dispatch rides the same endpoint
+ contract as row custom actions via `meta.actions`. |
 | filter_presets | `typeOperator` | Mutually-exclusive preset WHERE filters — each rendered as its own
  toolbar control; the active option's conditions AND into every list
  request (see FilterPreset). |
@@ -2649,11 +3061,22 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 
 ## Types & Enums
 
+### `ActionColor`
+
+Closed action-color vocabulary — ONE semantic drives BOTH the icon and
+ the label of a menu CTA (impossible to drift them apart). `neutral` is
+ the default uncolored rendering; the destructive/warning/success/info/
+ primary names map to the theme's semantic text utilities. A meta may
+ never smuggle a Tailwind class here — the enum IS the contract.
+
+**Type:** `"neutral" \| "primary" \| "info" \| "success" \| "warning" \| "destructive"`
+
 ### `ActionsOverrides`
 
-Per-op enable overrides — may ONLY toggle `enabled` on route-backed ops.
+Per-op overrides — `enabled` toggles route-backed ops; chrome fields
+ restyle the standard CTA without touching its logic.
 
-**Type:** `Record<string, { enabled: boolean }>`
+**Type:** `Record<string, { enabled: boolean; label_key: string; icon: string; color: ActionColor; confirm_key: string; busy_key: string }>`
 
 ### `ApiKeyCacheSource`
 
@@ -2805,7 +3228,7 @@ Values mirror the `Permission` enum in `@primebrick/sdk`.
 The served `GET /api/v1/entities/{entity}/meta` response:
 static meta + runtime-injected `display_name`, `actions`, `collaboration`.
 
-**Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta }`
+**Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta; dict: DictFacet }`
 
 ### `ExportFileType`
 
@@ -2941,6 +3364,15 @@ implicit index signature, keeping `MetaColumn` assignable to
 `Record<string, unknown>` — host/remotes pass columns through generic
 cell-snippet args typed as `Record<string, unknown>`.
 
+### `MetaColumnDependsCondition`
+
+A sibling-value condition — the SAME vocabulary `null_label.when` and
+`visible_on` already use for row-gated rendering, lifted to form scope.
+`prop` compares against the pivot ROW's prop (the picked ref option's
+raw row — e.g. its `code`); absent `prop` compares the pivot's stored
+value directly. `equals`/`not` take a single literal, `values` a set
+(IN semantics).
+
 ### `MetaColumnFormat`
 
 Authored field-format vocabulary — the SEMANTIC input contract of a
@@ -2952,14 +3384,49 @@ Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
 compile error — the US→FE option boundary is enforced by the type.
 New formats are additive literals (never breaking).
 
-**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time"`
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "slug" \| "no_space" \| "lang"`
+
+### `MetaColumnOptionsSource`
+
+Dynamic option vocabulary for combo-backed controls — declared on the
+COLUMN (`MetaColumn.options_source`), never on a form placement:
+the same contract feeds forms, list filters and docs generation.
+Closed union on purpose — an unknown source is a construction error.
+
+**Type:** `"census.emits" \| "census.callables" \| "audit.actors"`
 
 ### `MetaColumnType`
 
 UI column renderer type. NOTE: this is the UI type, not the DB type —
  e.g. `roles` is `"text"` here but `jsonb` on disk (never ILIKE-searchable).
 
-**Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline"`
+**Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline" \| "ref" \| "ref_count"`
+
+### `MetaColumnUom`
+
+Numeric unit-of-measure contract — the column's semantic quantity unit.
+`"percent"`: pure display transform (display = canonical × 100, emitted =
+display ÷ 100) — the canonical value stays a fraction; NO sibling field.
+`"currency"`: money semantics — `field` names the SIBLING column that
+persists the ISO code per row (mandatory); `source` defaults to
+`"currencies"` (the shared ISO list).
+`"custom"`: any other UoM (kg, ms, items, …) — `field` persists the code,
+`source` drives the selector options, `symbol` overrides the adornment.
+The `field` sibling requirement is verified by `withColumnConstraints`:
+a uom'd numeric without its code column is a construction error.
+
+**Type:** `{ kind: "percent" } \| { kind: "currency"; field: string; source: "currencies" } \| { kind: "custom"; field: string; source: MetaColumnUomSource; symbol: string }`
+
+### `MetaColumnUomSource`
+
+Option vocabulary a unit-of-measure selector may draw from.
+`"currencies"`: the ISO 4217 list resolved client-side (`getAllCurrencies`
+— same source the config-domain currency picker uses). `{entity}`: the
+UoM codes persist as rows of another entity (resolved via its `/list`).
+`{api_url}`: an explicit endpoint serving the options.
+Closed union on purpose — an unknown source is a construction error.
+
+**Type:** `"currencies" \| { entity: string } \| { api_url: string; value_field: string; label_field: string }`
 
 ### `MfaConsumeFn`
 
@@ -3023,6 +3490,18 @@ module, not to the module owning the broader `/system` prefix).
 
 One sidebar navigation link contributed by a module. `children` is the
 collapsible-group mechanism (the shell renders children under the parent).
+
+### `ModuleNavSibling`
+
+A sidebar-sibling declaration — lifts a SECOND module node next to the
+owning module under the same launcher root (e.g. CRM's "Impostazioni"
+node sibling of the CRM module). The owning service declares it inside
+`endpoints.nav.siblings`; discovery emits it as an extra module entry
+(`id: "<code>-<id>"`, `part_of` inherited) whose `route_prefixes` MUST
+nest strictly under one of the owner's — longest-prefix ownership then
+resolves the sibling's pages to the sibling node, never the parent.
+The access namespace derives as `<moduleNs>.<id>` (e.g.
+`access.crm.settings`) — leaf keys keep the standard route-derived form.
 
 ### `ModuleNotifyInput`
 
@@ -3109,6 +3588,10 @@ verifyNatsMessage+enforceNatsRbac chain. Return:
 
 **Type:** `(msg: Msg) => Promise<AuthUser \| null \| undefined>`
 
+### `NumericKind`
+
+**Type:** `"bigint" \| "number" \| "decimal"`
+
 ### `OpenApiRouteDoc`
 
 The subset of RpcRoute fields the spec generator reads — lets services
@@ -3151,7 +3634,7 @@ conventions — the AI route census (derived from the consolidated
 
 Page archetype vocabulary — what the route renders, regardless of delivery.
 
-**Type:** `"list" \| "detail" \| "create" \| "page"`
+**Type:** `"list" \| "detail" \| "create" \| "page" \| "dict"`
 
 ### `PageRouteProps`
 
@@ -3182,6 +3665,14 @@ Where one target field's value comes from.
 
 **Type:** `PayloadMapLeafEntry \| { kind: "inject"; inject: PayloadInjector; fallback: PayloadMapFallbackClause[] } \| { kind: "list"; items: PayloadMapItemEntry[]; fallback: PayloadMapFallbackClause[] } \| { kind: "map"; entries: Record<string, PayloadMapItemEntry>; fallback: PayloadMapFallbackClause[] }`
 
+### `PayloadMapEntryKind`
+
+Entry `kind` vocabulary — declared once, consumed by the DST enum
+ (`job.meta.ts`), the widget's kind pickers and the wire conformance.
+ A new member enters the union AND this list in the same edit.
+
+**Type:** `PayloadMapEntry["kind"]`
+
 ### `PayloadMapFallbackClause`
 
 Fallback clause — one nesting level, user-sourced kinds only.
@@ -3198,13 +3689,15 @@ Value allowed inside `list` items / `map` entries — leaf kinds or a
 
 ### `PayloadMapLeafEntry`
 
-User-authored source for a single scalar value.
+User-authored source for a single scalar value. `meta` is optional on
+ the leaf too: the builder keeps the honest "kind picked, source not
+ chosen yet" state (`{kind:"meta"}`) — conformance gates it to the wire.
 
 **Type:** `{ kind: "const"; value: unknown; fallback: PayloadMapFallbackClause[] } \| { kind: "path"; path: string; fallback: PayloadMapFallbackClause[] } \| { kind: "meta"; meta: PayloadMapMeta; fallback: PayloadMapFallbackClause[] }`
 
 ### `PayloadMapMeta`
 
-**Type:** `"actor_uuid" \| "rule_id" \| "fired_at" \| "actor_locale"`
+**Type:** `"actor_uuid" \| "actor_email" \| "creator_email" \| "trigger_id" \| "fired_at" \| "actor_locale"`
 
 ### `PayloadSemanticSlot`
 
@@ -3353,6 +3846,14 @@ Widget-level type_config capabilities (top-level type_config props).
 
 ## Constants
 
+### `ACTION_COLORS`
+
+The full `ActionColor` vocabulary — construction/lint validation rejects
+anything outside this closed set (raw strings on the wire can never reach
+the renderer).
+
+**Type:** `typeOperator`
+
 ### `API_KEY_CACHE_TTL_MS`
 
 Shared cache key + TTL for `api_keys` lookups.
@@ -3454,6 +3955,19 @@ Default consume: governed correlation call to the BE.
 
 **Type:** `MfaConsumeFn`
 
+### `DEFAULT_PAGE_ICON`
+
+Leaf-page icon defaults — the maximum fallback is `file-box`, applied
+whenever `kind` carries no specific default. A declaration's explicit
+`icon` ALWAYS wins: these fill `icon: null` at emission, they never
+override an authored value. Devs are never required to author one.
+
+**Type:** `"file-box"`
+
+### `DEFAULT_ROUTE_ICONS`
+
+**Type:** `Record<PageRouteKind, string>`
+
 ### `DOCS_PACK_CAPABILITY`
 
 Docs-pack contract — the manifest describing a service's documentation
@@ -3492,6 +4006,45 @@ Canonical header carrying the rotating client-shield secret on s2s calls.
 
 **Type:** `"x-client-shield-secret"`
 
+### `DOTTED_GLOB_RE`
+
+`dotted_glob` — dotted_key where a whole segment may be the `*`
+ wildcard (`access.system.*`, `access.crm.*`).
+
+**Type:** `RegExp`
+
+### `DOTTED_KEY_RE`
+
+`dotted_key` — dot-separated snake_key segments (`customer.read.all`).
+
+**Type:** `RegExp`
+
+### `EMAIL_REGEX`
+
+Email — same RFC-5322-simplified regex the config validator and the FE
+ refine use (documented shared in `sdk/src/config/config-validator.ts`).
+
+**Type:** `RegExp`
+
+### `FILTER_OPERATOR_ICON`
+
+Canonical `FilterOperator → Lucide icon` map — the ONE operator-icon
+vocabulary every filter surface renders (advanced operator combobox,
+filter chips, summaries). Values are `@lucide/svelte` icon names,
+consumed via `DynamicIcon`.
+
+**Type:** `Record<FilterOperator, string>`
+
+### `FILTER_OPERATOR_KEY`
+
+Canonical `FilterOperator → translation-key segment` map — the ONE
+vocabulary joining filter operators to `system.entities.list.operators.*`
+keys. Key segments are `[a-z0-9_]+` (translation-key grammar) — the bare
+operator symbols (`=`, `!=`, `<`, …) can never be segments, so labels are
+looked up through this map, never through the raw operator value.
+
+**Type:** `Record<FilterOperator, string>`
+
 ### `fromPG`
 
 Alias of `dec()` — parse a PostgreSQL `numeric`/`decimal` text value.
@@ -3507,6 +4060,91 @@ Alias of `dec()` — parse a PostgreSQL `numeric`/`decimal` text value.
 Alias of `dec()` — tolerates the `"…d"` wire suffix.
 
 **Type:** `typeof dec`
+
+### `HONEST_FORMAT_HINTS`
+
+The name→format honesty matrix — exported so the check-standards lint
+ (`schema-honest-format`) and the enrollment validator test the SAME
+ hints. Add a case here, never re-invent it per surface.
+
+**Type:** `{ re: RegExp; formats: typeOperator; why: string }[]`
+
+### `IDENTIFIER_RE`
+
+`identifier` — edge-alphanumeric machine id: `[a-z0-9]` at both ends,
+ internal `.`/`_`/`-` allowed (`micha-test-rule-1`, `e2e-callable-dispatch`).
+
+**Type:** `RegExp`
+
+### `isClockTime`
+
+`HH:MM`/`HH:MM:SS` 24h clock.
+
+**Type:** `(v: string) => boolean`
+
+### `isColorHex`
+
+`#RGB`/`#RRGGBB`/`#RRGGBBAA` hex color.
+
+**Type:** `(v: string) => boolean`
+
+### `isDateTime`
+
+Parseable ISO/RFC3339 datetime.
+
+**Type:** `(v: string) => boolean`
+
+### `isDottedGlob`
+
+**Type:** `(v: string) => boolean`
+
+### `isDottedKey`
+
+**Type:** `(v: string) => boolean`
+
+### `isEmail`
+
+**Type:** `(v: string) => boolean`
+
+### `isIdentifier`
+
+**Type:** `(v: string) => boolean`
+
+### `isLang`
+
+**Type:** `(v: string) => boolean`
+
+### `isNoSpace`
+
+**Type:** `(v: string) => boolean`
+
+### `isPhone`
+
+`+`/`00` optional E.164-ish phone — intentionally permissive (the FE
+ libphonenumber check is richer; server-side stays non-rejecting on
+ format-only signals it cannot verify).
+
+**Type:** `(v: string) => boolean`
+
+### `isSlug`
+
+**Type:** `(v: string) => boolean`
+
+### `isSnakeKey`
+
+**Type:** `(v: string) => boolean`
+
+### `JOB_RUN_ID_HEADER`
+
+Correlation header — the `job.job_runs` row this work belongs to.
+
+**Type:** `"x-job-run-id"`
+
+### `JOB_SCHEDULE_CANCEL_SUBJECT`
+
+Control-plane route for schedule cancellations (primebrick-job).
+
+**Type:** `"jobs.ctl.schedule.cancel"`
 
 ### `JOB_SCHEDULE_HEADERS`
 
@@ -3527,11 +4165,25 @@ Control-plane route for schedule declarations (primebrick-job).
 
 **Type:** `"jobs.ctl.schedule.request"`
 
+### `JOB_SCHEDULE_SUBJECT_HEADER`
+
+Correlation header — the `jobs.schedule.*` declaration that fired it.
+
+**Type:** `"x-job-schedule-subject"`
+
 ### `JOB_STREAM_SUBJECTS`
 
 Canonical JOBS stream capture set — schedule/due/result/cancel lanes only.
 
 **Type:** `typeOperator`
+
+### `LANG_RE`
+
+`lang` — BCP-47 language tag (`it-IT`, `en`, `zh-Hans`, `es-419`) —
+ primary subtag + optional subtags. Closed-grammar, not full RFC 5646:
+ matches every tag the platform emits.
+
+**Type:** `RegExp`
 
 ### `logger`
 
@@ -3564,6 +4216,12 @@ TextMapCarrier over NATS MsgHdrs (Map&#60;string, string[]&#62; wrapper).
 | get | "" |
 | set | "" |
 | keys | "" |
+
+### `NO_SPACE_RE`
+
+`no_space` — any non-whitespace token (UA prefixes, client names).
+
+**Type:** `RegExp`
 
 ### `NUMERIC_MIN_SIG_DIGITS`
 
@@ -3598,9 +4256,23 @@ Marker key emitted by `{kind:"inject"}` at arm time — the dispatcher
 
 **Type:** `typeOperator`
 
+### `PAYLOAD_MAP_ENTRY_KINDS`
+
+**Type:** `typeOperator`
+
 ### `PAYLOAD_MAP_META_KINDS`
 
 **Type:** `typeOperator`
+
+### `PAYLOAD_MAP_META_SCHEMAS`
+
+Declared value domain per meta kind — the SAME vocabulary the form
+ builder's compat filter and the resolver context share. `actor_*`
+ kinds describe who fired the event (forwarded auth headers);
+ `creator_email` describes who armed the rule (resolved via
+ `auth.ctl.resolve_user` — lazily, only when the map references it).
+
+**Type:** `Record<PayloadMapMeta, Record<string, unknown>>`
 
 ### `PAYLOAD_OPTIONS_VALUES_SOURCES`
 
@@ -3611,6 +4283,14 @@ Built-in `values_source` vocabularies — closed registry.
 ### `PAYLOAD_SEMANTIC_SLOTS`
 
 **Type:** `typeOperator`
+
+### `PAYLOAD_X_HELP_KEY`
+
+i18n key for the field's user-facing help (the label tooltip). The
+ service ships the key's translations in the shared dictionary; the
+ plain `description` stays as the documented English fallback.
+
+**Type:** `"x_help_key"`
 
 ### `PAYLOAD_X_INJECT`
 
@@ -3677,7 +4357,7 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
                                       pass. Use for high-risk non-CRUD
                                       operations (e.g. admin change-password).
 
-**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_EMAIL_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_EMAIL_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
+**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; CRM_CUSTOMER_TYPE_READ_ALL: "crm.customer_type.read.all"; CRM_CUSTOMER_TYPE_READ_SINGLE: "crm.customer_type.read.single"; CRM_CUSTOMER_TYPE_READ_AUDIT: "crm.customer_type.read.audit"; CRM_CUSTOMER_TYPE_EXPORT: "crm.customer_type.export"; CRM_CUSTOMER_TYPE_CREATE_SINGLE: "crm.customer_type.create.single"; CRM_CUSTOMER_TYPE_CREATE_BULK: "crm.customer_type.create.bulk"; CRM_CUSTOMER_TYPE_UPDATE_SINGLE: "crm.customer_type.update.single"; CRM_CUSTOMER_TYPE_UPDATE_BULK: "crm.customer_type.update.bulk"; CRM_CUSTOMER_TYPE_DELETE_SINGLE: "crm.customer_type.delete.single"; CRM_CUSTOMER_TYPE_DELETE_BULK: "crm.customer_type.delete.bulk"; CRM_CUSTOMER_TYPE_RESTORE_SINGLE: "crm.customer_type.restore.single"; CRM_CUSTOMER_TYPE_RESTORE_BULK: "crm.customer_type.restore.bulk"; CRM_CUSTOMER_TYPE_DUPLICATE_SINGLE: "crm.customer_type.duplicate.single"; CRM_CUSTOMER_TYPE_DUPLICATE_BULK: "crm.customer_type.duplicate.bulk"; CRM_COMPANY_DIMENSION_READ_ALL: "crm.company_dimension.read.all"; CRM_COMPANY_DIMENSION_READ_SINGLE: "crm.company_dimension.read.single"; CRM_COMPANY_DIMENSION_READ_AUDIT: "crm.company_dimension.read.audit"; CRM_COMPANY_DIMENSION_EXPORT: "crm.company_dimension.export"; CRM_COMPANY_DIMENSION_CREATE_SINGLE: "crm.company_dimension.create.single"; CRM_COMPANY_DIMENSION_CREATE_BULK: "crm.company_dimension.create.bulk"; CRM_COMPANY_DIMENSION_UPDATE_SINGLE: "crm.company_dimension.update.single"; CRM_COMPANY_DIMENSION_UPDATE_BULK: "crm.company_dimension.update.bulk"; CRM_COMPANY_DIMENSION_DELETE_SINGLE: "crm.company_dimension.delete.single"; CRM_COMPANY_DIMENSION_DELETE_BULK: "crm.company_dimension.delete.bulk"; CRM_COMPANY_DIMENSION_RESTORE_SINGLE: "crm.company_dimension.restore.single"; CRM_COMPANY_DIMENSION_RESTORE_BULK: "crm.company_dimension.restore.bulk"; CRM_COMPANY_DIMENSION_DUPLICATE_SINGLE: "crm.company_dimension.duplicate.single"; CRM_COMPANY_DIMENSION_DUPLICATE_BULK: "crm.company_dimension.duplicate.bulk"; CRM_LEGAL_FORM_READ_ALL: "crm.legal_form.read.all"; CRM_LEGAL_FORM_READ_SINGLE: "crm.legal_form.read.single"; CRM_LEGAL_FORM_READ_AUDIT: "crm.legal_form.read.audit"; CRM_LEGAL_FORM_EXPORT: "crm.legal_form.export"; CRM_LEGAL_FORM_CREATE_SINGLE: "crm.legal_form.create.single"; CRM_LEGAL_FORM_CREATE_BULK: "crm.legal_form.create.bulk"; CRM_LEGAL_FORM_UPDATE_SINGLE: "crm.legal_form.update.single"; CRM_LEGAL_FORM_UPDATE_BULK: "crm.legal_form.update.bulk"; CRM_LEGAL_FORM_DELETE_SINGLE: "crm.legal_form.delete.single"; CRM_LEGAL_FORM_DELETE_BULK: "crm.legal_form.delete.bulk"; CRM_LEGAL_FORM_RESTORE_SINGLE: "crm.legal_form.restore.single"; CRM_LEGAL_FORM_RESTORE_BULK: "crm.legal_form.restore.bulk"; CRM_LEGAL_FORM_DUPLICATE_SINGLE: "crm.legal_form.duplicate.single"; CRM_LEGAL_FORM_DUPLICATE_BULK: "crm.legal_form.duplicate.bulk"; CRM_LOCAL_ADDRESS_TYPE_READ_ALL: "crm.local_address_type.read.all"; CRM_LOCAL_ADDRESS_TYPE_READ_SINGLE: "crm.local_address_type.read.single"; CRM_LOCAL_ADDRESS_TYPE_READ_AUDIT: "crm.local_address_type.read.audit"; CRM_LOCAL_ADDRESS_TYPE_EXPORT: "crm.local_address_type.export"; CRM_LOCAL_ADDRESS_TYPE_CREATE_SINGLE: "crm.local_address_type.create.single"; CRM_LOCAL_ADDRESS_TYPE_CREATE_BULK: "crm.local_address_type.create.bulk"; CRM_LOCAL_ADDRESS_TYPE_UPDATE_SINGLE: "crm.local_address_type.update.single"; CRM_LOCAL_ADDRESS_TYPE_UPDATE_BULK: "crm.local_address_type.update.bulk"; CRM_LOCAL_ADDRESS_TYPE_DELETE_SINGLE: "crm.local_address_type.delete.single"; CRM_LOCAL_ADDRESS_TYPE_DELETE_BULK: "crm.local_address_type.delete.bulk"; CRM_LOCAL_ADDRESS_TYPE_RESTORE_SINGLE: "crm.local_address_type.restore.single"; CRM_LOCAL_ADDRESS_TYPE_RESTORE_BULK: "crm.local_address_type.restore.bulk"; CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_SINGLE: "crm.local_address_type.duplicate.single"; CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_BULK: "crm.local_address_type.duplicate.bulk"; CRM_QUALIFICATION_READ_ALL: "crm.qualification.read.all"; CRM_QUALIFICATION_READ_SINGLE: "crm.qualification.read.single"; CRM_QUALIFICATION_READ_AUDIT: "crm.qualification.read.audit"; CRM_QUALIFICATION_EXPORT: "crm.qualification.export"; CRM_QUALIFICATION_CREATE_SINGLE: "crm.qualification.create.single"; CRM_QUALIFICATION_CREATE_BULK: "crm.qualification.create.bulk"; CRM_QUALIFICATION_UPDATE_SINGLE: "crm.qualification.update.single"; CRM_QUALIFICATION_UPDATE_BULK: "crm.qualification.update.bulk"; CRM_QUALIFICATION_DELETE_SINGLE: "crm.qualification.delete.single"; CRM_QUALIFICATION_DELETE_BULK: "crm.qualification.delete.bulk"; CRM_QUALIFICATION_RESTORE_SINGLE: "crm.qualification.restore.single"; CRM_QUALIFICATION_RESTORE_BULK: "crm.qualification.restore.bulk"; CRM_QUALIFICATION_DUPLICATE_SINGLE: "crm.qualification.duplicate.single"; CRM_QUALIFICATION_DUPLICATE_BULK: "crm.qualification.duplicate.bulk"; CRM_MARKETING_QUALIFICATION_READ_ALL: "crm.marketing_qualification.read.all"; CRM_MARKETING_QUALIFICATION_READ_SINGLE: "crm.marketing_qualification.read.single"; CRM_MARKETING_QUALIFICATION_READ_AUDIT: "crm.marketing_qualification.read.audit"; CRM_MARKETING_QUALIFICATION_EXPORT: "crm.marketing_qualification.export"; CRM_MARKETING_QUALIFICATION_CREATE_SINGLE: "crm.marketing_qualification.create.single"; CRM_MARKETING_QUALIFICATION_CREATE_BULK: "crm.marketing_qualification.create.bulk"; CRM_MARKETING_QUALIFICATION_UPDATE_SINGLE: "crm.marketing_qualification.update.single"; CRM_MARKETING_QUALIFICATION_UPDATE_BULK: "crm.marketing_qualification.update.bulk"; CRM_MARKETING_QUALIFICATION_DELETE_SINGLE: "crm.marketing_qualification.delete.single"; CRM_MARKETING_QUALIFICATION_DELETE_BULK: "crm.marketing_qualification.delete.bulk"; CRM_MARKETING_QUALIFICATION_RESTORE_SINGLE: "crm.marketing_qualification.restore.single"; CRM_MARKETING_QUALIFICATION_RESTORE_BULK: "crm.marketing_qualification.restore.bulk"; CRM_MARKETING_QUALIFICATION_DUPLICATE_SINGLE: "crm.marketing_qualification.duplicate.single"; CRM_MARKETING_QUALIFICATION_DUPLICATE_BULK: "crm.marketing_qualification.duplicate.bulk"; CRM_CONTACT_TYPE_READ_ALL: "crm.contact_type.read.all"; CRM_CONTACT_TYPE_READ_SINGLE: "crm.contact_type.read.single"; CRM_CONTACT_TYPE_READ_AUDIT: "crm.contact_type.read.audit"; CRM_CONTACT_TYPE_EXPORT: "crm.contact_type.export"; CRM_CONTACT_TYPE_CREATE_SINGLE: "crm.contact_type.create.single"; CRM_CONTACT_TYPE_CREATE_BULK: "crm.contact_type.create.bulk"; CRM_CONTACT_TYPE_UPDATE_SINGLE: "crm.contact_type.update.single"; CRM_CONTACT_TYPE_UPDATE_BULK: "crm.contact_type.update.bulk"; CRM_CONTACT_TYPE_DELETE_SINGLE: "crm.contact_type.delete.single"; CRM_CONTACT_TYPE_DELETE_BULK: "crm.contact_type.delete.bulk"; CRM_CONTACT_TYPE_RESTORE_SINGLE: "crm.contact_type.restore.single"; CRM_CONTACT_TYPE_RESTORE_BULK: "crm.contact_type.restore.bulk"; CRM_CONTACT_TYPE_DUPLICATE_SINGLE: "crm.contact_type.duplicate.single"; CRM_CONTACT_TYPE_DUPLICATE_BULK: "crm.contact_type.duplicate.bulk"; CRM_ACCOUNT_KIND_READ_ALL: "crm.account_kind.read.all"; CRM_ACCOUNT_KIND_READ_SINGLE: "crm.account_kind.read.single"; CRM_ACCOUNT_KIND_READ_AUDIT: "crm.account_kind.read.audit"; CRM_ACCOUNT_KIND_EXPORT: "crm.account_kind.export"; CRM_ACCOUNT_KIND_CREATE_SINGLE: "crm.account_kind.create.single"; CRM_ACCOUNT_KIND_CREATE_BULK: "crm.account_kind.create.bulk"; CRM_ACCOUNT_KIND_UPDATE_SINGLE: "crm.account_kind.update.single"; CRM_ACCOUNT_KIND_UPDATE_BULK: "crm.account_kind.update.bulk"; CRM_ACCOUNT_KIND_DELETE_SINGLE: "crm.account_kind.delete.single"; CRM_ACCOUNT_KIND_DELETE_BULK: "crm.account_kind.delete.bulk"; CRM_ACCOUNT_KIND_RESTORE_SINGLE: "crm.account_kind.restore.single"; CRM_ACCOUNT_KIND_RESTORE_BULK: "crm.account_kind.restore.bulk"; CRM_ACCOUNT_KIND_DUPLICATE_SINGLE: "crm.account_kind.duplicate.single"; CRM_ACCOUNT_KIND_DUPLICATE_BULK: "crm.account_kind.duplicate.bulk"; CRM_CUSTOMER_LINK_TYPE_READ_ALL: "crm.customer_link_type.read.all"; CRM_CUSTOMER_LINK_TYPE_READ_SINGLE: "crm.customer_link_type.read.single"; CRM_CUSTOMER_LINK_TYPE_READ_AUDIT: "crm.customer_link_type.read.audit"; CRM_CUSTOMER_LINK_TYPE_EXPORT: "crm.customer_link_type.export"; CRM_CUSTOMER_LINK_TYPE_CREATE_SINGLE: "crm.customer_link_type.create.single"; CRM_CUSTOMER_LINK_TYPE_CREATE_BULK: "crm.customer_link_type.create.bulk"; CRM_CUSTOMER_LINK_TYPE_UPDATE_SINGLE: "crm.customer_link_type.update.single"; CRM_CUSTOMER_LINK_TYPE_UPDATE_BULK: "crm.customer_link_type.update.bulk"; CRM_CUSTOMER_LINK_TYPE_DELETE_SINGLE: "crm.customer_link_type.delete.single"; CRM_CUSTOMER_LINK_TYPE_DELETE_BULK: "crm.customer_link_type.delete.bulk"; CRM_CUSTOMER_LINK_TYPE_RESTORE_SINGLE: "crm.customer_link_type.restore.single"; CRM_CUSTOMER_LINK_TYPE_RESTORE_BULK: "crm.customer_link_type.restore.bulk"; CRM_CUSTOMER_LINK_TYPE_DUPLICATE_SINGLE: "crm.customer_link_type.duplicate.single"; CRM_CUSTOMER_LINK_TYPE_DUPLICATE_BULK: "crm.customer_link_type.duplicate.bulk"; CRM_CONSENT_TYPE_READ_ALL: "crm.consent_type.read.all"; CRM_CONSENT_TYPE_READ_SINGLE: "crm.consent_type.read.single"; CRM_CONSENT_TYPE_READ_AUDIT: "crm.consent_type.read.audit"; CRM_CONSENT_TYPE_EXPORT: "crm.consent_type.export"; CRM_CONSENT_TYPE_CREATE_SINGLE: "crm.consent_type.create.single"; CRM_CONSENT_TYPE_CREATE_BULK: "crm.consent_type.create.bulk"; CRM_CONSENT_TYPE_UPDATE_SINGLE: "crm.consent_type.update.single"; CRM_CONSENT_TYPE_UPDATE_BULK: "crm.consent_type.update.bulk"; CRM_CONSENT_TYPE_DELETE_SINGLE: "crm.consent_type.delete.single"; CRM_CONSENT_TYPE_DELETE_BULK: "crm.consent_type.delete.bulk"; CRM_CONSENT_TYPE_RESTORE_SINGLE: "crm.consent_type.restore.single"; CRM_CONSENT_TYPE_RESTORE_BULK: "crm.consent_type.restore.bulk"; CRM_CONSENT_TYPE_DUPLICATE_SINGLE: "crm.consent_type.duplicate.single"; CRM_CONSENT_TYPE_DUPLICATE_BULK: "crm.consent_type.duplicate.bulk"; CRM_LOCAL_ADDRESS_READ_ALL: "crm.local_address.read.all"; CRM_LOCAL_ADDRESS_READ_SINGLE: "crm.local_address.read.single"; CRM_LOCAL_ADDRESS_READ_AUDIT: "crm.local_address.read.audit"; CRM_LOCAL_ADDRESS_EXPORT: "crm.local_address.export"; CRM_LOCAL_ADDRESS_CREATE_SINGLE: "crm.local_address.create.single"; CRM_LOCAL_ADDRESS_CREATE_BULK: "crm.local_address.create.bulk"; CRM_LOCAL_ADDRESS_UPDATE_SINGLE: "crm.local_address.update.single"; CRM_LOCAL_ADDRESS_UPDATE_BULK: "crm.local_address.update.bulk"; CRM_LOCAL_ADDRESS_DELETE_SINGLE: "crm.local_address.delete.single"; CRM_LOCAL_ADDRESS_DELETE_BULK: "crm.local_address.delete.bulk"; CRM_LOCAL_ADDRESS_RESTORE_SINGLE: "crm.local_address.restore.single"; CRM_LOCAL_ADDRESS_RESTORE_BULK: "crm.local_address.restore.bulk"; CRM_LOCAL_ADDRESS_DUPLICATE_SINGLE: "crm.local_address.duplicate.single"; CRM_LOCAL_ADDRESS_DUPLICATE_BULK: "crm.local_address.duplicate.bulk"; CRM_CUSTOMER_ACCOUNT_READ_ALL: "crm.customer_account.read.all"; CRM_CUSTOMER_ACCOUNT_READ_SINGLE: "crm.customer_account.read.single"; CRM_CUSTOMER_ACCOUNT_READ_AUDIT: "crm.customer_account.read.audit"; CRM_CUSTOMER_ACCOUNT_EXPORT: "crm.customer_account.export"; CRM_CUSTOMER_ACCOUNT_CREATE_SINGLE: "crm.customer_account.create.single"; CRM_CUSTOMER_ACCOUNT_CREATE_BULK: "crm.customer_account.create.bulk"; CRM_CUSTOMER_ACCOUNT_UPDATE_SINGLE: "crm.customer_account.update.single"; CRM_CUSTOMER_ACCOUNT_UPDATE_BULK: "crm.customer_account.update.bulk"; CRM_CUSTOMER_ACCOUNT_DELETE_SINGLE: "crm.customer_account.delete.single"; CRM_CUSTOMER_ACCOUNT_DELETE_BULK: "crm.customer_account.delete.bulk"; CRM_CUSTOMER_ACCOUNT_RESTORE_SINGLE: "crm.customer_account.restore.single"; CRM_CUSTOMER_ACCOUNT_RESTORE_BULK: "crm.customer_account.restore.bulk"; CRM_CUSTOMER_ACCOUNT_DUPLICATE_SINGLE: "crm.customer_account.duplicate.single"; CRM_CUSTOMER_ACCOUNT_DUPLICATE_BULK: "crm.customer_account.duplicate.bulk"; CRM_CUSTOMER_CONTACT_READ_ALL: "crm.customer_contact.read.all"; CRM_CUSTOMER_CONTACT_READ_SINGLE: "crm.customer_contact.read.single"; CRM_CUSTOMER_CONTACT_READ_AUDIT: "crm.customer_contact.read.audit"; CRM_CUSTOMER_CONTACT_EXPORT: "crm.customer_contact.export"; CRM_CUSTOMER_CONTACT_CREATE_SINGLE: "crm.customer_contact.create.single"; CRM_CUSTOMER_CONTACT_CREATE_BULK: "crm.customer_contact.create.bulk"; CRM_CUSTOMER_CONTACT_UPDATE_SINGLE: "crm.customer_contact.update.single"; CRM_CUSTOMER_CONTACT_UPDATE_BULK: "crm.customer_contact.update.bulk"; CRM_CUSTOMER_CONTACT_DELETE_SINGLE: "crm.customer_contact.delete.single"; CRM_CUSTOMER_CONTACT_DELETE_BULK: "crm.customer_contact.delete.bulk"; CRM_CUSTOMER_CONTACT_RESTORE_SINGLE: "crm.customer_contact.restore.single"; CRM_CUSTOMER_CONTACT_RESTORE_BULK: "crm.customer_contact.restore.bulk"; CRM_CUSTOMER_CONTACT_DUPLICATE_SINGLE: "crm.customer_contact.duplicate.single"; CRM_CUSTOMER_CONTACT_DUPLICATE_BULK: "crm.customer_contact.duplicate.bulk"; CRM_CUSTOMER_CONSENT_READ_ALL: "crm.customer_consent.read.all"; CRM_CUSTOMER_CONSENT_READ_SINGLE: "crm.customer_consent.read.single"; CRM_CUSTOMER_CONSENT_READ_AUDIT: "crm.customer_consent.read.audit"; CRM_CUSTOMER_CONSENT_EXPORT: "crm.customer_consent.export"; CRM_CUSTOMER_CONSENT_CREATE_SINGLE: "crm.customer_consent.create.single"; CRM_CUSTOMER_CONSENT_CREATE_BULK: "crm.customer_consent.create.bulk"; CRM_CUSTOMER_CONSENT_UPDATE_SINGLE: "crm.customer_consent.update.single"; CRM_CUSTOMER_CONSENT_UPDATE_BULK: "crm.customer_consent.update.bulk"; CRM_CUSTOMER_CONSENT_DELETE_SINGLE: "crm.customer_consent.delete.single"; CRM_CUSTOMER_CONSENT_DELETE_BULK: "crm.customer_consent.delete.bulk"; CRM_CUSTOMER_CONSENT_RESTORE_SINGLE: "crm.customer_consent.restore.single"; CRM_CUSTOMER_CONSENT_RESTORE_BULK: "crm.customer_consent.restore.bulk"; CRM_CUSTOMER_CONSENT_DUPLICATE_SINGLE: "crm.customer_consent.duplicate.single"; CRM_CUSTOMER_CONSENT_DUPLICATE_BULK: "crm.customer_consent.duplicate.bulk"; CRM_CUSTOMER_LINK_READ_ALL: "crm.customer_link.read.all"; CRM_CUSTOMER_LINK_READ_SINGLE: "crm.customer_link.read.single"; CRM_CUSTOMER_LINK_READ_AUDIT: "crm.customer_link.read.audit"; CRM_CUSTOMER_LINK_EXPORT: "crm.customer_link.export"; CRM_CUSTOMER_LINK_CREATE_SINGLE: "crm.customer_link.create.single"; CRM_CUSTOMER_LINK_CREATE_BULK: "crm.customer_link.create.bulk"; CRM_CUSTOMER_LINK_UPDATE_SINGLE: "crm.customer_link.update.single"; CRM_CUSTOMER_LINK_UPDATE_BULK: "crm.customer_link.update.bulk"; CRM_CUSTOMER_LINK_DELETE_SINGLE: "crm.customer_link.delete.single"; CRM_CUSTOMER_LINK_DELETE_BULK: "crm.customer_link.delete.bulk"; CRM_CUSTOMER_LINK_RESTORE_SINGLE: "crm.customer_link.restore.single"; CRM_CUSTOMER_LINK_RESTORE_BULK: "crm.customer_link.restore.bulk"; CRM_CUSTOMER_LINK_DUPLICATE_SINGLE: "crm.customer_link.duplicate.single"; CRM_CUSTOMER_LINK_DUPLICATE_BULK: "crm.customer_link.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_EMAIL_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_EMAIL_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
 
 | Field | Value |
 |-------|-------|
@@ -3732,6 +4412,216 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
 | CUSTOMER_RESTORE_BULK | "customer.restore.bulk" |
 | CUSTOMER_DUPLICATE_SINGLE | "customer.duplicate.single" |
 | CUSTOMER_DUPLICATE_BULK | "customer.duplicate.bulk" |
+| CRM_CUSTOMER_TYPE_READ_ALL | "crm.customer_type.read.all" |
+| CRM_CUSTOMER_TYPE_READ_SINGLE | "crm.customer_type.read.single" |
+| CRM_CUSTOMER_TYPE_READ_AUDIT | "crm.customer_type.read.audit" |
+| CRM_CUSTOMER_TYPE_EXPORT | "crm.customer_type.export" |
+| CRM_CUSTOMER_TYPE_CREATE_SINGLE | "crm.customer_type.create.single" |
+| CRM_CUSTOMER_TYPE_CREATE_BULK | "crm.customer_type.create.bulk" |
+| CRM_CUSTOMER_TYPE_UPDATE_SINGLE | "crm.customer_type.update.single" |
+| CRM_CUSTOMER_TYPE_UPDATE_BULK | "crm.customer_type.update.bulk" |
+| CRM_CUSTOMER_TYPE_DELETE_SINGLE | "crm.customer_type.delete.single" |
+| CRM_CUSTOMER_TYPE_DELETE_BULK | "crm.customer_type.delete.bulk" |
+| CRM_CUSTOMER_TYPE_RESTORE_SINGLE | "crm.customer_type.restore.single" |
+| CRM_CUSTOMER_TYPE_RESTORE_BULK | "crm.customer_type.restore.bulk" |
+| CRM_CUSTOMER_TYPE_DUPLICATE_SINGLE | "crm.customer_type.duplicate.single" |
+| CRM_CUSTOMER_TYPE_DUPLICATE_BULK | "crm.customer_type.duplicate.bulk" |
+| CRM_COMPANY_DIMENSION_READ_ALL | "crm.company_dimension.read.all" |
+| CRM_COMPANY_DIMENSION_READ_SINGLE | "crm.company_dimension.read.single" |
+| CRM_COMPANY_DIMENSION_READ_AUDIT | "crm.company_dimension.read.audit" |
+| CRM_COMPANY_DIMENSION_EXPORT | "crm.company_dimension.export" |
+| CRM_COMPANY_DIMENSION_CREATE_SINGLE | "crm.company_dimension.create.single" |
+| CRM_COMPANY_DIMENSION_CREATE_BULK | "crm.company_dimension.create.bulk" |
+| CRM_COMPANY_DIMENSION_UPDATE_SINGLE | "crm.company_dimension.update.single" |
+| CRM_COMPANY_DIMENSION_UPDATE_BULK | "crm.company_dimension.update.bulk" |
+| CRM_COMPANY_DIMENSION_DELETE_SINGLE | "crm.company_dimension.delete.single" |
+| CRM_COMPANY_DIMENSION_DELETE_BULK | "crm.company_dimension.delete.bulk" |
+| CRM_COMPANY_DIMENSION_RESTORE_SINGLE | "crm.company_dimension.restore.single" |
+| CRM_COMPANY_DIMENSION_RESTORE_BULK | "crm.company_dimension.restore.bulk" |
+| CRM_COMPANY_DIMENSION_DUPLICATE_SINGLE | "crm.company_dimension.duplicate.single" |
+| CRM_COMPANY_DIMENSION_DUPLICATE_BULK | "crm.company_dimension.duplicate.bulk" |
+| CRM_LEGAL_FORM_READ_ALL | "crm.legal_form.read.all" |
+| CRM_LEGAL_FORM_READ_SINGLE | "crm.legal_form.read.single" |
+| CRM_LEGAL_FORM_READ_AUDIT | "crm.legal_form.read.audit" |
+| CRM_LEGAL_FORM_EXPORT | "crm.legal_form.export" |
+| CRM_LEGAL_FORM_CREATE_SINGLE | "crm.legal_form.create.single" |
+| CRM_LEGAL_FORM_CREATE_BULK | "crm.legal_form.create.bulk" |
+| CRM_LEGAL_FORM_UPDATE_SINGLE | "crm.legal_form.update.single" |
+| CRM_LEGAL_FORM_UPDATE_BULK | "crm.legal_form.update.bulk" |
+| CRM_LEGAL_FORM_DELETE_SINGLE | "crm.legal_form.delete.single" |
+| CRM_LEGAL_FORM_DELETE_BULK | "crm.legal_form.delete.bulk" |
+| CRM_LEGAL_FORM_RESTORE_SINGLE | "crm.legal_form.restore.single" |
+| CRM_LEGAL_FORM_RESTORE_BULK | "crm.legal_form.restore.bulk" |
+| CRM_LEGAL_FORM_DUPLICATE_SINGLE | "crm.legal_form.duplicate.single" |
+| CRM_LEGAL_FORM_DUPLICATE_BULK | "crm.legal_form.duplicate.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_READ_ALL | "crm.local_address_type.read.all" |
+| CRM_LOCAL_ADDRESS_TYPE_READ_SINGLE | "crm.local_address_type.read.single" |
+| CRM_LOCAL_ADDRESS_TYPE_READ_AUDIT | "crm.local_address_type.read.audit" |
+| CRM_LOCAL_ADDRESS_TYPE_EXPORT | "crm.local_address_type.export" |
+| CRM_LOCAL_ADDRESS_TYPE_CREATE_SINGLE | "crm.local_address_type.create.single" |
+| CRM_LOCAL_ADDRESS_TYPE_CREATE_BULK | "crm.local_address_type.create.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_UPDATE_SINGLE | "crm.local_address_type.update.single" |
+| CRM_LOCAL_ADDRESS_TYPE_UPDATE_BULK | "crm.local_address_type.update.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_DELETE_SINGLE | "crm.local_address_type.delete.single" |
+| CRM_LOCAL_ADDRESS_TYPE_DELETE_BULK | "crm.local_address_type.delete.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_RESTORE_SINGLE | "crm.local_address_type.restore.single" |
+| CRM_LOCAL_ADDRESS_TYPE_RESTORE_BULK | "crm.local_address_type.restore.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_SINGLE | "crm.local_address_type.duplicate.single" |
+| CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_BULK | "crm.local_address_type.duplicate.bulk" |
+| CRM_QUALIFICATION_READ_ALL | "crm.qualification.read.all" |
+| CRM_QUALIFICATION_READ_SINGLE | "crm.qualification.read.single" |
+| CRM_QUALIFICATION_READ_AUDIT | "crm.qualification.read.audit" |
+| CRM_QUALIFICATION_EXPORT | "crm.qualification.export" |
+| CRM_QUALIFICATION_CREATE_SINGLE | "crm.qualification.create.single" |
+| CRM_QUALIFICATION_CREATE_BULK | "crm.qualification.create.bulk" |
+| CRM_QUALIFICATION_UPDATE_SINGLE | "crm.qualification.update.single" |
+| CRM_QUALIFICATION_UPDATE_BULK | "crm.qualification.update.bulk" |
+| CRM_QUALIFICATION_DELETE_SINGLE | "crm.qualification.delete.single" |
+| CRM_QUALIFICATION_DELETE_BULK | "crm.qualification.delete.bulk" |
+| CRM_QUALIFICATION_RESTORE_SINGLE | "crm.qualification.restore.single" |
+| CRM_QUALIFICATION_RESTORE_BULK | "crm.qualification.restore.bulk" |
+| CRM_QUALIFICATION_DUPLICATE_SINGLE | "crm.qualification.duplicate.single" |
+| CRM_QUALIFICATION_DUPLICATE_BULK | "crm.qualification.duplicate.bulk" |
+| CRM_MARKETING_QUALIFICATION_READ_ALL | "crm.marketing_qualification.read.all" |
+| CRM_MARKETING_QUALIFICATION_READ_SINGLE | "crm.marketing_qualification.read.single" |
+| CRM_MARKETING_QUALIFICATION_READ_AUDIT | "crm.marketing_qualification.read.audit" |
+| CRM_MARKETING_QUALIFICATION_EXPORT | "crm.marketing_qualification.export" |
+| CRM_MARKETING_QUALIFICATION_CREATE_SINGLE | "crm.marketing_qualification.create.single" |
+| CRM_MARKETING_QUALIFICATION_CREATE_BULK | "crm.marketing_qualification.create.bulk" |
+| CRM_MARKETING_QUALIFICATION_UPDATE_SINGLE | "crm.marketing_qualification.update.single" |
+| CRM_MARKETING_QUALIFICATION_UPDATE_BULK | "crm.marketing_qualification.update.bulk" |
+| CRM_MARKETING_QUALIFICATION_DELETE_SINGLE | "crm.marketing_qualification.delete.single" |
+| CRM_MARKETING_QUALIFICATION_DELETE_BULK | "crm.marketing_qualification.delete.bulk" |
+| CRM_MARKETING_QUALIFICATION_RESTORE_SINGLE | "crm.marketing_qualification.restore.single" |
+| CRM_MARKETING_QUALIFICATION_RESTORE_BULK | "crm.marketing_qualification.restore.bulk" |
+| CRM_MARKETING_QUALIFICATION_DUPLICATE_SINGLE | "crm.marketing_qualification.duplicate.single" |
+| CRM_MARKETING_QUALIFICATION_DUPLICATE_BULK | "crm.marketing_qualification.duplicate.bulk" |
+| CRM_CONTACT_TYPE_READ_ALL | "crm.contact_type.read.all" |
+| CRM_CONTACT_TYPE_READ_SINGLE | "crm.contact_type.read.single" |
+| CRM_CONTACT_TYPE_READ_AUDIT | "crm.contact_type.read.audit" |
+| CRM_CONTACT_TYPE_EXPORT | "crm.contact_type.export" |
+| CRM_CONTACT_TYPE_CREATE_SINGLE | "crm.contact_type.create.single" |
+| CRM_CONTACT_TYPE_CREATE_BULK | "crm.contact_type.create.bulk" |
+| CRM_CONTACT_TYPE_UPDATE_SINGLE | "crm.contact_type.update.single" |
+| CRM_CONTACT_TYPE_UPDATE_BULK | "crm.contact_type.update.bulk" |
+| CRM_CONTACT_TYPE_DELETE_SINGLE | "crm.contact_type.delete.single" |
+| CRM_CONTACT_TYPE_DELETE_BULK | "crm.contact_type.delete.bulk" |
+| CRM_CONTACT_TYPE_RESTORE_SINGLE | "crm.contact_type.restore.single" |
+| CRM_CONTACT_TYPE_RESTORE_BULK | "crm.contact_type.restore.bulk" |
+| CRM_CONTACT_TYPE_DUPLICATE_SINGLE | "crm.contact_type.duplicate.single" |
+| CRM_CONTACT_TYPE_DUPLICATE_BULK | "crm.contact_type.duplicate.bulk" |
+| CRM_ACCOUNT_KIND_READ_ALL | "crm.account_kind.read.all" |
+| CRM_ACCOUNT_KIND_READ_SINGLE | "crm.account_kind.read.single" |
+| CRM_ACCOUNT_KIND_READ_AUDIT | "crm.account_kind.read.audit" |
+| CRM_ACCOUNT_KIND_EXPORT | "crm.account_kind.export" |
+| CRM_ACCOUNT_KIND_CREATE_SINGLE | "crm.account_kind.create.single" |
+| CRM_ACCOUNT_KIND_CREATE_BULK | "crm.account_kind.create.bulk" |
+| CRM_ACCOUNT_KIND_UPDATE_SINGLE | "crm.account_kind.update.single" |
+| CRM_ACCOUNT_KIND_UPDATE_BULK | "crm.account_kind.update.bulk" |
+| CRM_ACCOUNT_KIND_DELETE_SINGLE | "crm.account_kind.delete.single" |
+| CRM_ACCOUNT_KIND_DELETE_BULK | "crm.account_kind.delete.bulk" |
+| CRM_ACCOUNT_KIND_RESTORE_SINGLE | "crm.account_kind.restore.single" |
+| CRM_ACCOUNT_KIND_RESTORE_BULK | "crm.account_kind.restore.bulk" |
+| CRM_ACCOUNT_KIND_DUPLICATE_SINGLE | "crm.account_kind.duplicate.single" |
+| CRM_ACCOUNT_KIND_DUPLICATE_BULK | "crm.account_kind.duplicate.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_READ_ALL | "crm.customer_link_type.read.all" |
+| CRM_CUSTOMER_LINK_TYPE_READ_SINGLE | "crm.customer_link_type.read.single" |
+| CRM_CUSTOMER_LINK_TYPE_READ_AUDIT | "crm.customer_link_type.read.audit" |
+| CRM_CUSTOMER_LINK_TYPE_EXPORT | "crm.customer_link_type.export" |
+| CRM_CUSTOMER_LINK_TYPE_CREATE_SINGLE | "crm.customer_link_type.create.single" |
+| CRM_CUSTOMER_LINK_TYPE_CREATE_BULK | "crm.customer_link_type.create.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_UPDATE_SINGLE | "crm.customer_link_type.update.single" |
+| CRM_CUSTOMER_LINK_TYPE_UPDATE_BULK | "crm.customer_link_type.update.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_DELETE_SINGLE | "crm.customer_link_type.delete.single" |
+| CRM_CUSTOMER_LINK_TYPE_DELETE_BULK | "crm.customer_link_type.delete.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_RESTORE_SINGLE | "crm.customer_link_type.restore.single" |
+| CRM_CUSTOMER_LINK_TYPE_RESTORE_BULK | "crm.customer_link_type.restore.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_DUPLICATE_SINGLE | "crm.customer_link_type.duplicate.single" |
+| CRM_CUSTOMER_LINK_TYPE_DUPLICATE_BULK | "crm.customer_link_type.duplicate.bulk" |
+| CRM_CONSENT_TYPE_READ_ALL | "crm.consent_type.read.all" |
+| CRM_CONSENT_TYPE_READ_SINGLE | "crm.consent_type.read.single" |
+| CRM_CONSENT_TYPE_READ_AUDIT | "crm.consent_type.read.audit" |
+| CRM_CONSENT_TYPE_EXPORT | "crm.consent_type.export" |
+| CRM_CONSENT_TYPE_CREATE_SINGLE | "crm.consent_type.create.single" |
+| CRM_CONSENT_TYPE_CREATE_BULK | "crm.consent_type.create.bulk" |
+| CRM_CONSENT_TYPE_UPDATE_SINGLE | "crm.consent_type.update.single" |
+| CRM_CONSENT_TYPE_UPDATE_BULK | "crm.consent_type.update.bulk" |
+| CRM_CONSENT_TYPE_DELETE_SINGLE | "crm.consent_type.delete.single" |
+| CRM_CONSENT_TYPE_DELETE_BULK | "crm.consent_type.delete.bulk" |
+| CRM_CONSENT_TYPE_RESTORE_SINGLE | "crm.consent_type.restore.single" |
+| CRM_CONSENT_TYPE_RESTORE_BULK | "crm.consent_type.restore.bulk" |
+| CRM_CONSENT_TYPE_DUPLICATE_SINGLE | "crm.consent_type.duplicate.single" |
+| CRM_CONSENT_TYPE_DUPLICATE_BULK | "crm.consent_type.duplicate.bulk" |
+| CRM_LOCAL_ADDRESS_READ_ALL | "crm.local_address.read.all" |
+| CRM_LOCAL_ADDRESS_READ_SINGLE | "crm.local_address.read.single" |
+| CRM_LOCAL_ADDRESS_READ_AUDIT | "crm.local_address.read.audit" |
+| CRM_LOCAL_ADDRESS_EXPORT | "crm.local_address.export" |
+| CRM_LOCAL_ADDRESS_CREATE_SINGLE | "crm.local_address.create.single" |
+| CRM_LOCAL_ADDRESS_CREATE_BULK | "crm.local_address.create.bulk" |
+| CRM_LOCAL_ADDRESS_UPDATE_SINGLE | "crm.local_address.update.single" |
+| CRM_LOCAL_ADDRESS_UPDATE_BULK | "crm.local_address.update.bulk" |
+| CRM_LOCAL_ADDRESS_DELETE_SINGLE | "crm.local_address.delete.single" |
+| CRM_LOCAL_ADDRESS_DELETE_BULK | "crm.local_address.delete.bulk" |
+| CRM_LOCAL_ADDRESS_RESTORE_SINGLE | "crm.local_address.restore.single" |
+| CRM_LOCAL_ADDRESS_RESTORE_BULK | "crm.local_address.restore.bulk" |
+| CRM_LOCAL_ADDRESS_DUPLICATE_SINGLE | "crm.local_address.duplicate.single" |
+| CRM_LOCAL_ADDRESS_DUPLICATE_BULK | "crm.local_address.duplicate.bulk" |
+| CRM_CUSTOMER_ACCOUNT_READ_ALL | "crm.customer_account.read.all" |
+| CRM_CUSTOMER_ACCOUNT_READ_SINGLE | "crm.customer_account.read.single" |
+| CRM_CUSTOMER_ACCOUNT_READ_AUDIT | "crm.customer_account.read.audit" |
+| CRM_CUSTOMER_ACCOUNT_EXPORT | "crm.customer_account.export" |
+| CRM_CUSTOMER_ACCOUNT_CREATE_SINGLE | "crm.customer_account.create.single" |
+| CRM_CUSTOMER_ACCOUNT_CREATE_BULK | "crm.customer_account.create.bulk" |
+| CRM_CUSTOMER_ACCOUNT_UPDATE_SINGLE | "crm.customer_account.update.single" |
+| CRM_CUSTOMER_ACCOUNT_UPDATE_BULK | "crm.customer_account.update.bulk" |
+| CRM_CUSTOMER_ACCOUNT_DELETE_SINGLE | "crm.customer_account.delete.single" |
+| CRM_CUSTOMER_ACCOUNT_DELETE_BULK | "crm.customer_account.delete.bulk" |
+| CRM_CUSTOMER_ACCOUNT_RESTORE_SINGLE | "crm.customer_account.restore.single" |
+| CRM_CUSTOMER_ACCOUNT_RESTORE_BULK | "crm.customer_account.restore.bulk" |
+| CRM_CUSTOMER_ACCOUNT_DUPLICATE_SINGLE | "crm.customer_account.duplicate.single" |
+| CRM_CUSTOMER_ACCOUNT_DUPLICATE_BULK | "crm.customer_account.duplicate.bulk" |
+| CRM_CUSTOMER_CONTACT_READ_ALL | "crm.customer_contact.read.all" |
+| CRM_CUSTOMER_CONTACT_READ_SINGLE | "crm.customer_contact.read.single" |
+| CRM_CUSTOMER_CONTACT_READ_AUDIT | "crm.customer_contact.read.audit" |
+| CRM_CUSTOMER_CONTACT_EXPORT | "crm.customer_contact.export" |
+| CRM_CUSTOMER_CONTACT_CREATE_SINGLE | "crm.customer_contact.create.single" |
+| CRM_CUSTOMER_CONTACT_CREATE_BULK | "crm.customer_contact.create.bulk" |
+| CRM_CUSTOMER_CONTACT_UPDATE_SINGLE | "crm.customer_contact.update.single" |
+| CRM_CUSTOMER_CONTACT_UPDATE_BULK | "crm.customer_contact.update.bulk" |
+| CRM_CUSTOMER_CONTACT_DELETE_SINGLE | "crm.customer_contact.delete.single" |
+| CRM_CUSTOMER_CONTACT_DELETE_BULK | "crm.customer_contact.delete.bulk" |
+| CRM_CUSTOMER_CONTACT_RESTORE_SINGLE | "crm.customer_contact.restore.single" |
+| CRM_CUSTOMER_CONTACT_RESTORE_BULK | "crm.customer_contact.restore.bulk" |
+| CRM_CUSTOMER_CONTACT_DUPLICATE_SINGLE | "crm.customer_contact.duplicate.single" |
+| CRM_CUSTOMER_CONTACT_DUPLICATE_BULK | "crm.customer_contact.duplicate.bulk" |
+| CRM_CUSTOMER_CONSENT_READ_ALL | "crm.customer_consent.read.all" |
+| CRM_CUSTOMER_CONSENT_READ_SINGLE | "crm.customer_consent.read.single" |
+| CRM_CUSTOMER_CONSENT_READ_AUDIT | "crm.customer_consent.read.audit" |
+| CRM_CUSTOMER_CONSENT_EXPORT | "crm.customer_consent.export" |
+| CRM_CUSTOMER_CONSENT_CREATE_SINGLE | "crm.customer_consent.create.single" |
+| CRM_CUSTOMER_CONSENT_CREATE_BULK | "crm.customer_consent.create.bulk" |
+| CRM_CUSTOMER_CONSENT_UPDATE_SINGLE | "crm.customer_consent.update.single" |
+| CRM_CUSTOMER_CONSENT_UPDATE_BULK | "crm.customer_consent.update.bulk" |
+| CRM_CUSTOMER_CONSENT_DELETE_SINGLE | "crm.customer_consent.delete.single" |
+| CRM_CUSTOMER_CONSENT_DELETE_BULK | "crm.customer_consent.delete.bulk" |
+| CRM_CUSTOMER_CONSENT_RESTORE_SINGLE | "crm.customer_consent.restore.single" |
+| CRM_CUSTOMER_CONSENT_RESTORE_BULK | "crm.customer_consent.restore.bulk" |
+| CRM_CUSTOMER_CONSENT_DUPLICATE_SINGLE | "crm.customer_consent.duplicate.single" |
+| CRM_CUSTOMER_CONSENT_DUPLICATE_BULK | "crm.customer_consent.duplicate.bulk" |
+| CRM_CUSTOMER_LINK_READ_ALL | "crm.customer_link.read.all" |
+| CRM_CUSTOMER_LINK_READ_SINGLE | "crm.customer_link.read.single" |
+| CRM_CUSTOMER_LINK_READ_AUDIT | "crm.customer_link.read.audit" |
+| CRM_CUSTOMER_LINK_EXPORT | "crm.customer_link.export" |
+| CRM_CUSTOMER_LINK_CREATE_SINGLE | "crm.customer_link.create.single" |
+| CRM_CUSTOMER_LINK_CREATE_BULK | "crm.customer_link.create.bulk" |
+| CRM_CUSTOMER_LINK_UPDATE_SINGLE | "crm.customer_link.update.single" |
+| CRM_CUSTOMER_LINK_UPDATE_BULK | "crm.customer_link.update.bulk" |
+| CRM_CUSTOMER_LINK_DELETE_SINGLE | "crm.customer_link.delete.single" |
+| CRM_CUSTOMER_LINK_DELETE_BULK | "crm.customer_link.delete.bulk" |
+| CRM_CUSTOMER_LINK_RESTORE_SINGLE | "crm.customer_link.restore.single" |
+| CRM_CUSTOMER_LINK_RESTORE_BULK | "crm.customer_link.restore.bulk" |
+| CRM_CUSTOMER_LINK_DUPLICATE_SINGLE | "crm.customer_link.duplicate.single" |
+| CRM_CUSTOMER_LINK_DUPLICATE_BULK | "crm.customer_link.duplicate.bulk" |
 | ORGANIZATION_READ_ALL | "organization.read.all" |
 | ORGANIZATION_READ_SINGLE | "organization.read.single" |
 | ORGANIZATION_READ_AUDIT | "organization.read.audit" |
@@ -3857,6 +4747,22 @@ Rotation cadence + how long `previous` stays acceptable.
 | GET | "secret.get" |
 | ROTATED | "secret.rotated" |
 
+### `SEMANTIC_ICON_COLORS`
+
+Semantic action icons — names whose COLOR IS PART OF THE ICON's meaning.
+Each name binds to exactly one `ActionColor` (the label color); the icon
+component itself (in `@primebrick/ui`'s `SEMANTIC_ICONS` registry, which
+reads THIS table) renders the gradient surface self-colored. A meta that
+pairs a semantic icon with a different color is a contract violation —
+`validateActionChrome` rejects it at construction time, so icon and
+label can never drift apart even by accident.
+
+- `exec-start` → success   (start/enable is a positive op — deliberate
+  divergence from the standard restore-warning chrome)
+- `exec-stop`  → destructive (stop/disable is a destructive op)
+
+**Type:** `Record<string, ActionColor>`
+
 ### `SERVICE_SUBJECTS`
 
 NATS subjects and payload types for microservice lifecycle events.
@@ -3897,6 +4803,20 @@ declared route — kept deliberately tiny; extending it is an explicit
 diff, never an accident.
 
 **Type:** `Set<string>`
+
+### `SLUG_RE`
+
+`slug` — letter-leading, internal `-` allowed (`test-role`,
+ `administrators`). Superset of snake_key by the hyphen.
+
+**Type:** `RegExp`
+
+### `SNAKE_KEY_RE`
+
+`snake_key` — snake_case key starting with a letter (`favorite_pages`,
+ `oidc_issuer_url`). Digit-leading values are rejected.
+
+**Type:** `RegExp`
 
 ### `SSE_HEADERS`
 
@@ -3956,12 +4876,34 @@ jobs, system API keys). Audit columns will record the literal string
 
 **Type:** `Decimal`
 
+### `TRANSLATION_KEY_GRAMMAR`
+
+The ONE key grammar — `[a-z0-9_]+` dot-separated segments, ≥2 segments.
+Shared contract: BE guards, check-standards rules and the per-schema
+`translations_key_shape` CHECK constraint all enforce this exact shape
+(DAL engine and the zero-dep lint keep byte-identical local copies —
+change here, mirror there).
+
+**Type:** `RegExp`
+
+### `TRANSLATION_KEY_SEGMENT`
+
+Single-segment grammar — the unit the full-key grammar repeats.
+
+**Type:** `RegExp`
+
 ### `TYPE_CAPABILITIES`
 
 Capability matrix keyed by ConfigType. Frozen at module init — treat as
 immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 
 **Type:** `Record<ConfigType, TypeCapabilities>`
+
+### `UUID_REGEX`
+
+UUID (any version) — matches zod/JSON-Schema `format:"uuid"`.
+
+**Type:** `RegExp`
 
 ### `VENDOR_BLOCKED_PACKAGES`
 
@@ -4053,6 +4995,18 @@ strip the code prefix and attach the name to the module namespace:
 | code | `string` |  |
 | sheetKey | `string` |  |
 
+### `actionColorClass(color): string`
+
+Maps an `ActionColor` to its Tailwind text utility. `neutral`/`undefined`
+resolves to the empty string — the item keeps the theme's default muted
+appearance (what standard CTAs like "Modifica" already show). This is the
+ONLY mapping of semantic color → class; renderers never hand-roll
+`text-${color}` strings.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| color | `ActionColor \| null \| undefined` |  |
+
 ### `add(a, b): Decimal`
 
 | Parameter | Type | Description |
@@ -4095,17 +5049,38 @@ to undefined — the field is omitted, never invented.
 | payload | `unknown` |  |
 | ctx | `PayloadInjectContext` |  |
 
-### `applyPayloadMap(map, eventPayload, ctx): unknown`
+### `applyPayloadMap(map, eventPayload, ctx, targetSchema): unknown`
 
 Apply a payload map: for each declared target field, resolve its entry
 against the source event payload + fire context. `null`/absent map →
 the event payload verbatim (the default passthrough).
+
+`targetSchema` (the callable's `payload_schema`, when the caller has it)
+enables the honest broadcast `pathCompatible` declares: a scalar source
+mapped onto an `array` field resolves to `[v]` — without it the payload
+would fail the destination's own `items` validation downstream.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | map | `PayloadMap \| null \| undefined` |  |
 | eventPayload | `unknown` |  |
 | ctx | `PayloadMapContext` |  |
+| targetSchema | `Record<string, unknown>` |  |
+
+### `armJobSchedule(req, opts): Promise<{ seq: bigint; skipped: "terminal-once" }>`
+
+THE governed way to arm a schedule — the only public API. Issues a
+`callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
+awaits the COMPLETE operation: JetStream declaration → stored-message
+read-back → `job.job_schedules` mirror upsert (with purge compensation
+on mirror failure). Rejects on validation/namespace/internal errors —
+the caller retries or surfaces the error; it never falls back to a
+direct publish (the raw mechanism is job-handler internal).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| req | `ArmJobScheduleRequest` |  |
+| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
 
 ### `assertDbEnv(cwd): DbEnv`
 
@@ -4129,6 +5104,18 @@ dialog) or MfaConsumeUnavailableError (transport failure → 503).
 | user | `AuthUser \| undefined` |  |
 | consume | `MfaConsumeFn` |  |
 
+### `assertWithinRoot(root, paths): void`
+
+Hard isolation gate — every filesystem path the engine touches MUST
+resolve inside the service's repo root (the one sanctioned exception is
+`fe_src_dir`, which the caller widens explicitly for the BE↔FE pair).
+Throws on escape — enforcement, never a warning.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| root | `string` |  |
+| paths | `string[]` |  |
+
 ### `assertWritableConfigKey(key): void`
 
 Throws when `key` is a static-identity config key. Designed for
@@ -4148,6 +5135,14 @@ Branded constructor for SnakeCaseSingular.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | value | `string` |  |
+
+### `baseJsonType(schema): string \| undefined`
+
+First non-`"null"` member of a (possibly union) `type` keyword.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| schema | `Record<string, unknown> \| undefined` |  |
 
 ### `brandRouteHandler(h): RouteHandler`
 
@@ -4256,17 +5251,6 @@ uses `buildNatsAuthHeaders` to forward the resolved user).
 | data | `unknown` |  |
 | opts | `{ timeoutMs: number; headers: Record<string, string>; connection: NatsConnection; natsClient: typeof NatsClient }` |  |
 
-### `cancelJobSchedule(scheduleSubject, cancelSubject): Promise<bigint>`
-
-Disarm a previously armed schedule. The cancellation MUST go to a
-different subject than `scheduleSubject` (a same-subject publish would
-just replace the declaration).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| scheduleSubject | `string` |  |
-| cancelSubject | `string` |  |
-
 ### `ceil(d): Decimal`
 
 Smallest integer `>= d`.
@@ -4274,6 +5258,38 @@ Smallest integer `>= d`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `checkEntityFields(meta, entity, opts): FieldIssue[]`
+
+Validate a wire entity object against `meta.columns`.
+Required = `nullable === false` AND client-writable — `audited`
+columns, `meta.uid` (server-generated identity), `managed` columns
+(server-filled keys, e.g. an identity `@Key`) and `kind:"calculated" /
+"virtual"` columns (server/decorator-computed read projections — never
+writable) are system-managed and never arrive on the wire, so an
+absent one is NOT a violation. A
+PRESENT empty value still fails `nullable === false` — clients must
+not send managed fields at all. Mirrors the form, where required only
+ever applies to declared placements (`placement.required ?? nullable`).
+Unknown entity keys are ignored — system columns (`uuid`, `version`)
+need no column.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+| entity | `Record<string, unknown>` |  |
+| opts | `CheckEntityFieldsOptions` |  |
+
+### `checkFieldValue(col, value, path): FieldIssue[]`
+
+Validate one column's wire value (JSON fields already parsed).
+ `required` handled by the caller (`checkEntityFields`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `MetaColumn` |  |
+| value | `unknown` |  |
+| path | `string` |  |
 
 ### `checkRbac(user, requiredPermissions, mode): RbacResult`
 
@@ -4284,6 +5300,17 @@ Evaluate RBAC for a user against a list of required permissions.
 | user | `AuthUser` | The authenticated AuthUser |
 | requiredPermissions | `typeOperator` | List of accepted permissions for this endpoint |
 | mode | `"any" \| "all"` | "any" (OR, default) or "all" (AND) |
+
+### `claimedRoutesFromRegistry(registry, ownCode): string[]`
+
+Route paths claimed by OTHER services' registry nav — used by the
+backend generator to subtract service-owned pages from the host-static
+route universe (BE documents only what no module declared).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| registry | `{ code: string; endpoints: Record<string, unknown> }[]` |  |
+| ownCode | `string` |  |
 
 ### `clientKeyHash(key): string`
 
@@ -4336,6 +5363,27 @@ Coerce any role payload shape into a clean array of strings.
 |-----------|------|-------------|
 | raw | `unknown` |  |
 
+### `collectCensusOptions(sources): { emits: CensusOption[]; callables: CensusOption[] }`
+
+Census-wide option vocabulary for `options_source` fields — every
+module's declared `emits`/`callables`, normalized. `service` keeps the
+owner so label/description keys resolve in the right translation schema
+(the lexicon is the union of all service schemas).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| sources | `{ service: string; emits: EmitDecl[]; callables: CallableDecl[] }[]` |  |
+
+### `collectDocRoutes(nav): DocRoute[]`
+
+`nav.routes` → documentable route entries. Catch-all/bracket segments
+are rejected BY CONSTRUCTION (they are not documentable pages — e.g.
+`/docs/[...path]` never becomes `[...path].mdx`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| nav | `ModuleNavDeclaration` |  |
+
 ### `composeRouteHandlers(handlers): RouteHandler`
 
 Compose multiple factory-produced routers — same chaining contract.
@@ -4378,10 +5426,6 @@ Register the identity provider once at boot:
 | p | `InternalIdentityProvider` |  |
 
 ### `createHttpServer(options): Promise<Server<typeof IncomingMessage, typeof ServerResponse>>`
-
-Minimal HTTP server with health endpoint. Uses native http module (no Express).
-All errors (unhandled routes, route handler crashes, auth errors) are returned
-as RFC 7807 Problem Details JSON — same format as the BE error handler.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -4469,6 +5513,8 @@ The value a publisher must stamp on outbound calls.
 |-----------|------|-------------|
 | fallback | `string` |  |
 
+### `currentServiceCode(): string`
+
 ### `dec(input): Decimal`
 
 `Decimal` — pass-through. `string` — parsed (PG text form or `"…d"` wire form). `number` — via shortest round-trip `toString` so `0.1` stays `"0.1"`. `bigint` — scale 0.
@@ -4492,6 +5538,14 @@ Falls back to "EUR" for unknown locales.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | meta | `EntityMeta` |  |
+
+### `defaultRouteIcon(kind): string`
+
+The resolved default icon for `kind` — `file-box` outside the map.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| kind | `string \| undefined` |  |
 
 ### `defaultSearchGate(trimmed): boolean`
 
@@ -4559,6 +5613,18 @@ a semver-tolerant handshake would only defer an opaque import failure.
 | requires | `Record<string, string>` |  |
 | manifest | `VendorManifest` |  |
 
+### `disarmJobSchedule(name, opts): Promise<void>`
+
+THE governed way to disarm a schedule — awaited end-to-end: purge
+publish → read-back confirms the declaration is gone → mirror flips to
+`disarmed`. Idempotent: disarming an already-disarmed/absent schedule
+resolves cleanly.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | `string` |  |
+| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
+
 ### `div(a, b, opts): Decimal`
 
 `a / b`. Without `scale`, the result uses the PostgreSQL `numeric`
@@ -4585,23 +5651,46 @@ scale the result is flagged `periodic` (`isPeriodic(d)` → true).
 | packDir | `string` | absolute path of the built pack (e.g. "dist/docs-pack").
   Must contain manifest.json + docs/. |
 
-### `dueLaneVerify(lane, permissions): (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>`
+### `dueLaneVerify(lane): (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>`
 
 Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
 
-  - "system" lane → L1 client shield only (verifyNatsPublisher). The fired
-    message carries the DECLARING service's static identity — verified
-    verbatim. No user context exists by design; the handler receives no
-    authUser.
-  - "user" lane → L1 + full L2 chain: gateway-secret + serialized AuthUser
-    + RBAC `permissions`. An expired rotating secret or missing permission
-    returns null → the consumer `term()`s the message (terminal denial —
-    recorded as a failed run by the result tap).
+What a due message CAN prove at the gate:
+  - L1 publisher identity — the schedule declaration was published by an
+    enrolled service (its static client-shield key survives the rotating
+    secret because it lives outside that scheme).
+  - For the user lane: the structural presence of the actor claim
+    (`x-user-id`) that the ARM attested.
+
+What it deliberately does NOT check: the arm-time serialized AuthUser
+and the rotating client-shield secret frozen in the fired headers —
+both die ~65 minutes after arming (rotation 60m + grace 5m), which
+would kill every long-lived user-lane schedule. Authorization is
+re-derived AT FIRE TIME instead: the consumer runs the freshness
+checkpoint (see due-forwarder's `freshAuthHeaders` →
+`auth.ctl.resolve_user`), which re-resolves the actor with CURRENT
+permissions or refuses the fire (fail-closed). RBAC belongs on the
+callable's own route — evaluated on FRESH headers — never at this
+gate: arm-time permissions would keep firing for a since-revoked
+grant until the secret happened to rotate.
+
+  - "system" lane → L1 only; the handler receives no authUser.
+  - "user" lane   → L1 + actor-claim presence; the handler ALSO
+    receives no authUser at the gate (it resolves its own). A due
+    message without the claim is malformed → `null` → the consumer
+    `term()`s it (terminal denial — redelivery can never fix it).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | lane | `"system" \| "user"` |  |
-| permissions | `typeOperator` |  |
+
+### `effectiveFormat(schema): string \| undefined`
+
+The source's effective format — a `*.uuid` semantic slot IS a uuid.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| schema | `Record<string, unknown> \| undefined` |  |
 
 ### `enforceHttpRbac(user, requiredPermissions, mode): void`
 
@@ -4624,21 +5713,6 @@ Same logic as enforceHttpRbac — separated for semantic clarity.
 | requiredPermissions | `typeOperator` |  |
 | mode | `"any" \| "all"` |  |
 
-### `ensureJobSchedule(opts): Promise<bigint>`
-
-Arm a JetStream schedule. Publishes the declaration message — the NATS
-server itself republishes `payload`/`source` to `target` per `schedule`.
-
-Callers do NOT publish on `jobs.schedule.*` directly in production:
-the governed entry point is the `jobs.schedule.request` route on
-primebrick-job, which validates the caller's namespace and records the
-declaration in `job.job_schedules`. This helper is what THAT service
-calls (and is also usable by tests/tooling).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| opts | `EnsureJobScheduleOpts` |  |
-
 ### `entityChangedSubject(entityType, entityUuid): string`
 
 Build the NATS subject for entity-changed markers.
@@ -4660,6 +5734,13 @@ convention used by existing specs) and secured with bearerAuth+apiKey.
 |-----------|------|-------------|
 | entity | `string` |  |
 | opts | `{ ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema }` |  |
+
+### `entityFieldValidator(meta, opts): (body: unknown) => { entity: Record<string, unknown> }`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+| opts | `EntityFieldValidatorOptions` |  |
 
 ### `entityPaths(prefix, listLeaf, detailParam): { list: string; create: string; detail: string }`
 
@@ -4794,6 +5875,28 @@ Floats are serialized as JSON numbers (e.g. 3.14 → "3.14").
 |-----------|------|-------------|
 | data | `unknown` |  |
 
+### `extractHostFacts(raw, route, deps): SveltePageFacts`
+
+Extract facts from one host `+page.svelte` source.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `string` |  |
+| route | `string` |  |
+| deps | `ExtractDeps` |  |
+
+### `extractHostRouteSet(routesDir, routes, deps): Record<string, SveltePageFacts>`
+
+Extract host-page facts for a set of routes. `routesDir` is the FE app
+routes root (`src/routes/(app)`); each route maps to
+`<routesDir>/<route>/+page.svelte`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| routesDir | `string` |  |
+| routes | `string[]` |  |
+| deps | `ExtractDeps` |  |
+
 ### `extractNatsContext(hdrs): Context`
 
 Extract parent context from NATS message headers.
@@ -4801,6 +5904,16 @@ Extract parent context from NATS message headers.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | hdrs | `MsgHdrs \| undefined` |  |
+
+### `extractRemoteFacts(raw, route, deps): SveltePageFacts`
+
+Extract facts from one remote module source (`<svc>/fe/src/*.svelte`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `string` |  |
+| route | `string` |  |
+| deps | `ExtractDeps` |  |
 
 ### `extractTraceContext(hdrs): Context`
 
@@ -4852,6 +5965,18 @@ Largest integer `<= d`.
 
 Best-effort synchronous flush — called from graceful shutdown.
 
+### `foreignEntitiesFromRegistry(registry, ownCode): string[]`
+
+Entities declared by OTHER services' registry nav — the ownership
+boundary for the renderer's foreign-skip. Pass the service's own code;
+every `endpoints.nav.routes[].entity` of every OTHER service lands in
+the set.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| registry | `{ code: string; endpoints: Record<string, unknown> }[]` |  |
+| ownCode | `string` |  |
+
 ### `formatMoney(amount, lang, currency): string`
 
 Format a numeric amount as a localized currency string.
@@ -4875,13 +6000,14 @@ header names configured on this service's AuthConfig are copied.
 |-----------|------|-------------|
 | msg | `{ headers: MsgHdrs }` |  |
 
-### `forwardedActor(msg): { actor_uuid: string; actor_locale: string }`
+### `forwardedActor(msg): { actor_uuid: string; actor_locale: string; actor_email: string }`
 
 Read the session actor's identity off an inbound message's auth headers
-— `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47).
-Header names resolve against the configured `gateway.headers` map with
-the serializer defaults. Both absent on system-lane messages — the
-values are reported, never invented.
+— `x-user-id` → `actor_uuid`, `x-user-locale` → `actor_locale` (BCP-47),
+`x-user-email` → `actor_email`. Header names resolve against the
+configured `gateway.headers` map with the serializer defaults. All
+absent on system-lane messages — the values are reported, never
+invented.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -4904,6 +6030,12 @@ values are reported, never invented.
 
 Generate a new random API key string.
 Format: `pbk_<32 random hex chars>` (36 chars total, 8-char prefix for display).
+
+### `generatePageDocs(ctx): RenderReport`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| ctx | `RenderContext` |  |
 
 ### `getAllCurrencies(): CurrencyInfo[]`
 
@@ -5143,7 +6275,55 @@ role_mappings write-path guard (rejection, not silent non-coverage):
 |-----------|------|-------------|
 | value | `unknown` |  |
 
+### `isColumnFilterable(col): boolean`
+
+Column participates in the filters sheet — absent means filterable,
+ except `kind:"virtual"` columns: never filterable, no opt-in exists.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "filterable" \| "kind">` |  |
+
+### `isColumnSearchable(col): boolean`
+
+Column joins the search scope — absent means searchable (the caller
+ may still require a text-physical type on top).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "searchable" \| "kind">` |  |
+
+### `isColumnSortable(col): boolean`
+
+Column supports ORDER BY — absent means sortable, except `kind:"virtual"`
+ columns (post-query enrichment): never sortable, no opt-in exists.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "sortable" \| "kind">` |  |
+
+### `isColumnVisible(col): boolean`
+
+Column is visible by default — opt-out (`default_visible: false`)
+ hides it; `hideable: false` pins it visible regardless.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "default_visible" \| "hideable">` |  |
+
 ### `isDecimal(v): v is Decimal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `unknown` |  |
+
+### `isEmptyValue(v): boolean`
+
+"Empty" per the fallback contract — null, undefined, empty string,
+ empty array, empty object. `0` and `false` are legitimate values.
+ Exported: the SAME predicate drives the wire conformance gate (an
+ entry whose primary resolves empty and has no fallback delivers
+ nothing — it is not a mapping).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -5181,6 +6361,14 @@ refuses to mount anything else at startup.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | h | `unknown` |  |
+
+### `isIsoDate(v): boolean`
+
+`YYYY-MM-DD` with real calendar semantics.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `string` |  |
 
 ### `isPeriodic(d): boolean`
 
@@ -5220,6 +6408,75 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 |-----------|------|-------------|
 | value | `string` |  |
 
+### `isValidNatsSubject(subject): boolean`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| subject | `unknown` |  |
+
+### `isValidScheduleSpec(raw): boolean`
+
+`schedule_spec` grammar: `@every <n>[smhd]`, `@at <RFC3339>` or a
+ 5-field cron — the NATS `Nats-Schedule` header contract. Pure; the UI
+ interpreter (`parseScheduleSpec`/`nextScheduleRuns`) keeps croner.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `unknown` |  |
+
+### `isValidTranslationKey(key): boolean`
+
+`true` when every segment is `[a-z0-9_]+` and the key is namespaced
+(≥2 segments). Namespace *ownership* is a separate check —
+compare `keyNamespaceOf(key)` against `translationKeyNamespace(schema)`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+
+### `isValidUrl(v): boolean`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `string` |  |
+
+### `jobResultSubject(subject): string`
+
+Result-lane subject for a consumed subject:
+`jobs.due.<lane>.<rest>` → `jobs.result.<rest>` (the fire lane peels
+off); anything else maps verbatim (`emailsender.send` →
+`jobs.result.emailsender.send`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| subject | `string` |  |
+
+### `jobTriggerShapeIssues(entity, now): FieldIssue[]`
+
+`event_subject`/`schedule_spec` are mutually mandatory (at least one);
+`execution_context: "user"` requires an event source to forward auth
+headers from; a one-shot `@at <ts>` must lie in the future — a past
+timestamp FIRES IMMEDIATELY at declare time (verified empirically:
+the declaration PubAcks, the scheduler dispatches at once, then the
+declaration self-purges — an unintended execution, not a dead one).
+`now` is injected so the predicate stays
+pure — the form passes the client clock, the write guard the server
+clock. On `partial` (update), fields not present in `entity` are
+treated from the merged record the caller passes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| entity | `Record<string, unknown>` |  |
+| now | `Date` |  |
+
+### `jsonSchemaCheck(value, schema, path): FieldIssue[]`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| value | `unknown` |  |
+| schema | `Record<string, unknown>` |  |
+| path | `string` |  |
+
 ### `keyNamespaceOf(key): string \| null`
 
 First dotted segment of a translation key — `job.entities.x` → `job`.
@@ -5227,6 +6484,17 @@ First dotted segment of a translation key — `job.entities.x` → `job`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | key | `string` |  |
+
+### `listColumnKeys(columns): { sortable: string[]; searchable: string[]; filterable: string[] }`
+
+Wire key sets derived from the RESOLVED `meta.columns` — sort_key enum,
+`search_in` scope, and `filters[i][field]` allowlists must mirror the
+served contract (system columns are injected by derivation; never
+compute these from the authored column list, which lacks them).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| columns | `MetaColumn[]` |  |
 
 ### `listNonSentinelPermissions(): string[]`
 
@@ -5239,6 +6507,14 @@ Used by the BE to build the permissions catalog for the FE role-management UI.
 Load auth config from the port into the in-memory cache.
 Called once at startup (and on invalidation).
 Throws if the port is not initialized or the DB is unreachable.
+
+### `loadPermValues(dtsPath): Record<string, string>`
+
+Parse `@primebrick/sdk` permissions.d.ts → enum NAME → permission string.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| dtsPath | `string` |  |
 
 ### `logModuleStartup(name, version, url): void`
 
@@ -5271,12 +6547,13 @@ identically — validation of existence is the remote build's job.
 |-----------|------|-------------|
 | exportName | `string` |  |
 
-### `makeDbMigrationRouteHandler(boot, state): RouteHandler`
+### `makeDbMigrationRouteHandler(boot, state, onRecovered): RouteHandler`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | boot | `DbMigrationBootOptions` |  |
 | state | `MigrationBootState` |  |
+| onRecovered | `() => Promise<void>` | Fired once when a remediation run flips degraded → clean (e.g. deferred onReady). |
 
 ### `makeEntityRouter(config): RouteHandler`
 
@@ -5310,7 +6587,7 @@ into the message loop — fire-and-forget has no caller to answer to.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| routes | `NatsRoute<unknown>[]` |  |
+| routes | `NatsRoute<TReq>[]` |  |
 | deps | `NatsRouterDeps` |  |
 
 ### `makeOpenApiHandler(spec): RouteHandler`
@@ -5374,6 +6651,16 @@ Check if a permission string matches a pattern (supports * wildcard).
 | a | `DecimalInput` |  |
 | b | `DecimalInput` |  |
 
+### `mergeTranslationScopes(dicts): Record<string, string>`
+
+Merge translation scopes first-writer-wins — pass scopes ordered by
+precedence (own schema first, then system/public/custom, then the
+census-wide lexicon of all service schemas for option labels).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| dicts | `Record<string, string>[]` |  |
+
 ### `min(a, b): Decimal`
 
 | Parameter | Type | Description |
@@ -5414,6 +6701,21 @@ Tries the name as given first, then the canonical MIME form
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
 
+### `nextScheduleFire(spec, opts): Date \| null`
+
+Next fire for a `schedule_spec`, when derivable without a cron evaluator:
+- `@every <n><unit>` — next interval boundary after `now`, anchored at
+  `since` (the declaration's `armed_at`); without an anchor the period is
+  assumed to start at `now`, so the first fire is `now + interval`.
+- `@at <ts>` — the timestamp itself if still future, else null (fired).
+- cron — null: NATS owns cron evaluation; a second interpreter here would
+  drift on dom/dow edge semantics. Invalid specs return null too.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| spec | `string` |  |
+| opts | `{ now: Date; since: Date }` |  |
+
 ### `normalize(d): Decimal`
 
 Strip trailing fractional zeros — `1.230` → `1.23`, `12.000` → `12`.
@@ -5421,6 +6723,16 @@ Strip trailing fractional zeros — `1.230` → `1.23`, `12.000` → `12`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
+
+### `normalizeEntityContext(decls): EntityContext`
+
+Evaluated `EntityRouteDecl[]` → normalized context. `guards` keys map to
+step-up flags (the presence of an action guard means the op is guarded —
+the renderer only narrates step-up, never the guard mechanism).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| decls | `EvaluatedEntityDecl[]` |  |
 
 ### `normalizeIdpToken(payload, rolesPath): NormalizedIdpUser`
 
@@ -5431,6 +6743,12 @@ roles path. Throws on empty payload or missing `sub` claim.
 |-----------|------|-------------|
 | payload | `JwtClaims \| null \| undefined` |  |
 | rolesPath | `string` |  |
+
+### `numericKindOf(col): NumericKind \| null`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `MetaColumn` |  |
 
 ### `operationIdFor(method, path): string`
 
@@ -5475,6 +6793,74 @@ Scale is preserved as written (`"1.230"` → scale 3).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | raw | `unknown` |  |
+
+### `parseMapKeysDeclaration(raw): Record<string, MapKeyDecl>`
+
+Parse an `x_map_keys.prop` declaration row (the template's `variables`
+jsonb). Two shapes, one contract — **required by default, nullable
+explicitly** (a declared placeholder must be filled):
+  - shorthand  `{"otp_code":"string"}` — a bare type name; required.
+  - longhand   `{"x":{"type":"string","optional":true,"description":…}}`
+    — `optional`/`required:false`/`nullable` or a `null` type union
+    mark the key optional; the rest of the object IS the schema.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `unknown` |  |
+
+### `parseRemoteDispatch(entrySource, opts, ts): RemoteDispatchMap`
+
+Parse a remote chunk entry (`fe/src/index.ts` / `pages.ts`) and resolve
+the route/sheet-key → component-file dispatch map.
+
+Two dispatch shapes are supported:
+  - Record literals: `const PAGES = { '/route': Component }` (pages,
+    keys start with `/`) and `const PANELS = { 'mod.key': Component }`
+    (sheets, keys match `<module>.<name>`).
+  - Fixed mounts: `mountPage`/`mountSheet` bodies that mount ONE
+    component unconditionally — the component is assigned to every
+    `component_url` route / declared sheet key the caller passes in.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| entrySource | `string` |  |
+| opts | `{ component_url_routes: string[]; sheet_keys: string[] }` |  |
+| ts | `typeof ts` |  |
+
+### `pathCompatible(target, source): boolean`
+
+Is `source` (a source-schema leaf, e.g. `$.customer.email`'s schema)
+compatible with `target` (a callable's payload_schema property)?
+Format/enum/const on the destination must be PROVABLE from the source
+declaration — a bare string never satisfies `format:"email"`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| target | `Record<string, unknown>` |  |
+| source | `Record<string, unknown> \| undefined` |  |
+
+### `payloadMapConformance(map, callableSchema, sourceSchema, mapKeySchemas): FieldIssue[]`
+
+Conformance of a `payload_map` document against the callable's emitted
+`payload_schema`. Reports:
+  - every `required` prop not satisfied by a map entry nor covered by
+    `x_inject`/`x_semantic` (declaration-materialized at fire time);
+  - every `const` (leaf, list item, map value, fallback) failing the
+    prop's portable JSON-Schema constraints.
+`path`/`meta` values resolve at runtime — structurally unverifiable here.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| map | `Record<string, unknown> \| PayloadMap \| null \| undefined` |  |
+| callableSchema | `Record<string, unknown>` |  |
+| sourceSchema | `Record<string, unknown>` |  |
+| mapKeySchemas | `Record<string, Record<string, Record<string, unknown>>>` | Resolved `x_map_keys` declarations per field — `{field: {key:
+ schema}}` — the catalog-row contract (e.g. a template's
+ `variables`). Optional: the wire gate can't resolve catalog rows
+ synchronously and skips this layer; the design-time checker passes
+ the resolved set so a `const` typed against a declared key schema
+ (`"hhhhh"` on `amount:"number"`) fails `invalid_type` instead of
+ passing on the record's empty `additionalProperties`. |
 
 ### `pgDivScale(a, b): number`
 
@@ -5549,6 +6935,15 @@ Read service version from the deployed package.json — resolved by
 walking up from the entry file (`detectPackageIdentity`), so it is
 cwd-independent and always the same package as the service identity.
 
+### `reconcileOrder(generatedDir): { added: string[]; dropped: string[] }`
+
+Reconcile `<generatedDir>/../_order.json` against the `.mdx` files in
+`generatedDir`. Returns the change summary for reporting.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| generatedDir | `string` |  |
+
 ### `requireActor(): string`
 
 Read the current actor (UUID or `"system"`). Throws if no session is in
@@ -5585,6 +6980,20 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 ### `resetSdkCachePort(): void`
 
 Clear the singleton (for tests or graceful shutdown).
+
+### `resolveHttpBindHost(): string`
+
+One bind-host policy for the whole stack. `server.listen(port)` with no
+host binds the `::` wildcard on Windows/Bun — an IPv6 socket that also
+accepts IPv4-mapped traffic, shows up as `[::]` in netstat, and exposes
+the port on every interface. Explicit host keeps the bind honest:
+
+- `0.0.0.0` under `NODE_ENV=production` (containers/LB need a reachable
+  socket — IPv4 wildcard, never an implicit IPv6 one);
+- `127.0.0.1` otherwise (dev services never leave the loopback).
+
+There is no opt-in: no config row, no option field — an IPv6 or
+interface-specific bind is simply not a supported deployment shape.
 
 ### `resolvePath(payload, path): unknown`
 
@@ -5639,6 +7048,15 @@ instead of silently re-identifing the service under a mutated code.
 | identity | `PackageIdentity` |  |
 | configuredCode | `string \| null` |  |
 
+### `resolveSourceSchema(root, path): Record<string, unknown> \| undefined`
+
+Walk `$.a.b[0].c` through a source schema's `properties`/`items`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| root | `Record<string, unknown>` |  |
+| path | `string` |  |
+
 ### `resolveVendorSpecifier(specifier): VendorResolution`
 
 How a remote chunk's bundler must treat a bare import specifier. Both the
@@ -5685,6 +7103,24 @@ Round to `scale` fractional digits (default `HALF_UP`).
 | d | `DecimalInput` |  |
 | scale | `number` |  |
 | mode | `RoundingMode` |  |
+
+### `routeFromHostFile(file, routesDir): string`
+
+Derive the route path from a host `+page.svelte` file path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| file | `string` |  |
+| routesDir | `string` |  |
+
+### `routeOp(r, prefixes): string \| null`
+
+Map an extra-scanned route to a standard op / `custom:<name>` action.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| r | `ScannedRoute` |  |
+| prefixes | `string[]` |  |
 
 ### `rpcSpec(routes): Record<string, unknown>`
 
@@ -5734,6 +7170,50 @@ Drop unknown keys and fall back to defaults when nothing left.
 |-----------|------|-------------|
 | visibleKeys | `string[]` |  |
 | columns | `MetaColumn[]` |  |
+
+### `scanRouterCaps(routerDir, permValues): RouterScanResult`
+
+BE variant — `makeEntityRouter` configs live inside controller files
+that are not importable without boot. Regex scan over `*.router.ts`
+resolves `entityName`, `permissions`, `duplicate`, `actionMiddlewares`
+(→ stepUp) and `metaExtraScans` prefixes — same output as the legacy
+ai/scripts scan, moved into the shared engine.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| routerDir | `string` |  |
+| permValues | `Record<string, string>` |  |
+
+### `scanRoutes(caps, extraRoutes): ScannedRoute[]`
+
+Resolve the extra-scanned routes an entity's caps prefix covers.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| caps | `EntityCaps \| undefined` |  |
+| extraRoutes | `ScannedRoute[]` |  |
+
+### `scheduleSubjectFor(name): string`
+
+Derive the declaration subject for this service — the static service
+code resolved from the deployed artifact, so a caller can never
+mis-namespace itself. Names are restricted to subject-safe tokens.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | `string` |  |
+
+### `schemaHonestyIssue(field, prop): string \| null`
+
+`property` honesty gate — the declared name implies a format the schema
+must carry (on the prop, or on its array items). Returns an error string
+or `null`. `format` on the prop — or a `*.uuid` semantic slot — is what
+satisfies the hint; a bare `type:"string"` is a lie.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| field | `string` |  |
+| prop | `Record<string, unknown>` |  |
 
 ### `searchableTextColumns(columns): MetaColumn[]`
 
@@ -5811,6 +7291,12 @@ NatsRouteVerify adapter — use as `verify` on service-identity routes
 |-----------|------|-------------|
 | s | `ClientShieldSecretSlot \| null` |  |
 
+### `setCurrentServiceCode(code): void`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+
 ### `setLogOptions(opts): void`
 
 Hot-swap logging options (from config reload / `config.changed`).
@@ -5831,6 +7317,18 @@ Hot-swap logging options (from config reload / `config.changed`).
 |-----------|------|-------------|
 | sink | `LogSink \| null` |  |
 
+### `setProcessInterval(key, ms, fn): Timeout`
+
+Register a named interval that survives hot-module-reload EXACTLY ONCE:
+a previous interval under the same key is cleared before the new one is
+installed — watch-mode reloads replace instead of accumulating ticks.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+| ms | `number` |  |
+| fn | `() => void \| Promise<void>` |  |
+
 ### `setSdkCachePort(port, info): void`
 
 Store the cache port and Redis info (called once after Redis connects).
@@ -5845,6 +7343,14 @@ Store the cache port and Redis info (called once after Redis connects).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | config | `SharedConfig` |  |
+
+### `sheetsFromNav(nav): DocSheet[]`
+
+`nav.sheets` → documentable sheet surfaces.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| nav | `ModuleNavDeclaration` |  |
 
 ### `shutdownTelemetry(): Promise<void>`
 
@@ -5973,6 +7479,16 @@ Wire form — `"…d"` suffixed string.
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
 
+### `translationKeyGrammarError(key): string \| null`
+
+First grammar violation as a human-readable reason, `null` when legal.
+Consumers compose it into their own error shape (HTTP 400, engine
+throw, lint hint).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+
 ### `translationKeyNamespace(schema): string`
 
 Owning PG schema → the only translation-key namespace writable there.
@@ -5996,6 +7512,19 @@ Accessor — returns the capability record for a type.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | type | `ConfigType` |  |
+
+### `validateActionChrome(icon, color): string \| null`
+
+Validates the icon↔color contract of a single action chrome override.
+Returns a diagnostic string on violation, `null` when the pair is legal:
+- `color` must be a member of `ACTION_COLORS`;
+- a semantic icon (`SEMANTIC_ICON_COLORS` key) must carry its bound color —
+  `icon:"exec-stop", color:"success"` is an error, not a style choice.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| icon | `string \| undefined` |  |
+| color | `string \| undefined` |  |
 
 ### `validateCallablesDeclaration(code, decl): string \| null`
 
@@ -6182,6 +7711,25 @@ mid-rotation.
 |-----------|------|-------------|
 | row | `ClientKeyMaterial \| undefined` |  |
 | presentedKey | `string` |  |
+
+### `walkHostPages(routesDir): string[]`
+
+Walk a host routes directory for `+page.svelte` files.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| routesDir | `string` |  |
+
+### `walkSchemaProps(schema, prefix): Generator<{ field: string; path: string; prop: Record<string, unknown>; required: boolean }>`
+
+Iterate every property schema a JSON schema declares — nested objects
+ and array items included. `required` reflects the PARENT level's
+ `required` list.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| schema | `Record<string, unknown>` |  |
+| prefix | `string` |  |
 
 ### `withCache(repo, port, logger): R`
 

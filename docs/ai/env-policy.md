@@ -13,6 +13,14 @@ table (`config_entries` on the BE, `<schema>.config` via `ConfigLoader` in
 microservices). `assertDbEnv()` validates the pair at boot — unknown,
 missing, empty or malformed keys crash startup.
 
+**`NODE_ENV` is not a config value** — it is the platform deployment-shape
+convention (`development`/`production`) set by the runtime, and the one
+sanctioned env READ beyond the DB pair. It is never read to branch a
+feature; its one use is the deterministic HTTP bind policy:
+`0.0.0.0` in production (containers/LB need a reachable socket) /
+`127.0.0.1` otherwise. That policy is **code, not config** — there is no
+config row, no option, no opt-in for IPv6 or interface-specific binds.
+
 ## Why
 
 - Env vars are invisible, un-versioned, and un-audited — config entries are

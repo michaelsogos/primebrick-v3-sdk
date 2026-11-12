@@ -20,19 +20,37 @@
  */
 
 import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
-import { NatsClient } from "./nats-client.js";
+import { NatsClient, publishJobResultMessage } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { extJsonParse, extJsonStringify } from "../json/ext-json.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";
 import { enforceNatsRbac, RbacDeniedError } from "../auth/rbac-enforce.js";
 import { AuthError } from "../auth/verify.js";
+import { toValidationError, ValidationError } from "../http/rpc-router.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
 import type { AuthUser } from "../auth/types.js";
 import { logger } from "../lifecycle/logger.js";
 import { recordCallable } from "./callable-registry.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+/**
+ * The callable payload contract — ONE declaration, both faces:
+ *   - `schema`: the JSON Schema served to the census/FE/docs
+ *     (typically `z.toJSONSchema(zodSchema)`);
+ *   - `parse`:  the runtime validator bound to the SAME declaration
+ *     (typically `zodSchema.parse`) — MANDATORY, runs on every message
+ *     before the handler.
+ *
+ * A callable cannot list itself in `endpoints.callables` without runtime
+ * validation — the field carries both, so an unvalidated contract is
+ * undeclarable (enforcement over verification; no lint needed).
+ */
+export interface CallablePayloadContract<TReq = unknown> {
+  schema: Record<string, unknown>;
+  parse: (raw: unknown) => TReq;
+}
 
 export interface NatsRouteContext<TReq = unknown> {
   /**
@@ -82,14 +100,18 @@ export interface NatsRoute<TReq = unknown> {
    * skipped L1 is a security hole and the flag must never be set.
    */
   enrollment?: boolean;
-  /** Payload validator — throws on invalid shape (zod .parse or manual). */
-  validate?: (raw: unknown) => TReq;
+  /** Extra payload validator — runs AFTER the `payload_schema` contract
+   *  parse, for checks the emitted JSON Schema cannot express (or any
+   *  route carrying no contract). Throws on invalid shape. */
+  validate?: (raw: TReq) => TReq;
   /**
-   * Request payload contract (JSON Schema). Declaring it lists the route in
-   * `endpoints.callables` — the census schedulers/rule-forms consume. Omit
-   * for private routes: a callable without a contract is not mappable.
+   * Request payload contract — `{schema, parse}` (see
+   * CallablePayloadContract). Declaring it lists the route in
+   * `endpoints.callables` — the census schedulers/rule-forms consume —
+   * AND wires the mandatory runtime validation. Omit for private routes:
+   * a callable without a contract is not mappable.
    */
-  payload_schema?: Record<string, unknown>;
+  payload_schema?: CallablePayloadContract<TReq>;
   /** i18n keys for the callable census entry (picker label/description). */
   label_key?: string;
   description_key?: string;
@@ -107,13 +129,16 @@ export interface NatsRequestRoute<TReq = unknown, TRes = unknown> {
   verify?: NatsRouteVerify;
   /** Enrollment channel — see NatsRoute.enrollment. */
   enrollment?: boolean;
-  validate?: (raw: unknown) => TReq;
+  /** Extra payload validator — runs AFTER the `payload_schema` contract
+   *  parse (see NatsRoute.validate). */
+  validate?: (raw: TReq) => TReq;
   /**
-   * Request payload contract (JSON Schema) — see NatsRoute.payload_schema.
+   * Request payload contract — `{schema, parse}` (see
+   * CallablePayloadContract / NatsRoute.payload_schema).
    * `request`-kind callables additionally let the caller capture the reply
    * (execution outcome for run-recording).
    */
-  payload_schema?: Record<string, unknown>;
+  payload_schema?: CallablePayloadContract<TReq>;
   /** i18n keys for the callable census entry (picker label/description). */
   label_key?: string;
   description_key?: string;
@@ -142,6 +167,22 @@ function encode(data: unknown): Uint8Array {
 
 function decode<T>(data: Uint8Array): T {
   return extJsonParse(new TextDecoder().decode(data)) as T;
+}
+
+/** Contract-first validation: the payload_schema `parse` ALWAYS runs when
+ *  a contract is declared (mandatory — the callable's own zod), then any
+ *  extra `validate` hook. Failures surface as `VALIDATION_ERROR`, never
+ *  as a handler `INTERNAL_ERROR`. */
+function runContract<TReq>(
+  route: { payload_schema?: CallablePayloadContract<TReq>; validate?: (raw: TReq) => TReq },
+  raw: unknown,
+): TReq {
+  try {
+    const parsed = route.payload_schema ? route.payload_schema.parse(raw) : (raw as TReq);
+    return route.validate ? route.validate(parsed) : parsed;
+  } catch (e) {
+    throw toValidationError(e);
+  }
 }
 
 async function verifyAndAuthorize(
@@ -178,8 +219,8 @@ async function verifyAndAuthorize(
  * Register governed pub/sub subscribers. Errors are logged, never thrown
  * into the message loop — fire-and-forget has no caller to answer to.
  */
-export async function makeNatsRoutes(
-  routes: NatsRoute[],
+export async function makeNatsRoutes<TReq = unknown>(
+  routes: NatsRoute<TReq>[],
   deps: NatsRouterDeps,
 ): Promise<Subscription[]> {
   const nc = deps.connection ?? (await NatsClient.getConnection());
@@ -195,7 +236,7 @@ export async function makeNatsRoutes(
         subject: route.subject,
         kind: "pub",
         permissions: route.permissions,
-        payload_schema: route.payload_schema,
+        payload_schema: route.payload_schema.schema,
         label_key: route.label_key,
         description_key: route.description_key,
       });
@@ -203,14 +244,34 @@ export async function makeNatsRoutes(
 
     (async () => {
       for await (const msg of sub) {
+        const t0 = performance.now();
         try {
           const user = await verifyAndAuthorize(msg, route);
           const raw = decode(msg.data);
-          const request = route.validate ? route.validate(raw) : raw;
+          const request = runContract(route, raw);
           await route.handler({ user, request, msg });
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "succeeded",
+            duration_ms: Math.round(performance.now() - t0),
+          });
         } catch (err) {
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "failed",
+            error_code:
+              err instanceof AuthError ||
+              (err != null &&
+                typeof (err as { internal_code?: unknown }).internal_code === "string")
+                ? (err as { internal_code: string }).internal_code
+              : err instanceof RbacDeniedError ? "RBAC_PERMISSION_DENIED"
+              : err instanceof ValidationError ? "VALIDATION_ERROR"
+              : "HANDLER_ERROR",
+            error_detail: err instanceof Error ? err.message : String(err),
+            duration_ms: Math.round(performance.now() - t0),
+          });
           if (err instanceof AuthError || err instanceof RbacDeniedError) {
             logger.warn(`${route.subject} denied: ${err.message}`, { tags: ["nats-routes"] });
+          } else if (err instanceof ValidationError) {
+            logger.warn(`${route.subject} payload rejected: ${err.message}`, { tags: ["nats-routes"] });
           } else {
             logger.error(`${route.subject} handler error`, { tags: ["nats-routes"], error: err });
           }
@@ -246,7 +307,7 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
         subject: route.subject,
         kind: "request",
         permissions: route.permissions,
-        payload_schema: route.payload_schema,
+        payload_schema: route.payload_schema.schema,
         label_key: route.label_key,
         description_key: route.description_key,
       });
@@ -254,20 +315,40 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
 
     (async () => {
       for await (const msg of sub) {
-        const replyError = (code: string, message: string) => {
-          if (msg.reply) msg.respond(encode({ error: { code, message } }));
+        const replyError = (code: string, message: string, extra?: Record<string, unknown>) => {
+          if (msg.reply) msg.respond(encode({ error: { code, message, ...(extra ? { extra } : {}) } }));
         };
+        const t0 = performance.now();
         try {
           const user = await verifyAndAuthorize(msg, route);
-          const raw = decode<TReq>(msg.data);
-          const request = route.validate ? route.validate(raw) : raw;
+          const raw = decode(msg.data);
+          const request = runContract(route, raw);
           const result = await route.handler({ user, request, msg });
           if (msg.reply) msg.respond(encode(result ?? null));
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "succeeded",
+            duration_ms: Math.round(performance.now() - t0),
+          });
         } catch (err) {
+          await publishJobResultMessage(route.subject, msg.headers, {
+            status: "failed",
+            error_code:
+              err instanceof AuthError ||
+              (err != null &&
+                typeof (err as { internal_code?: unknown }).internal_code === "string")
+                ? (err as { internal_code: string }).internal_code
+              : err instanceof RbacDeniedError ? "RBAC_PERMISSION_DENIED"
+              : err instanceof ValidationError ? "VALIDATION_ERROR"
+              : "HANDLER_ERROR",
+            error_detail: err instanceof Error ? err.message : String(err),
+            duration_ms: Math.round(performance.now() - t0),
+          });
           if (err instanceof AuthError) {
             replyError(err.internal_code, err.message);
           } else if (err instanceof RbacDeniedError) {
             replyError("RBAC_PERMISSION_DENIED", err.message);
+          } else if (err instanceof ValidationError) {
+            replyError("VALIDATION_ERROR", err.message, err.extra);
           } else {
             logger.error(`${route.subject} request handler error`, { tags: ["nats-routes"], error: err });
             replyError("INTERNAL_ERROR", err instanceof Error ? err.message : String(err));

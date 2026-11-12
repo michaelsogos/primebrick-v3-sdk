@@ -13,6 +13,8 @@
  * No spaces, no empty segments, `.`/leading/trailing dots rejected.
  */
 
+import { validatePayloadSchemaDeep } from "./callables-declaration.js";
+
 const SEGMENT = /^[a-z0-9_-]+$/i;
 
 function validateSubject(subject: unknown, path: string): string | null {
@@ -98,6 +100,13 @@ export function validateEventsDeclaration(code: string, decl: unknown): string |
       const schema = emit["payload_schema"];
       if (schema !== undefined && (typeof schema !== "object" || schema === null || Array.isArray(schema))) {
         return `endpoints.events.emits: payload_schema for "${subject}" must be an object (service "${code}")`;
+      }
+      if (schema !== undefined) {
+        // The SAME deep gate callables get — x_* vocabulary + name-vs-format
+        // honesty, recursively. A dishonest event schema is how `changed_at`
+        // once reached the registry as a bare `type:"string"`: never again.
+        const deepErr = validatePayloadSchemaDeep(`endpoints.events.emits["${subject}"]`, schema as Record<string, unknown>, code);
+        if (deepErr) return deepErr;
       }
       if (emit["entity"] !== undefined) {
         const eErr = validateEntityPointer(emit["entity"], subject, code);

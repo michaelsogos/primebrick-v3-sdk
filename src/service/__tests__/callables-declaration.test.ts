@@ -179,7 +179,7 @@ describe("x_* annotation vocabulary (closed set)", () => {
                   type: "string",
                   x_options: { api_url: "/x/list", api_verb: "GET", value_field: "code", label_field: "subject" },
                 },
-                languageIso: { type: "string", x_options: { values_source: "locales" } },
+                languageIso: { type: "string", format: "lang", x_options: { values_source: "locales" } },
                 variables: { type: "object", x_map_keys: { from: "templateCode", prop: "variables" } },
               },
             },

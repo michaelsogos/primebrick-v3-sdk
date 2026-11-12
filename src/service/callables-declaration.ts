@@ -25,6 +25,8 @@ import {
   PAYLOAD_X_NOT_EDITABLE,
   PAYLOAD_X_OPTIONS,
   PAYLOAD_X_SEMANTIC,
+  schemaHonestyIssue,
+  walkSchemaProps,
 } from "@primebrick/core";
 export type { CallableDecl };
 
@@ -40,90 +42,92 @@ const CALLABLE_KEYS = new Set([
 ]);
 
 /**
- * Validate the `x_*` annotation vocabulary on a callable's
- * `payload_schema` properties — closed registries, fail-closed:
- * an unknown injector/semantic/options shape is a declaration bug and
- * never reaches the registry.
+ * Validate the `x_*` annotation vocabulary AND the name-vs-format honesty
+ * of a `payload_schema` — closed registries, fail-closed: an unknown
+ * injector/semantic/options shape or a dishonest `type:"string"` on a
+ * `*_at`/`*_by`/email/phone/url/uuid/locale-named field is a declaration
+ * bug and never reaches the registry. Shared by `endpoints.callables`
+ * AND `endpoints.events` — one deep gate, `at` carries the mount point.
  */
-function validateSchemaAnnotations(subject: string, schema: Record<string, unknown>, code: string): string | null {
+export function validatePayloadSchemaDeep(at: string, schema: Record<string, unknown>, code: string): string | null {
   const props = schema["properties"];
   if (props === undefined) return null;
   if (typeof props !== "object" || props === null || Array.isArray(props)) {
-    return `endpoints.callables.callables["${subject}"]: payload_schema.properties must be an object (service "${code}")`;
+    return `${at}: payload_schema.properties must be an object (service "${code}")`;
   }
-  const required = new Set(
-    Array.isArray(schema["required"]) ? (schema["required"] as unknown[]).filter((r) => typeof r === "string") : [],
-  );
-  for (const [field, prop] of Object.entries(props as Record<string, unknown>)) {
-    if (typeof prop !== "object" || prop === null || Array.isArray(prop)) continue;
-    const p = prop as Record<string, unknown>;
-    const at = `properties.${field}`;
+  for (const { field, path, prop: p, required: isRequired } of walkSchemaProps(schema)) {
+    const propPath = `${at}.properties.${path.replace(/\./g, ".properties.")}`;
 
     // A required field the form cannot render MUST declare how its value
     // arrives — otherwise the form can never submit. Fail at declaration.
     if (
-      required.has(field) &&
+      isRequired &&
       p[PAYLOAD_X_NOT_EDITABLE] === true &&
       p[PAYLOAD_X_INJECT] === undefined &&
       p[PAYLOAD_X_SEMANTIC] === undefined
     ) {
-      return `endpoints.callables.callables["${subject}"].${at}: required + x_not_editable needs x_inject or x_semantic (service "${code}")`;
+      return `${propPath}: required + x_not_editable needs x_inject or x_semantic (service "${code}")`;
     }
+
+    // Honesty: a semantic name (`*_at`, `*email*`, `preferred_locale`…)
+    // on a string leaf must carry the format the name promises.
+    const honest = schemaHonestyIssue(field, p);
+    if (honest) return `${propPath}: ${honest} (service "${code}")`;
 
     if (p[PAYLOAD_X_INJECT] !== undefined) {
       const v = p[PAYLOAD_X_INJECT];
       if (typeof v !== "string" || !(PAYLOAD_INJECTORS as readonly string[]).includes(v)) {
-        return `endpoints.callables.callables["${subject}"].${at}: x_inject must be one of ${PAYLOAD_INJECTORS.join("|")} (service "${code}")`;
+        return `${propPath}: x_inject must be one of ${PAYLOAD_INJECTORS.join("|")} (service "${code}")`;
       }
     }
     if (p[PAYLOAD_X_NOT_EDITABLE] !== undefined && typeof p[PAYLOAD_X_NOT_EDITABLE] !== "boolean") {
-      return `endpoints.callables.callables["${subject}"].${at}: x_not_editable must be a boolean (service "${code}")`;
+      return `${propPath}: x_not_editable must be a boolean (service "${code}")`;
     }
     if (p[PAYLOAD_X_SEMANTIC] !== undefined) {
       const v = p[PAYLOAD_X_SEMANTIC];
       if (typeof v !== "string" || !(PAYLOAD_SEMANTIC_SLOTS as readonly string[]).includes(v)) {
-        return `endpoints.callables.callables["${subject}"].${at}: x_semantic must be one of ${PAYLOAD_SEMANTIC_SLOTS.join("|")} (service "${code}")`;
+        return `${propPath}: x_semantic must be one of ${PAYLOAD_SEMANTIC_SLOTS.join("|")} (service "${code}")`;
       }
     }
     if (p[PAYLOAD_X_OPTIONS] !== undefined) {
       const o = p[PAYLOAD_X_OPTIONS];
       if (typeof o !== "object" || o === null || Array.isArray(o)) {
-        return `endpoints.callables.callables["${subject}"].${at}: x_options must be an object (service "${code}")`;
+        return `${propPath}: x_options must be an object (service "${code}")`;
       }
       const opt = o as Record<string, unknown>;
       const hasApi = typeof opt["api_url"] === "string" && opt["api_url"];
       const hasSource = typeof opt["values_source"] === "string" && opt["values_source"];
       if (!hasApi && !hasSource) {
-        return `endpoints.callables.callables["${subject}"].${at}: x_options needs api_url or values_source (service "${code}")`;
+        return `${propPath}: x_options needs api_url or values_source (service "${code}")`;
       }
       if (hasApi) {
         // Catalog sources declare verb+fields explicitly — no silent
         // "GET"/"value"/"label" defaults in resolvers.
         for (const k of ["api_verb", "value_field", "label_field"] as const) {
           if (typeof opt[k] !== "string" || !opt[k]) {
-            return `endpoints.callables.callables["${subject}"].${at}: x_options.${k} is required with api_url (service "${code}")`;
+            return `${propPath}: x_options.${k} is required with api_url (service "${code}")`;
           }
         }
       }
       if (hasSource && !(PAYLOAD_OPTIONS_VALUES_SOURCES as readonly string[]).includes(opt["values_source"] as string)) {
-        return `endpoints.callables.callables["${subject}"].${at}: x_options.values_source must be one of ${PAYLOAD_OPTIONS_VALUES_SOURCES.join("|")} (service "${code}")`;
+        return `${propPath}: x_options.values_source must be one of ${PAYLOAD_OPTIONS_VALUES_SOURCES.join("|")} (service "${code}")`;
       }
       // Presentation hints — resolvers map them onto `_icon`/`_icon_color`/
       // `_icon_dashed` (the ComboSelect icon contract); declared per source,
       // applied to every resolved option.
       for (const k of ["icon", "icon_color"] as const) {
         if (opt[k] !== undefined && (typeof opt[k] !== "string" || !opt[k])) {
-          return `endpoints.callables.callables["${subject}"].${at}: x_options.${k} must be a non-empty string (service "${code}")`;
+          return `${propPath}: x_options.${k} must be a non-empty string (service "${code}")`;
         }
       }
       if (opt["icon_dashed"] !== undefined && typeof opt["icon_dashed"] !== "boolean") {
-        return `endpoints.callables.callables["${subject}"].${at}: x_options.icon_dashed must be a boolean (service "${code}")`;
+        return `${propPath}: x_options.icon_dashed must be a boolean (service "${code}")`;
       }
       const unknownOpt = Object.keys(opt).filter(
         (k) => !["api_url", "api_verb", "value_field", "label_field", "values_source", "icon", "icon_color", "icon_dashed"].includes(k),
       );
       if (unknownOpt.length > 0) {
-        return `endpoints.callables.callables["${subject}"].${at}: x_options unknown key(s) ${unknownOpt.join(", ")} (service "${code}")`;
+        return `${propPath}: x_options unknown key(s) ${unknownOpt.join(", ")} (service "${code}")`;
       }
     }
     if (p[PAYLOAD_X_MAP_KEYS] !== undefined) {
@@ -135,7 +139,7 @@ function validateSchemaAnnotations(subject: string, schema: Record<string, unkno
         typeof (m as Record<string, unknown>)["from"] !== "string" ||
         typeof (m as Record<string, unknown>)["prop"] !== "string"
       ) {
-        return `endpoints.callables.callables["${subject}"].${at}: x_map_keys must be {from: string, prop: string} (service "${code}")`;
+        return `${propPath}: x_map_keys must be {from: string, prop: string} (service "${code}")`;
       }
     }
   }
@@ -196,7 +200,7 @@ export function validateCallablesDeclaration(code: string, decl: unknown): strin
       if (typeof schema !== "object" || schema === null || Array.isArray(schema)) {
         return `endpoints.callables.callables["${subject}"]: payload_schema is REQUIRED and must be an object (service "${code}")`;
       }
-      const annErr = validateSchemaAnnotations(subject, schema as Record<string, unknown>, code);
+      const annErr = validatePayloadSchemaDeep(`endpoints.callables.callables["${subject}"]`, schema as Record<string, unknown>, code);
       if (annErr) return annErr;
       const perms = callable["permissions"];
       if (perms !== undefined && (!Array.isArray(perms) || perms.some((p) => typeof p !== "string"))) {

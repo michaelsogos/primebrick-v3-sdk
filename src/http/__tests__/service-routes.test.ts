@@ -140,6 +140,91 @@ describe("makeServiceRoutes", () => {
     expect(list.responses?.["200"]?.content?.["application/json"]?.schema).toMatchObject({ type: "object" });
   });
 
+  describe("entity_op — custom action ops", () => {
+    const entityDecl = () => ({
+      entityName: "job_schedule",
+      service: stubService(),
+      meta: {
+        entity: "job_schedule",
+        table: {
+          row_custom_actions: [
+            { action_name: "stop", translation_key: "x.stop", icon: "square", row_key: "schedule_subject" },
+          ],
+          bulk_custom_actions: [
+            { action_name: "disarm_all", translation_key: "x.disarm_all", icon: "power", requires_selection: false, confirm_key: "x.confirm" },
+          ],
+        },
+      },
+      permissions: { meta: ["p"] },
+    });
+    const opRoutes: RpcRoute[] = [
+      {
+        method: "POST",
+        path: "/api/v1/actions/stop-job",
+        entity_op: { entity: "job_schedule", op: "stop" },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+      {
+        method: "POST",
+        path: "/api/v1/actions/disarm-all",
+        entity_op: { entity: "job_schedule", op: "disarm_all" },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+    ];
+
+    it("constructs when every meta action is backed by an entity_op route", async () => {
+      const h = makeServiceRoutes({
+        info: { title: "T", version: "0.0.0" },
+        entities: [entityDecl()],
+        rpc: [opRoutes],
+      });
+      expect(await hits(h, "GET", "/api/v1/entities/job_schedule/meta")).toBe(true);
+      expect(await hits(h, "POST", "/api/v1/actions/stop-job")).toBe(true);
+    });
+
+    it("fails fast when a meta row/bulk action has no backing entity_op", () => {
+      expect(() =>
+        makeServiceRoutes({
+          info: { title: "T", version: "0.0.0" },
+          entities: [entityDecl()],
+          rpc: [opRoutes.slice(0, 1)], // only "stop" — disarm_all unbacked
+        }),
+      ).toThrow(/disarm_all.*no backing route/);
+    });
+
+    it("fails fast when entity_op names an entity with no decl", () => {
+      expect(() =>
+        makeServiceRoutes({
+          info: { title: "T", version: "0.0.0" },
+          entities: [],
+          rpc: [opRoutes],
+        }),
+      ).toThrow(/no entity decl/);
+    });
+
+    it("fails fast on duplicate entity_op for the same entity+op", () => {
+      const dup: RpcRoute[] = [
+        ...opRoutes,
+        {
+          method: "POST",
+          path: "/api/v1/actions/stop-job-again",
+          entity_op: { entity: "job_schedule", op: "stop" },
+          permissions: ["p"],
+          handler: async () => ({}),
+        },
+      ];
+      expect(() =>
+        makeServiceRoutes({
+          info: { title: "T", version: "0.0.0" },
+          entities: [entityDecl()],
+          rpc: [dup],
+        }),
+      ).toThrow(/duplicate custom op "stop"/);
+    });
+  });
+
   it("handler serves both openapi.json and domain routes through one mount", async () => {
     const h = makeServiceRoutes({
       info: { title: "T", version: "0.0.0" },

@@ -76,6 +76,8 @@ export {
   verifyRowKey,
   detectPackageIdentity,
   resolveServiceCode,
+  setCurrentServiceCode,
+  currentServiceCode,
   buildUserAgent,
   identityHeaders,
   verifyClientIdentity,
@@ -113,6 +115,49 @@ export {
 export { docsPackRouteHandler, DOCS_PACK_ROUTE } from "./docs-pack/serve-docs-pack.js";
 export { fetchDocsPack, DOCS_PACK_SHIELD_HEADER } from "./docs-pack/docs-pack-client.js";
 export {
+  extractHostFacts,
+  extractRemoteFacts,
+  extractHostRouteSet,
+  walkHostPages,
+  routeFromHostFile,
+  parseRemoteDispatch,
+  type ExtractDeps,
+} from "./docs-gen/extract-svelte.js";
+export {
+  assertWithinRoot,
+  collectDocRoutes,
+  sheetsFromNav,
+  normalizeEntityContext,
+  scanRouterCaps,
+  loadPermValues,
+  routeOp,
+  scanRoutes,
+  collectCensusOptions,
+  mergeTranslationScopes,
+  foreignEntitiesFromRegistry,
+  claimedRoutesFromRegistry,
+  type EvaluatedEntityDecl,
+  type EntityContext,
+  type ScannedRoute,
+  type RouterScanResult,
+  type CensusOption,
+} from "./docs-gen/collect.js";
+export { generatePageDocs, type RenderContext, type RenderReport } from "./docs-gen/render.js";
+export { reconcileOrder } from "./docs-gen/order.js";
+export type {
+  SvelteCompilerPort,
+  SveltePageFacts,
+  ExtractedField,
+  ExtractedEndpoint,
+  ExtractedNavigation,
+  ExtractedWidget,
+  ShellEntityDecl,
+  RemoteDispatchMap,
+  DocRoute,
+  DocSheet,
+  EntityCaps,
+} from "./docs-gen/types.js";
+export {
   internalFetch,
   configureInternalClient,
   resetInternalClient,
@@ -129,6 +174,7 @@ export {
 
 // Lifecycle
 export { GracefulShutdown, type CleanupFn } from "./lifecycle/graceful-shutdown.js";
+export { setProcessInterval } from "./lifecycle/process-registry.js";
 
 // NATS
 export { NatsClient, msgHeader } from "./nats/nats-client.js";
@@ -136,6 +182,7 @@ export {
   makeNatsRoutes,
   makeNatsRequestRoute,
   callNats,
+  type CallablePayloadContract,
   type NatsRoute,
   type NatsRequestRoute,
   type NatsRouteContext,
@@ -151,16 +198,24 @@ export {
   type ShieldRegistryLike,
 } from "./nats/service-shield.js";
 export {
-  ensureJobSchedule,
-  cancelJobSchedule,
+  armJobSchedule,
+  disarmJobSchedule,
+  scheduleSubjectFor,
   dueLaneVerify,
   forwardAuthHeaders,
   forwardedActor,
   JOB_SCHEDULE_HEADERS,
   JOB_STREAM_SUBJECTS,
   JOB_SCHEDULE_REQUEST_SUBJECT,
-  type EnsureJobScheduleOpts,
+  JOB_SCHEDULE_CANCEL_SUBJECT,
+  type ArmJobScheduleRequest,
 } from "./nats/job-schedule.js";
+export {
+  JOB_RUN_ID_HEADER,
+  JOB_SCHEDULE_SUBJECT_HEADER,
+  jobResultSubject,
+  type JobResultMessage,
+} from "./nats/job-contract.js";
 export {
   RotatingSecretEngine,
   SecretProvider,
@@ -182,7 +237,7 @@ export {
 } from "./auth/client-shield-secret.js";
 
 // HTTP
-export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";
+export { createHttpServer, resolveHttpBindHost, type HttpServerOptions } from "./http/http-server.js";
 export {
   makeRpcRouter,
   composeRouteHandlers,
@@ -201,6 +256,10 @@ export {
   type EntityServiceLike,
   type EntityActionMeta,
 } from "./http/entity-router.js";
+export {
+  entityFieldValidator,
+  type EntityFieldValidatorOptions,
+} from "./http/entity-field-validator.js";
 export {
   streamEntityExport,
   defaultExportColumns,
