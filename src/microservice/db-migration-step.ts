@@ -109,6 +109,55 @@ export interface MigrationBootState {
   appliedCount: number;
 }
 
+/**
+ * Shared remediation core: re-runs the engine and rewrites `state` live —
+ * the single mutation point every unlatch path (admin routes, heartbeat
+ * auto-recovery) funnels through. `degraded` is the monotonic flag the
+ * 503 gate and the heartbeat health check read per-request.
+ */
+export async function rerunMigrations(
+  opts: DbMigrationBootOptions,
+  state: MigrationBootState,
+  actor: string,
+): Promise<MigrationRunResultLike> {
+  const result = await opts.engine.runMigrations({
+    pool: opts.pool(),
+    schema: opts.schema(),
+    patchesDir: opts.patchesDir,
+    dbMetaDir: opts.dbMetaDir,
+    allowedTrust: opts.allowedTrust ?? ["release"],
+    actor,
+    logger,
+  });
+  state.result = result;
+  state.appliedCount = result.applied.length;
+  state.degraded = result.degraded;
+  state.lastError = result.failed[0]?.error ?? null;
+  return result;
+}
+
+/**
+ * Run-once deferred init (onReady + post-onReady boot steps). Promise-
+ * memoized: concurrent unlatch paths share one in-flight init; a failure
+ * clears the memo so the next caller retries; success latches permanently.
+ */
+export function makeRunOnceInit(init: () => Promise<void>): () => Promise<void> {
+  let completed = false;
+  let inFlight: Promise<void> | undefined;
+  return () => {
+    if (completed) return Promise.resolve();
+    inFlight ??= (async () => {
+      try {
+        await init();
+        completed = true;
+      } finally {
+        inFlight = undefined;
+      }
+    })();
+    return inFlight;
+  };
+}
+
 export async function runDbMigrationStep(
   opts: DbMigrationBootOptions,
 ): Promise<MigrationBootState> {

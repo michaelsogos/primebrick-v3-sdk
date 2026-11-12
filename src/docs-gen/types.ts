@@ -93,7 +93,7 @@ export interface RemoteDispatchMap {
 /** One documentable route — normalized union of declared + static facts. */
 export interface DocRoute {
   route: string;
-  kind: "list" | "detail" | "create" | "page";
+  kind: "list" | "detail" | "create" | "page" | "dict";
   entity?: string;
   label_key?: string;
   description_key?: string;

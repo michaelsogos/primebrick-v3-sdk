@@ -234,7 +234,7 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
   // ── form-decl fields → the same ExtractedField shape the zod path emits ──
   interface FormFieldFacts extends ExtractedField {
     widget?: string;
-    options_source?: "census.emits" | "census.callables";
+    options_source?: "census.emits" | "census.callables" | "audit.actors";
     allow_create?: boolean;
     readonly?: boolean;
     col?: MetaColumn;
@@ -259,9 +259,11 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
         required,
         constraints,
         default: pl.default_value !== undefined ? extJsonStringify(pl.default_value) : undefined,
-        widget: typeof pl.widget === "string" ? pl.widget : undefined,
-        options_source: pl.options_source as FormFieldFacts["options_source"],
-        allow_create: pl.allow_create === true,
+        // Control/options contract lives on the COLUMN (MetaColumn) —
+        // placements only position fields.
+        widget: typeof col?.widget === "string" ? col.widget : undefined,
+        options_source: col?.options_source as FormFieldFacts["options_source"],
+        allow_create: col?.allow_create === true,
         readonly: pl.readonly === true,
         col,
         section: typeof pl.section === "string" ? pl.section : undefined,
@@ -271,8 +273,10 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
   }
 
   /** Census options for an options_source — resolved subjects + labels. */
-  const censusOptionsFor = (src: "census.emits" | "census.callables"): CensusOption[] =>
-    src === "census.emits" ? (ctx.census_options?.emits ?? []) : (ctx.census_options?.callables ?? []);
+  const censusOptionsFor = (src: "census.emits" | "census.callables" | "audit.actors"): CensusOption[] =>
+    src === "census.emits" ? (ctx.census_options?.emits ?? [])
+      : src === "census.callables" ? (ctx.census_options?.callables ?? [])
+      : [];
 
   // ── field notes — semantic glue derived from page signals ──
   function fieldNotes(name: string, f: FormFieldFacts, facts: SveltePageFacts, isCreate: boolean): string {
@@ -308,7 +312,9 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
     }
     if (f.options_source) {
       const opts = censusOptionsFor(f.options_source);
-      const what = f.options_source === "census.emits" ? "event subjects published by the registered modules" : "callable work subjects declared by the registered modules";
+      const what = f.options_source === "census.emits" ? "event subjects published by the registered modules"
+        : f.options_source === "census.callables" ? "callable work subjects declared by the registered modules"
+        : "actors that wrote records of this entity";
       notes.push(opts.length
         ? `offers the ${what} (${opts.length} declared)`
         : `offers the ${what}`);

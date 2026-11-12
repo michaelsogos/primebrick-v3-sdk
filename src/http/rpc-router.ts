@@ -27,6 +27,7 @@ import { enforceHttpRbac } from "../auth/rbac-enforce.js";
 import { AuthError } from "../auth/verify.js";
 import { RbacDeniedError } from "../auth/rbac-enforce.js";
 import { runWithSession, type Session } from "../auth/session-context.js";
+import type { ActionColor } from "@primebrick/core";
 import type { AuthUser } from "../auth/types.js";
 import type { ApiKeyPort } from "../auth/ports/api-key-port.js";
 import { createSseWriter } from "../sse/sse-writer.js";
@@ -113,8 +114,16 @@ export interface RpcRoute<
    * dispatch writes on the endpoint contract (row/bulk custom CTAs).
    * The route itself stays a normal RPC route — wire is always
    * `/api/v1/actions/…`-style, never entity CRUD paths.
+   *
+   * `crud_action` — DECLARED CRUD OVERRIDE: this route REPLACES the
+   * standard op (`"delete"`, `"restore"`, …) in `meta.actions` — the
+   * standard action entry keeps its CTA position/gating but dispatches to
+   * this endpoint, inheriting `cta` chrome (translation_key→label_key,
+   * icon, color). No custom action is synthesized. The companion
+   * entity-route for that op MUST be disabled explicitly in the entity
+   * router config — overrides are deliberate, never implicit.
    */
-  entity_op?: { entity: string; op: string; cta?: EntityOpCta };
+  entity_op?: { entity: string; op: string; cta?: EntityOpCta; crud_action?: string };
   /** The ONE service call — business logic lives behind it, not here. */
   handler: (ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>;
 }
@@ -141,12 +150,16 @@ export interface EntityOpCta {
   row_key?: string;
   /** Lucide icon name — absent renders an icon-less CTA. */
   icon?: string;
-  /** CSS color class for the label. */
-  text_color?: string;
+  /** Semantic color for icon + label together — closed `ActionColor`
+   *  vocabulary, never a free-form CSS class. */
+  color?: ActionColor;
   /** i18n key for the CTA label — default `<entities_ns>.actions.<op>`. */
   translation_key?: string;
   /** i18n key for a pre-dispatch confirmation dialog. */
   confirm_key?: string;
+  /** i18n key for the in-flight confirm-button label (standard-op dialogs
+   *  merged via `crud_action`; default `app.common.{deleting,restoring}`). */
+  busy_key?: string;
   /** Per-row visibility gate — show the CTA only when `row[field]` is in
    *  `values` (e.g. `resume` only on `paused` rows, `enable` only when
    *  `enabled === false`). */
@@ -266,11 +279,41 @@ export class ValidationError extends Error {
   /** Stable machine code surfaced in the RFC 7807 body — FE error handling
    *  keys off it (e.g. "VERSION_REQUIRED"), never off the message. */
   readonly internal_code: string;
-  constructor(message: string, internal_code = "VALIDATION_ERROR") {
+  /** Structured payload surfaced as RFC 7807 `extra` — a NATIVE object (the
+   *  FE error viewer renders `extra.issues` as a table). Never serialized:
+   *  `detail`/`message` carry the human-readable summary only. */
+  readonly extra?: Record<string, unknown>;
+  constructor(message: string, internal_code = "VALIDATION_ERROR", extra?: Record<string, unknown>) {
     super(message);
     this.name = "ValidationError";
     this.internal_code = internal_code;
+    this.extra = extra;
   }
+}
+
+/** Wrap a validator throw into a `ValidationError`. Schema validators (zod
+ *  & friends) dump their issue list into `err.message` as a JSON string —
+ *  unusable as RFC 7807 `detail` (it renders as raw JSON in the toast and
+ *  hides `extra.issues` from the error viewer). When the throw carries an
+ *  `issues[]` array — zod's `ZodError` shape, detected structurally so the
+ *  SDK stays validator-agnostic — issues become `{path, code, message}`
+ *  rows in `extra.issues`, and `detail` is the joined human summary. */
+export function toValidationError(e: unknown): ValidationError {
+  if (e instanceof ValidationError) return e;
+  const issues = (e as { issues?: unknown } | null)?.issues;
+  if (Array.isArray(issues) && issues.length > 0) {
+    const norm = issues.map((i) => {
+      const iss = i as { path?: Array<string | number>; code?: string; message?: string };
+      return {
+        path: Array.isArray(iss.path) ? iss.path.join(".") : "",
+        code: typeof iss.code === "string" ? iss.code : "invalid",
+        message: typeof iss.message === "string" ? iss.message : "invalid value",
+      };
+    });
+    const detail = norm.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ");
+    return new ValidationError(detail, "VALIDATION_ERROR", { issues: norm });
+  }
+  return new ValidationError(e instanceof Error ? e.message : String(e));
 }
 
 function sendRfcError(
@@ -431,8 +474,7 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
           const raw = route.rawBody ? await readTextBody(req) : await readJsonBody(req);
           body = route.body ? route.body(raw) : raw;
         } catch (e) {
-          if (e instanceof ValidationError) throw e;
-          throw new ValidationError(e instanceof Error ? e.message : String(e));
+          throw toValidationError(e);
         }
       }
 
@@ -489,7 +531,8 @@ export function makeRpcRouter(routes: RpcRoute[], deps: RpcRouterDeps = {}): Rou
         sendRfcError(res, 400, "Validation Error", err.message, {
           internal_code: err.internal_code,
           instance: path,
-          severity: "LOW",
+          severity: "HIGH",
+          extra: err.extra,
         });
       } else {
         throw err; // DAL errors etc. → http-server's mapDalError/RFC7807

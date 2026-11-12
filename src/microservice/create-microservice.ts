@@ -70,6 +70,7 @@ import {
   GracefulShutdown,
   NatsClient,
   createHttpServer,
+  resolveHttpBindHost,
   HealthCheck,
   requireEnv,
   assertDbEnv,
@@ -113,6 +114,8 @@ import type { ModuleNavDeclaration, ModuleEventsDecl } from "@primebrick/core";
 import type { TelemetrySharedConfig } from "../config/shared-config.js";
 import {
   runDbMigrationStep,
+  rerunMigrations,
+  makeRunOnceInit,
   type DbMigrationBootOptions,
   type MigrationBootState,
 } from "./db-migration-step.js";
@@ -408,6 +411,48 @@ export async function createMicroservice(
     ? await runDbMigrationStep(options.dbPatches)
     : { result: null, degraded: false, lastError: null, appliedCount: 0 };
 
+  // Deferred boot init — assigned once ctx exists (step 10). Any recovery
+  // path that unlatches degraded (admin route or heartbeat auto-retry)
+  // completes the skipped onReady + callable re-register here; on failure
+  // it retries on the next heartbeat. `recoveryInFlight` serializes ticks.
+  let deferredOnReady: (() => Promise<void>) | undefined;
+  let recoveryInFlight = false;
+  const attemptMigrationRecovery = async () => {
+    if (recoveryInFlight || !options.dbPatches || !deferredOnReady) return;
+    recoveryInFlight = true;
+    try {
+      if (migrationState.degraded) {
+        const actor = `auto-remediation:${options.serviceName}`;
+        const flipped = await options.dbPatches.engine.retryFailedPatches(
+          options.dbPatches.pool(),
+          options.dbPatches.schema(),
+          actor,
+        );
+        if (flipped > 0) {
+          logger.warn(`db-migration: auto-remediation reset ${flipped} failed patch(es) to pending`, {
+            tags: ["db-migration"],
+          });
+        }
+        const result = await rerunMigrations(options.dbPatches, migrationState, actor);
+        if (result.degraded) return;
+        logger.done(
+          "db-migration: auto-remediation cleared degraded state — completing boot init",
+          { tags: ["db-migration"] },
+        );
+      }
+      // Clean state (recovered just now or earlier): finish any pending
+      // init — no-op once completed.
+      await deferredOnReady();
+    } catch (error) {
+      logger.warn("db-migration: auto-remediation/init attempt failed — will retry on next heartbeat", {
+        tags: ["db-migration"],
+        error,
+      });
+    } finally {
+      recoveryInFlight = false;
+    }
+  };
+
   // 3. ConfigLoader (reads config table via ConfigRepositoryPort)
   const configLoader = new ConfigLoader(options.configRepositoryAdapter());
   try {
@@ -672,6 +717,10 @@ export async function createMicroservice(
   // Build health check function for registrar heartbeats
   const registrarHealthCheckFn: HealthCheckFn = async () => {
     const dbOk = await healthCheckPort.ping();
+    // Self-heal: while degraded, every heartbeat retries the failed
+    // migrations — a successful run unlatches the 503 gate (live-read) and
+    // completes the skipped onReady init: a reboot without shutdown.
+    if (dbOk) await attemptMigrationRecovery();
     const natsOk = NatsClient.isConnected();
     return {
       // A degraded service is not healthy for domain traffic even when the
@@ -752,6 +801,7 @@ export async function createMicroservice(
 
   const healthCheck = new HealthCheck(healthCheckPort, customChecks);
   const httpPort = parseInt(configLoader.require("http_port"), 10);
+  // Deterministic bind: 0.0.0.0 production / 127.0.0.1 dev — no opt-in.
 
   // Route-handler enforcement — the service surface is closed-by-design:
   // only factory-produced handlers (makeRpcRouter / makeOpenApiHandler /
@@ -771,7 +821,13 @@ export async function createMicroservice(
   // (status surface for the FE admin page, and the ONLY reachable surface
   // when the service is degraded).
   if (options.dbPatches) {
-    const migrationHandler = makeDbMigrationRouteHandler(options.dbPatches, migrationState);
+    const migrationHandler = makeDbMigrationRouteHandler(
+      options.dbPatches,
+      migrationState,
+      async () => {
+        await deferredOnReady?.();
+      },
+    );
     routeHandler = routeHandler
       ? composeRouteHandlers(migrationHandler, routeHandler)
       : migrationHandler;
@@ -787,11 +843,15 @@ export async function createMicroservice(
   }
 
   // Degraded gate — a critical migration failure must never serve domain
-  // traffic. Everything except the remediation surface answers 503.
-  if (migrationState.degraded && routeHandler) {
+  // traffic. Everything except the remediation surface answers 503. The
+  // flag is read live per request: a successful remediation (admin route
+  // or heartbeat auto-recovery) reopens traffic without a restart.
+  if (options.dbPatches && routeHandler) {
     const inner = routeHandler;
     routeHandler = brandRouteHandler(async (req, res, url) => {
-      if (url.pathname.startsWith(MIGRATION_ROUTE_PREFIX)) return inner(req, res, url);
+      if (!migrationState.degraded || url.pathname.startsWith(MIGRATION_ROUTE_PREFIX)) {
+        return inner(req, res, url);
+      }
       res.writeHead(503, { "content-type": "application/problem+json" });
       res.end(
         // standards-exempt: ext-json — RFC7807 problem+json is plain JSON by spec
@@ -844,9 +904,12 @@ export async function createMicroservice(
   });
   shutdown.install();
 
-  // 10. onReady callback (consumer business logic) — skipped in degraded
-  // mode: subscribers and domain init must not run against a schema whose
-  // migrations failed.
+  // 10. onReady callback (consumer business logic) — in degraded mode it
+  // is DEFERRED, not lost: subscribers and domain init must not run against
+  // a schema whose migrations failed. The deferred init below runs on a
+  // successful remediation (admin route or heartbeat auto-recovery) — a
+  // reboot without shutdown. Promise-memoized: concurrent unlatch paths
+  // share one in-flight init; failure clears it so the next tick retries.
   const ctx: MicroserviceContext = {
     env,
     configLoader,
@@ -861,24 +924,28 @@ export async function createMicroservice(
     baseUrl,
   };
 
-  if (options.onReady && !migrationState.degraded) {
-    await options.onReady(ctx);
-  } else if (migrationState.degraded) {
+  deferredOnReady = makeRunOnceInit(async () => {
+    if (options.onReady) await options.onReady(ctx);
+    // Callable census — makeNatsRoutes subscriptions run inside onReady,
+    // AFTER the initial register() (NATS routes need a live connection).
+    // Any route declared with payload_schema was collected by the
+    // callable registry; a second register carries endpoints.callables
+    // to the gateway so rule/scheduling pickers see real, subscribed
+    // destinations.
+    const callables = snapshotCallables();
+    if (callables.length > 0) {
+      registrarEndpoints.callables = { callables };
+      await registrar.register();
+    }
+  });
+
+  if (!migrationState.degraded) {
+    await deferredOnReady();
+  } else {
     logger.error(
-      `Service '${options.serviceName}' booted DEGRADED (db migration failed) — domain routes 503, onReady skipped. Remediate via ${MIGRATION_ROUTE_PREFIX}/* (admin).`,
+      `Service '${options.serviceName}' booted DEGRADED (db migration failed) — domain routes 503, init deferred. Remediate via ${MIGRATION_ROUTE_PREFIX}/* (admin) or wait for heartbeat auto-recovery.`,
       { tags: ["core", "db-migration"], error: migrationState.lastError },
     );
-  }
-
-  // 11. Callable census — makeNatsRoutes subscriptions run inside onReady,
-  // AFTER the initial register() (NATS routes need a live connection). Any
-  // route declared with payload_schema was collected by the callable
-  // registry; a second register carries endpoints.callables to the
-  // gateway so rule/scheduling pickers see real, subscribed destinations.
-  const callables = snapshotCallables();
-  if (callables.length > 0) {
-    registrarEndpoints.callables = { callables };
-    await registrar.register();
   }
 
   return ctx;

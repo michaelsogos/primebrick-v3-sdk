@@ -237,7 +237,7 @@ export {
 } from "./auth/client-shield-secret.js";
 
 // HTTP
-export { createHttpServer, type HttpServerOptions } from "./http/http-server.js";
+export { createHttpServer, resolveHttpBindHost, type HttpServerOptions } from "./http/http-server.js";
 export {
   makeRpcRouter,
   composeRouteHandlers,

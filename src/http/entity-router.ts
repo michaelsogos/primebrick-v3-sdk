@@ -23,6 +23,7 @@
  *   purge        DELETE /:uuid/purge              -> service.purge(uuid, ?version)
  *   restore      POST   /:uuid/restore            -> service.restore(uuid, ?version)
  *   audit        GET    /:uuid/audit [query]      -> service.audit(uuid, page, limit)
+ *   auditActors  GET    /audit-actors             -> service.auditActors() (iff implemented; `list` permission)
  *
  * Differences vs the BE version (all structural, no feature drift):
  * - schemas are plain validators `(raw) => T` — the SDK stays zod-free; the
@@ -43,7 +44,7 @@
  */
 
 import { extJsonStringify } from "../json/ext-json.js";
-import { STANDARD_OPS, type EntityMeta } from "@primebrick/core";
+import { STANDARD_OPS, validateActionChrome, type ActionColor, type EntityMeta } from "@primebrick/core";
 import {
   streamEntityExport,
   type EntityExportConfig,
@@ -52,6 +53,7 @@ import {
 import { entityFieldValidator } from "./entity-field-validator.js";
 import {
   makeRpcRouter,
+  toValidationError,
   ValidationError,
   type RouteHandler,
   type RpcRoute,
@@ -75,8 +77,16 @@ export interface EntityServiceLike<TEntity = unknown> {
   bulkDelete(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   bulkRestore(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   audit(uuid: string, page: number, limit: number): Promise<unknown>;
+  /** `options_source:"audit.actors"` vocabulary feed — the entity's own
+   *  audit actor columns distinct, label-resolved through
+   *  `public.user_profiles`. Optional: `GET /audit-actors` registers only
+   *  when the service implements it (dal-pg `makeEntityService` does). */
+  auditActors?(): Promise<{ value: string; label: string }[]>;
   /** Row stream for `export` — the SAME query/filter contract as `list`. */
   stream(query: Record<string, unknown>): AsyncIterable<Record<string, unknown>>;
+  /** The entity's `dict` facet — populated by dal-pg `DomainService` when
+   *  the entity class carries `@Dict`; injected into served meta. */
+  dictFacet?: import("@primebrick/core").DictFacet;
 }
 
 export type EntityAction =
@@ -119,15 +129,35 @@ export interface EntityActionMeta {
    *  non-standard prefixes). Consumers dispatch writes to this endpoint
    *  instead of recomputing the `/entities/{entity}` convention. */
   endpoint?: { method: string; path: string };
+  /** CTA chrome — `actions_overrides`/`crud_action` overrides. Icon+label
+   *  +color travel as ONE contract; semantic icons bind their color. */
+  label_key?: string;
+  icon?: string;
+  color?: ActionColor;
+  /** Confirm-dialog message template override (`{entity}`/`{name}` single,
+   *  `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. */
+  confirm_key?: string;
+  /** In-flight confirm-button label override — see `EntityAction.busy_key`. */
+  busy_key?: string;
 }
 
 /** A custom entity op bound to an RPC route via `RpcRoute.entity_op` —
- *  attached to `meta.actions` by `makeServiceRoutes` at construction. */
+ *  attached to `meta.actions` by `makeServiceRoutes` at construction.
+ *  `crud_action` merges the route INTO the matching standard action entry
+ *  (endpoint + chrome) instead of appending a custom op. */
 export interface EntityCustomOp {
   op: string;
   method: string;
   path: string;
   permissions: readonly string[];
+  /** Names a standard op this route replaces (`delete`, `restore`, …). */
+  crud_action?: string;
+  /** CTA chrome inherited by the overridden standard action. */
+  label_key?: string;
+  icon?: string;
+  color?: ActionColor;
+  confirm_key?: string;
+  busy_key?: string;
 }
 
 const SENTINEL_RE = /^_(public|authenticated_user|authenticated_admin)$/;
@@ -303,13 +333,14 @@ function requireUuidParam(ctx: RpcRouteContext): string {
 
 /** Schema validators are plain `(raw) => T` functions — consumers wire
  *  `zodSchema.parse` directly, whose ZodError must surface as HTTP 400,
- *  not an unhandled 500. Any non-ValidationError throw is wrapped. */
+ *  not an unhandled 500. Any non-ValidationError throw is wrapped —
+ *  `toValidationError` lifts `issues[]` into `extra` and keeps `detail`
+ *  human-readable. */
 function runValidator<T>(fn: (input: never) => T, input: unknown): T {
   try {
     return fn(input as never);
   } catch (e) {
-    if (e instanceof ValidationError) throw e;
-    throw new ValidationError(e instanceof Error ? e.message : String(e));
+    throw toValidationError(e);
   }
 }
 
@@ -367,23 +398,57 @@ function deriveActions(
     const hasRoute = action !== undefined && registered.has(action);
     const perms = action ? (permsFor(action) ?? []) : [];
     const sentinel = perms.find((p) => SENTINEL_RE.test(p));
-    return {
+    const entry: EntityActionMeta = {
       op,
       permissions: perms.filter((p) => !SENTINEL_RE.test(p)),
       ...(sentinel ? { sentinel } : {}),
       enabled: hasRoute && (overrides[op]?.enabled !== false),
     };
+    // `crud_action` override — an RPC route claimed this standard op:
+    // merge its declared endpoint + CTA chrome onto the standard entry.
+    const replacer = (cfg.custom_ops ?? []).find((c) => c.crud_action === op);
+    if (replacer) {
+      entry.endpoint = { method: replacer.method, path: replacer.path };
+      if (replacer.label_key) entry.label_key = replacer.label_key;
+      if (replacer.icon) entry.icon = replacer.icon;
+      if (replacer.color) entry.color = replacer.color;
+      if (replacer.confirm_key) entry.confirm_key = replacer.confirm_key;
+      if (replacer.busy_key) entry.busy_key = replacer.busy_key;
+      if (replacer.permissions.length) entry.permissions = replacer.permissions.filter((p) => !SENTINEL_RE.test(p));
+      // The override's own permissions gate the op even when the standard
+      // entity route was disabled — the RPC is now the backing route.
+      entry.enabled = true;
+    }
+    // `actions_overrides` chrome — same cosmetics contract, authored path.
+    const ov = overrides[op];
+    if (ov?.label_key) entry.label_key = ov.label_key;
+    if (ov?.icon) entry.icon = ov.icon;
+    if (ov?.color) entry.color = ov.color;
+    if (ov?.confirm_key) entry.confirm_key = ov.confirm_key;
+    if (ov?.busy_key) entry.busy_key = ov.busy_key;
+    // "Modifica" is the primary affordance by DESIGN — the standard edit
+    // entry carries `primary` unless a `crud_action`/`actions_overrides`
+    // declared a different color (override wins, contract unchanged).
+    if (op === "update.single" && entry.color === undefined) entry.color = "primary";
+    // Icon↔color contract — the RESOLVED pair is validated once (a
+    // `crud_action` CTA icon + an `actions_overrides` color could
+    // combine into a divergent pair; semantic icons bind their color).
+    const chromeErr = validateActionChrome(entry.icon, entry.color);
+    if (chromeErr) throw new Error(`entity "${cfg.entityName}" action "${op}": ${chromeErr}`);
+    return entry;
   });
-  const custom = (cfg.custom_ops ?? []).map((c) => {
-    const sentinel = c.permissions.find((p) => SENTINEL_RE.test(p));
-    return {
-      op: c.op,
-      permissions: c.permissions.filter((p) => !SENTINEL_RE.test(p)),
-      ...(sentinel ? { sentinel } : {}),
-      enabled: overrides[c.op]?.enabled !== false,
-      endpoint: { method: c.method, path: c.path },
-    };
-  });
+  const custom = (cfg.custom_ops ?? [])
+    .filter((c) => !c.crud_action)
+    .map((c) => {
+      const sentinel = c.permissions.find((p) => SENTINEL_RE.test(p));
+      return {
+        op: c.op,
+        permissions: c.permissions.filter((p) => !SENTINEL_RE.test(p)),
+        ...(sentinel ? { sentinel } : {}),
+        enabled: overrides[c.op]?.enabled !== false,
+        endpoint: { method: c.method, path: c.path },
+      };
+    });
   return [...standard, ...custom];
 }
 
@@ -402,6 +467,7 @@ function assembleMeta(
       expose_editing_value: true,
     },
     actions: deriveActions(cfg, registered),
+    ...(cfg.service.dictFacet !== undefined ? { dict: cfg.service.dictFacet } : {}),
   };
 }
 
@@ -420,6 +486,18 @@ export function makeEntityRouter<TEntity = unknown>(
     throw new Error(
       `entity-router[${config.entityName}]: permissions.export requires "meta" — export columns derive from it`,
     );
+  }
+
+  // Icon↔color contract — fail the process at CONSTRUCTION, not at the
+  // first meta request: a divergent pair (semantic icon with a foreign
+  // color) or a color outside the closed vocabulary is a declaration bug.
+  for (const [op, ov] of Object.entries(config.meta?.actions_overrides ?? {})) {
+    const err = validateActionChrome(ov.icon, ov.color);
+    if (err) throw new Error(`entity-router[${config.entityName}] actions_overrides["${op}"]: ${err}`);
+  }
+  for (const c of config.custom_ops ?? []) {
+    const err = validateActionChrome(c.icon, c.color);
+    if (err) throw new Error(`entity-router[${config.entityName}] custom_op "${c.op}": ${err}`);
   }
 
   const guard = (a: EntityAction) => config.guards?.[a];
@@ -548,6 +626,25 @@ export function makeEntityRouter<TEntity = unknown>(
     },
   });
 
+  // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
+  // DISTINCT writers of this entity's audit columns, label-resolved
+  // server-side. Gated on the `list` permission (filter options are a
+  // list-UX read). Registered UNCONDITIONALLY for auditable entities —
+  // a lazy service getter must not be touched at mount time (property
+  // access constructs the service before initDal); the check happens
+  // per-request inside the handler, where an absent implementation
+  // yields an empty vocabulary.
+  // MUST precede `/:uuid` — literal segments before param captures.
+  if (config.permissions.list) {
+    routes.push({
+      method: "GET",
+      path: `${base}/audit-actors`,
+      permissions: config.permissions.list,
+      auth: "user",
+      handler: async () => ({ items: (await service.auditActors?.()) ?? [] }),
+    });
+  }
+
   push("get", {
     method: "GET",
     path: `${base}/:uuid`,
@@ -619,6 +716,12 @@ export function makeEntityRouter<TEntity = unknown>(
       return service.audit(uuid, q.page, q.limit);
     },
   });
+
+  // Resolved-pair enforcement at CONSTRUCTION — deriveActions merges
+  // crud_action chrome + actions_overrides onto each standard op, and a
+  // pair that only diverges after the merge must fail the process here,
+  // not at the first /meta request.
+  if (config.meta) deriveActions(config, registered);
 
   return makeRpcRouter(routes);
 }

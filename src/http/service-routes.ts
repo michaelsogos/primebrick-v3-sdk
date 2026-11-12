@@ -41,7 +41,7 @@ import {
   type RpcRouterDeps,
   type RouteHandler,
 } from "./rpc-router.js";
-import type { BulkCustomAction, RowCustomAction } from "@primebrick/core";
+import { validateActionChrome, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
 
 /** Entity declaration for `makeServiceRoutes`. `spec` only shapes the
  *  generated OpenAPI block — the router ignores it. Operation set is
@@ -135,7 +135,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     const routes = Array.isArray(entry) ? entry : entry.routes;
     for (const r of routes) {
       if (!r.entity_op) continue;
-      const { entity, op, cta } = r.entity_op;
+      const { entity, op, cta, crud_action } = r.entity_op;
       if (!entityDecls.some((d) => d.entityName === entity)) {
         throw new Error(
           `makeServiceRoutes: route ${r.method} ${r.path} declares entity_op ` +
@@ -149,7 +149,15 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
             `(${r.method} ${r.path})`,
         );
       }
-      list.push({ op, method: r.method, path: r.path, permissions: r.permissions ?? [] });
+      list.push({
+        op, method: r.method, path: r.path, permissions: r.permissions ?? [],
+        ...(crud_action ? { crud_action } : {}),
+        ...(cta?.translation_key ? { label_key: cta.translation_key } : {}),
+        ...(cta?.icon ? { icon: cta.icon } : {}),
+        ...(cta?.color ? { color: cta.color } : {}),
+        ...(cta?.confirm_key ? { confirm_key: cta.confirm_key } : {}),
+        ...(cta?.busy_key ? { busy_key: cta.busy_key } : {}),
+      });
       customOps.set(entity, list);
       ctaByOp.set(`${entity}:${op}`, { cta, route: r });
     }
@@ -206,17 +214,24 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     const row: RowCustomAction[] = [];
     const bulk: BulkCustomAction[] = [];
     for (const op of ops) {
+      // `crud_action` routes merge INTO the standard action entry —
+      // they never synthesize a custom CTA (no doppia CTA).
+      if (op.crud_action) continue;
       const bound = ctaByOp.get(`${decl.entityName}:${op.op}`);
       const cta = bound?.cta ?? ({} as EntityOpCta);
       const placement = cta.placement ?? (op.op.endsWith("_all") ? "bulk" : "row");
       const translation_key = cta.translation_key ?? `${ns}.actions.${op.op}`;
       const required_permission = permissionDisplay(op.permissions);
+      // Icon↔color contract at declaration construction — a route CTA
+      // can never smuggle an invalid color or a divergent semantic pair.
+      const chromeErr = validateActionChrome(cta.icon, cta.color);
+      if (chromeErr) throw new Error(`entity_op "${decl.entityName}.${op.op}" cta: ${chromeErr}`);
       if (placement === "row") {
         row.push({
           action_name: op.op,
           translation_key,
           icon: cta.icon,
-          text_color: cta.text_color,
+          color: cta.color,
           disabled_when_deleted: cta.disabled_when_deleted,
           required_permission,
           row_key: cta.row_key ?? uid,
@@ -227,7 +242,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
           action_name: op.op,
           translation_key,
           icon: cta.icon,
-          text_color: cta.text_color,
+          color: cta.color,
           required_permission,
           requires_selection: cta.requires_selection ?? false,
           require_step_up: cta.require_step_up ?? !!bound?.route.mfa,

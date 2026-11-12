@@ -4,6 +4,7 @@
 |------|------|
 | [`dev-server.md`](./dev-server.md) | Dev-server lifecycle & process ownership (library variant — no dev server; owns its builds/tests) |
 | [`env-policy.md`](./env-policy.md) | Closed environment policy — no `.env`; runtime config lives in `config_entries` |
+| [`check-standards-gate.md`](./check-standards-gate.md) | check-standards declared-debt gate — baseline contract, per-repo wiring, CI layout |
 | [`enforcement-over-verification.md`](./enforcement-over-verification.md) | Enforcement-over-verification doctrine — behavior enforced by code/types/builders, tests prove it |
 | Root [`../../AGENTS.md`](../../AGENTS.md) | Project facts, commands, and pointers |
 | [`always-check-rules-first.md`](./always-check-rules-first.md) | Always Check Rules Before Action |

@@ -897,13 +897,17 @@ Cache-first; falls back to DB on miss.
 |----------|------|-------------|
 | internal_code | `string` | Stable machine code surfaced in the RFC 7807 body — FE error handling
  keys off it (e.g. "VERSION_REQUIRED"), never off the message. |
+| extra | `Record<string, unknown>` | Structured payload surfaced as RFC 7807 `extra` — a NATIVE object (the
+ FE error viewer renders `extra.issues` as a table). Never serialized:
+ `detail`/`message` carry the human-readable summary only. |
 
-#### `ValidationError(message, internal_code)`
+#### `ValidationError(message, internal_code, extra)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | message | `string` |  |
 | internal_code | `string` |  |
+| extra | `Record<string, unknown>` |  |
 
 ## Interfaces
 
@@ -1023,7 +1027,7 @@ UI configuration for a selection-aware bulk CTA (endpoint-backed op
 | action_name | `string` | Action/op name — must resolve to an `entity_op`-declared route. |
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
-| text_color | `string` | Optional CSS color class for the label. |
+| color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
 | required_permission | `string \| string[]` | Permission required to see/use the action. |
 | requires_selection | `boolean` | When true, the CTA is enabled only with rows selected and the body
  receives `selected_uuids`; false = fires with an empty body
@@ -1267,6 +1271,21 @@ Params are `any` at the boundary: strictFunctionTypes contravariance would
 otherwise reject the dal signatures, and the concrete types cannot be
 named here anyway (SDK must not import dal-pg).
 
+### `DictFacet`
+
+The `dict` facet — runtime-injected on served meta when the entity
+class carries the `@Dict` marker (a dict base such as
+dal-pg `DictEntityBase`). Drives the `kind:"dict"` page archetype:
+a compact inline-editable list (rows add/edit in place).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| group_field | `string` | Column key grouping rows into fieldsets — absent renders a FLAT
+ sequence; grouping is opt-in per entity, never inferred. |
+| order_field | `string` | Column key owning row ordering (convention default: `sort` when the
+ entity declares it). Reorder CTAs mutate it and persist through the
+ page's atomic bulk save — no dedicated reorder endpoint. |
+
 ### `DocRoute`
 
 One documentable route — normalized union of declared + static facts.
@@ -1274,7 +1293,7 @@ One documentable route — normalized union of declared + static facts.
 | Field | Type | Description |
 |-------|------|-------------|
 | route | `string` |  |
-| kind | `"create" \| "list" \| "detail" \| "page"` |  |
+| kind | `"create" \| "list" \| "detail" \| "page" \| "dict"` |  |
 | entity | `string` |  |
 | label_key | `string` |  |
 | description_key | `string` |  |
@@ -1350,7 +1369,21 @@ unavailable for everyone (route missing or product-disabled).
  action, absent when no route exists (`enabled: false`). Consumers
  dispatch writes to the declared endpoint instead of recomputing the
  `/api/v1/entities/{entity}` convention — required for ops living under
- non-standard prefixes (e.g. `/api/v1/auth/users`). |
+ non-standard prefixes (e.g. `/api/v1/auth/users`). An RPC route may
+ claim the slot via `entity_op.crud_action` — the declared override. |
+| label_key | `string` | CTA chrome overrides — translation key / icon / semantic color
+ replacing the standard rendering (e.g. soft-delete-as-disable →
+ "Deactivate" + `exec-stop` + destructive). Cosmetics only: gating,
+ dialogs and dispatch are untouched. Sources: `entity_op.cta` on a
+ `crud_action` route, or `meta.actions_overrides[op]`. |
+| icon | `string` |  |
+| color | `ActionColor` |  |
+| confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` for
+ single ops, `{count}`/`{entity}` for bulk). When set it replaces the
+ standard `app.common.{delete,restore}Entit{y,ies}Confirm` copy —
+ e.g. soft-delete-as-disable → "disattivare" + reversible note. |
+| busy_key | `string` | In-flight confirm-button label override (default `app.common.
+ {deleting,restoring}`) — e.g. "Disattivazione…" while disabling. |
 
 ### `EntityActionEndpoint`
 
@@ -1374,6 +1407,13 @@ Backing route of an `EntityAction` — emitted by the BE route scan.
 | endpoint | `{ method: string; path: string }` | Declared backing route — present on custom ops (and standard ops on
  non-standard prefixes). Consumers dispatch writes to this endpoint
  instead of recomputing the `/entities/{entity}` convention. |
+| label_key | `string` | CTA chrome — `actions_overrides`/`crud_action` overrides. Icon+label
+ +color travel as ONE contract; semantic icons bind their color. |
+| icon | `string` |  |
+| color | `ActionColor` |  |
+| confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` single,
+ `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. |
+| busy_key | `string` | In-flight confirm-button label override — see `EntityAction.busy_key`. |
 
 ### `EntityCaps`
 
@@ -1545,6 +1585,11 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
  replacement for Express action middlewares (MFA step-up, B9). |
 
 ### `EntityServiceLike`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| dictFacet | `DictFacet` | The entity's `dict` facet — populated by dal-pg `DomainService` when
+ the entity class carries `@Dict`; injected into served meta. |
 
 ### `EnvSchema`
 
@@ -1874,7 +1919,8 @@ convention). Structurally assignable from the real `AuditParams`:
 |-------|------|-------------|
 | entityClassName | `string` |  |
 | tableName | `string` |  |
-| entityId | `bigint` |  |
+| entityId | `bigint \| null` | Mirrors dal `AuditParams.entityId` — null once the entity migrated to
+ a uuid primary key (its `*_audit` table drops the column). |
 | entityUuid | `string` |  |
 | action | `string` |  |
 | changedAt | `Date` |  |
@@ -2418,7 +2464,7 @@ UI configuration for a non-standard row CTA (route-backed bare op).
  (e.g. `change_password`). |
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
-| text_color | `string` | Optional CSS color class for the label. |
+| color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
 | disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
 | required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
  against the user's permission set). |
@@ -2458,12 +2504,20 @@ the BE via `auth.mfa.consume`. Missing/invalid → 403 with
 this route in the service's auto-generated `/api/v1/openapi.json`.
 Routes without it are still documented (path+method+security derived),
 but `summary`/`description`/schemas make them first-class. |
-| entity_op | `{ entity: string; op: string; cta: EntityOpCta }` | Entity-op binding — declares this route as a custom entity action.
+| entity_op | `{ entity: string; op: string; cta: EntityOpCta; crud_action: string }` | Entity-op binding — declares this route as a custom entity action.
 `makeServiceRoutes` emits `op` into `<entity>`'s `meta.actions` with
 this route's `method`/`path` as the declared endpoint, so consumers
 dispatch writes on the endpoint contract (row/bulk custom CTAs).
 The route itself stays a normal RPC route — wire is always
-`/api/v1/actions/…`-style, never entity CRUD paths. |
+`/api/v1/actions/…`-style, never entity CRUD paths.
+
+`crud_action` — DECLARED CRUD OVERRIDE: this route REPLACES the
+standard op (`"delete"`, `"restore"`, …) in `meta.actions` — the
+standard action entry keeps its CTA position/gating but dispatches to
+this endpoint, inheriting `cta` chrome (translation_key→label_key,
+icon, color). No custom action is synthesized. The companion
+entity-route for that op MUST be disabled explicitly in the entity
+router config — overrides are deliberate, never implicit. |
 | handler | `(ctx: RpcRouteContext<TBody, TParams>) => Promise<unknown>` | The ONE service call — business logic lives behind it, not here. |
 
 ### `RpcRouteContext`
@@ -3007,11 +3061,22 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 
 ## Types & Enums
 
+### `ActionColor`
+
+Closed action-color vocabulary — ONE semantic drives BOTH the icon and
+ the label of a menu CTA (impossible to drift them apart). `neutral` is
+ the default uncolored rendering; the destructive/warning/success/info/
+ primary names map to the theme's semantic text utilities. A meta may
+ never smuggle a Tailwind class here — the enum IS the contract.
+
+**Type:** `"neutral" \| "primary" \| "info" \| "success" \| "warning" \| "destructive"`
+
 ### `ActionsOverrides`
 
-Per-op enable overrides — may ONLY toggle `enabled` on route-backed ops.
+Per-op overrides — `enabled` toggles route-backed ops; chrome fields
+ restyle the standard CTA without touching its logic.
 
-**Type:** `Record<string, { enabled: boolean }>`
+**Type:** `Record<string, { enabled: boolean; label_key: string; icon: string; color: ActionColor; confirm_key: string; busy_key: string }>`
 
 ### `ApiKeyCacheSource`
 
@@ -3163,7 +3228,7 @@ Values mirror the `Permission` enum in `@primebrick/sdk`.
 The served `GET /api/v1/entities/{entity}/meta` response:
 static meta + runtime-injected `display_name`, `actions`, `collaboration`.
 
-**Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta }`
+**Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta; dict: DictFacet }`
 
 ### `ExportFileType`
 
@@ -3299,6 +3364,15 @@ implicit index signature, keeping `MetaColumn` assignable to
 `Record<string, unknown>` — host/remotes pass columns through generic
 cell-snippet args typed as `Record<string, unknown>`.
 
+### `MetaColumnDependsCondition`
+
+A sibling-value condition — the SAME vocabulary `null_label.when` and
+`visible_on` already use for row-gated rendering, lifted to form scope.
+`prop` compares against the pivot ROW's prop (the picked ref option's
+raw row — e.g. its `code`); absent `prop` compares the pivot's stored
+value directly. `equals`/`not` take a single literal, `values` a set
+(IN semantics).
+
 ### `MetaColumnFormat`
 
 Authored field-format vocabulary — the SEMANTIC input contract of a
@@ -3312,12 +3386,47 @@ New formats are additive literals (never breaking).
 
 **Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "slug" \| "no_space" \| "lang"`
 
+### `MetaColumnOptionsSource`
+
+Dynamic option vocabulary for combo-backed controls — declared on the
+COLUMN (`MetaColumn.options_source`), never on a form placement:
+the same contract feeds forms, list filters and docs generation.
+Closed union on purpose — an unknown source is a construction error.
+
+**Type:** `"census.emits" \| "census.callables" \| "audit.actors"`
+
 ### `MetaColumnType`
 
 UI column renderer type. NOTE: this is the UI type, not the DB type —
  e.g. `roles` is `"text"` here but `jsonb` on disk (never ILIKE-searchable).
 
 **Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline" \| "ref" \| "ref_count"`
+
+### `MetaColumnUom`
+
+Numeric unit-of-measure contract — the column's semantic quantity unit.
+`"percent"`: pure display transform (display = canonical × 100, emitted =
+display ÷ 100) — the canonical value stays a fraction; NO sibling field.
+`"currency"`: money semantics — `field` names the SIBLING column that
+persists the ISO code per row (mandatory); `source` defaults to
+`"currencies"` (the shared ISO list).
+`"custom"`: any other UoM (kg, ms, items, …) — `field` persists the code,
+`source` drives the selector options, `symbol` overrides the adornment.
+The `field` sibling requirement is verified by `withColumnConstraints`:
+a uom'd numeric without its code column is a construction error.
+
+**Type:** `{ kind: "percent" } \| { kind: "currency"; field: string; source: "currencies" } \| { kind: "custom"; field: string; source: MetaColumnUomSource; symbol: string }`
+
+### `MetaColumnUomSource`
+
+Option vocabulary a unit-of-measure selector may draw from.
+`"currencies"`: the ISO 4217 list resolved client-side (`getAllCurrencies`
+— same source the config-domain currency picker uses). `{entity}`: the
+UoM codes persist as rows of another entity (resolved via its `/list`).
+`{api_url}`: an explicit endpoint serving the options.
+Closed union on purpose — an unknown source is a construction error.
+
+**Type:** `"currencies" \| { entity: string } \| { api_url: string; value_field: string; label_field: string }`
 
 ### `MfaConsumeFn`
 
@@ -3381,6 +3490,18 @@ module, not to the module owning the broader `/system` prefix).
 
 One sidebar navigation link contributed by a module. `children` is the
 collapsible-group mechanism (the shell renders children under the parent).
+
+### `ModuleNavSibling`
+
+A sidebar-sibling declaration — lifts a SECOND module node next to the
+owning module under the same launcher root (e.g. CRM's "Impostazioni"
+node sibling of the CRM module). The owning service declares it inside
+`endpoints.nav.siblings`; discovery emits it as an extra module entry
+(`id: "<code>-<id>"`, `part_of` inherited) whose `route_prefixes` MUST
+nest strictly under one of the owner's — longest-prefix ownership then
+resolves the sibling's pages to the sibling node, never the parent.
+The access namespace derives as `<moduleNs>.<id>` (e.g.
+`access.crm.settings`) — leaf keys keep the standard route-derived form.
 
 ### `ModuleNotifyInput`
 
@@ -3467,6 +3588,10 @@ verifyNatsMessage+enforceNatsRbac chain. Return:
 
 **Type:** `(msg: Msg) => Promise<AuthUser \| null \| undefined>`
 
+### `NumericKind`
+
+**Type:** `"bigint" \| "number" \| "decimal"`
+
 ### `OpenApiRouteDoc`
 
 The subset of RpcRoute fields the spec generator reads — lets services
@@ -3509,7 +3634,7 @@ conventions — the AI route census (derived from the consolidated
 
 Page archetype vocabulary — what the route renders, regardless of delivery.
 
-**Type:** `"list" \| "detail" \| "create" \| "page"`
+**Type:** `"list" \| "detail" \| "create" \| "page" \| "dict"`
 
 ### `PageRouteProps`
 
@@ -3721,6 +3846,14 @@ Widget-level type_config capabilities (top-level type_config props).
 
 ## Constants
 
+### `ACTION_COLORS`
+
+The full `ActionColor` vocabulary — construction/lint validation rejects
+anything outside this closed set (raw strings on the wire can never reach
+the renderer).
+
+**Type:** `typeOperator`
+
 ### `API_KEY_CACHE_TTL_MS`
 
 Shared cache key + TTL for `api_keys` lookups.
@@ -3822,6 +3955,19 @@ Default consume: governed correlation call to the BE.
 
 **Type:** `MfaConsumeFn`
 
+### `DEFAULT_PAGE_ICON`
+
+Leaf-page icon defaults — the maximum fallback is `file-box`, applied
+whenever `kind` carries no specific default. A declaration's explicit
+`icon` ALWAYS wins: these fill `icon: null` at emission, they never
+override an authored value. Devs are never required to author one.
+
+**Type:** `"file-box"`
+
+### `DEFAULT_ROUTE_ICONS`
+
+**Type:** `Record<PageRouteKind, string>`
+
 ### `DOCS_PACK_CAPABILITY`
 
 Docs-pack contract — the manifest describing a service's documentation
@@ -3879,6 +4025,25 @@ Email — same RFC-5322-simplified regex the config validator and the FE
  refine use (documented shared in `sdk/src/config/config-validator.ts`).
 
 **Type:** `RegExp`
+
+### `FILTER_OPERATOR_ICON`
+
+Canonical `FilterOperator → Lucide icon` map — the ONE operator-icon
+vocabulary every filter surface renders (advanced operator combobox,
+filter chips, summaries). Values are `@lucide/svelte` icon names,
+consumed via `DynamicIcon`.
+
+**Type:** `Record<FilterOperator, string>`
+
+### `FILTER_OPERATOR_KEY`
+
+Canonical `FilterOperator → translation-key segment` map — the ONE
+vocabulary joining filter operators to `system.entities.list.operators.*`
+keys. Key segments are `[a-z0-9_]+` (translation-key grammar) — the bare
+operator symbols (`=`, `!=`, `<`, …) can never be segments, so labels are
+looked up through this map, never through the raw operator value.
+
+**Type:** `Record<FilterOperator, string>`
 
 ### `fromPG`
 
@@ -4192,7 +4357,7 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
                                       pass. Use for high-risk non-CRUD
                                       operations (e.g. admin change-password).
 
-**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_EMAIL_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_EMAIL_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
+**Type:** `{ PUBLIC: "_public"; AUTHENTICATED_USER: "_authenticated_user"; AUTHENTICATED_ADMIN: "_authenticated_admin"; MODULES_READ_ALL: "modules.read.all"; MODULES_READ_SINGLE: "modules.read.single"; MODULES_UPDATE_SINGLE: "modules.update.single"; MODULES_DELETE_SINGLE: "modules.delete.single"; MODULES_CONFIG_READ_SINGLE: "modules.config.read.single"; MODULES_CONFIG_UPDATE_SINGLE: "modules.config.update.single"; AUTH_EVENT_READ_ALL: "auth_event.read.all"; AUTH_EVENT_READ_SINGLE: "auth_event.read.single"; AUTH_EVENT_READ_AUDIT: "auth_event.read.audit"; AUTH_EVENT_EXPORT: "auth_event.export"; AUTH_EVENT_CREATE_SINGLE: "auth_event.create.single"; AUTH_EVENT_CREATE_BULK: "auth_event.create.bulk"; AUTH_EVENT_UPDATE_SINGLE: "auth_event.update.single"; AUTH_EVENT_UPDATE_BULK: "auth_event.update.bulk"; AUTH_EVENT_DELETE_SINGLE: "auth_event.delete.single"; AUTH_EVENT_DELETE_BULK: "auth_event.delete.bulk"; AUTH_EVENT_RESTORE_SINGLE: "auth_event.restore.single"; AUTH_EVENT_RESTORE_BULK: "auth_event.restore.bulk"; AUTH_EVENT_DUPLICATE_SINGLE: "auth_event.duplicate.single"; AUTH_EVENT_DUPLICATE_BULK: "auth_event.duplicate.bulk"; CLIENT_REGISTRY_READ_ALL: "client_registry.read.all"; CLIENT_REGISTRY_READ_SINGLE: "client_registry.read.single"; CLIENT_REGISTRY_READ_AUDIT: "client_registry.read.audit"; CLIENT_REGISTRY_EXPORT: "client_registry.export"; CLIENT_REGISTRY_CREATE_SINGLE: "client_registry.create.single"; CLIENT_REGISTRY_CREATE_BULK: "client_registry.create.bulk"; CLIENT_REGISTRY_UPDATE_SINGLE: "client_registry.update.single"; CLIENT_REGISTRY_UPDATE_BULK: "client_registry.update.bulk"; CLIENT_REGISTRY_DELETE_SINGLE: "client_registry.delete.single"; CLIENT_REGISTRY_DELETE_BULK: "client_registry.delete.bulk"; CLIENT_REGISTRY_RESTORE_SINGLE: "client_registry.restore.single"; CLIENT_REGISTRY_RESTORE_BULK: "client_registry.restore.bulk"; CLIENT_REGISTRY_DUPLICATE_SINGLE: "client_registry.duplicate.single"; CLIENT_REGISTRY_DUPLICATE_BULK: "client_registry.duplicate.bulk"; CUSTOMER_READ_ALL: "customer.read.all"; CUSTOMER_READ_SINGLE: "customer.read.single"; CUSTOMER_READ_AUDIT: "customer.read.audit"; CUSTOMER_EXPORT: "customer.export"; CUSTOMER_CREATE_SINGLE: "customer.create.single"; CUSTOMER_CREATE_BULK: "customer.create.bulk"; CUSTOMER_UPDATE_SINGLE: "customer.update.single"; CUSTOMER_UPDATE_BULK: "customer.update.bulk"; CUSTOMER_DELETE_SINGLE: "customer.delete.single"; CUSTOMER_DELETE_BULK: "customer.delete.bulk"; CUSTOMER_RESTORE_SINGLE: "customer.restore.single"; CUSTOMER_RESTORE_BULK: "customer.restore.bulk"; CUSTOMER_DUPLICATE_SINGLE: "customer.duplicate.single"; CUSTOMER_DUPLICATE_BULK: "customer.duplicate.bulk"; CRM_CUSTOMER_TYPE_READ_ALL: "crm.customer_type.read.all"; CRM_CUSTOMER_TYPE_READ_SINGLE: "crm.customer_type.read.single"; CRM_CUSTOMER_TYPE_READ_AUDIT: "crm.customer_type.read.audit"; CRM_CUSTOMER_TYPE_EXPORT: "crm.customer_type.export"; CRM_CUSTOMER_TYPE_CREATE_SINGLE: "crm.customer_type.create.single"; CRM_CUSTOMER_TYPE_CREATE_BULK: "crm.customer_type.create.bulk"; CRM_CUSTOMER_TYPE_UPDATE_SINGLE: "crm.customer_type.update.single"; CRM_CUSTOMER_TYPE_UPDATE_BULK: "crm.customer_type.update.bulk"; CRM_CUSTOMER_TYPE_DELETE_SINGLE: "crm.customer_type.delete.single"; CRM_CUSTOMER_TYPE_DELETE_BULK: "crm.customer_type.delete.bulk"; CRM_CUSTOMER_TYPE_RESTORE_SINGLE: "crm.customer_type.restore.single"; CRM_CUSTOMER_TYPE_RESTORE_BULK: "crm.customer_type.restore.bulk"; CRM_CUSTOMER_TYPE_DUPLICATE_SINGLE: "crm.customer_type.duplicate.single"; CRM_CUSTOMER_TYPE_DUPLICATE_BULK: "crm.customer_type.duplicate.bulk"; CRM_COMPANY_DIMENSION_READ_ALL: "crm.company_dimension.read.all"; CRM_COMPANY_DIMENSION_READ_SINGLE: "crm.company_dimension.read.single"; CRM_COMPANY_DIMENSION_READ_AUDIT: "crm.company_dimension.read.audit"; CRM_COMPANY_DIMENSION_EXPORT: "crm.company_dimension.export"; CRM_COMPANY_DIMENSION_CREATE_SINGLE: "crm.company_dimension.create.single"; CRM_COMPANY_DIMENSION_CREATE_BULK: "crm.company_dimension.create.bulk"; CRM_COMPANY_DIMENSION_UPDATE_SINGLE: "crm.company_dimension.update.single"; CRM_COMPANY_DIMENSION_UPDATE_BULK: "crm.company_dimension.update.bulk"; CRM_COMPANY_DIMENSION_DELETE_SINGLE: "crm.company_dimension.delete.single"; CRM_COMPANY_DIMENSION_DELETE_BULK: "crm.company_dimension.delete.bulk"; CRM_COMPANY_DIMENSION_RESTORE_SINGLE: "crm.company_dimension.restore.single"; CRM_COMPANY_DIMENSION_RESTORE_BULK: "crm.company_dimension.restore.bulk"; CRM_COMPANY_DIMENSION_DUPLICATE_SINGLE: "crm.company_dimension.duplicate.single"; CRM_COMPANY_DIMENSION_DUPLICATE_BULK: "crm.company_dimension.duplicate.bulk"; CRM_LEGAL_FORM_READ_ALL: "crm.legal_form.read.all"; CRM_LEGAL_FORM_READ_SINGLE: "crm.legal_form.read.single"; CRM_LEGAL_FORM_READ_AUDIT: "crm.legal_form.read.audit"; CRM_LEGAL_FORM_EXPORT: "crm.legal_form.export"; CRM_LEGAL_FORM_CREATE_SINGLE: "crm.legal_form.create.single"; CRM_LEGAL_FORM_CREATE_BULK: "crm.legal_form.create.bulk"; CRM_LEGAL_FORM_UPDATE_SINGLE: "crm.legal_form.update.single"; CRM_LEGAL_FORM_UPDATE_BULK: "crm.legal_form.update.bulk"; CRM_LEGAL_FORM_DELETE_SINGLE: "crm.legal_form.delete.single"; CRM_LEGAL_FORM_DELETE_BULK: "crm.legal_form.delete.bulk"; CRM_LEGAL_FORM_RESTORE_SINGLE: "crm.legal_form.restore.single"; CRM_LEGAL_FORM_RESTORE_BULK: "crm.legal_form.restore.bulk"; CRM_LEGAL_FORM_DUPLICATE_SINGLE: "crm.legal_form.duplicate.single"; CRM_LEGAL_FORM_DUPLICATE_BULK: "crm.legal_form.duplicate.bulk"; CRM_LOCAL_ADDRESS_TYPE_READ_ALL: "crm.local_address_type.read.all"; CRM_LOCAL_ADDRESS_TYPE_READ_SINGLE: "crm.local_address_type.read.single"; CRM_LOCAL_ADDRESS_TYPE_READ_AUDIT: "crm.local_address_type.read.audit"; CRM_LOCAL_ADDRESS_TYPE_EXPORT: "crm.local_address_type.export"; CRM_LOCAL_ADDRESS_TYPE_CREATE_SINGLE: "crm.local_address_type.create.single"; CRM_LOCAL_ADDRESS_TYPE_CREATE_BULK: "crm.local_address_type.create.bulk"; CRM_LOCAL_ADDRESS_TYPE_UPDATE_SINGLE: "crm.local_address_type.update.single"; CRM_LOCAL_ADDRESS_TYPE_UPDATE_BULK: "crm.local_address_type.update.bulk"; CRM_LOCAL_ADDRESS_TYPE_DELETE_SINGLE: "crm.local_address_type.delete.single"; CRM_LOCAL_ADDRESS_TYPE_DELETE_BULK: "crm.local_address_type.delete.bulk"; CRM_LOCAL_ADDRESS_TYPE_RESTORE_SINGLE: "crm.local_address_type.restore.single"; CRM_LOCAL_ADDRESS_TYPE_RESTORE_BULK: "crm.local_address_type.restore.bulk"; CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_SINGLE: "crm.local_address_type.duplicate.single"; CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_BULK: "crm.local_address_type.duplicate.bulk"; CRM_QUALIFICATION_READ_ALL: "crm.qualification.read.all"; CRM_QUALIFICATION_READ_SINGLE: "crm.qualification.read.single"; CRM_QUALIFICATION_READ_AUDIT: "crm.qualification.read.audit"; CRM_QUALIFICATION_EXPORT: "crm.qualification.export"; CRM_QUALIFICATION_CREATE_SINGLE: "crm.qualification.create.single"; CRM_QUALIFICATION_CREATE_BULK: "crm.qualification.create.bulk"; CRM_QUALIFICATION_UPDATE_SINGLE: "crm.qualification.update.single"; CRM_QUALIFICATION_UPDATE_BULK: "crm.qualification.update.bulk"; CRM_QUALIFICATION_DELETE_SINGLE: "crm.qualification.delete.single"; CRM_QUALIFICATION_DELETE_BULK: "crm.qualification.delete.bulk"; CRM_QUALIFICATION_RESTORE_SINGLE: "crm.qualification.restore.single"; CRM_QUALIFICATION_RESTORE_BULK: "crm.qualification.restore.bulk"; CRM_QUALIFICATION_DUPLICATE_SINGLE: "crm.qualification.duplicate.single"; CRM_QUALIFICATION_DUPLICATE_BULK: "crm.qualification.duplicate.bulk"; CRM_MARKETING_QUALIFICATION_READ_ALL: "crm.marketing_qualification.read.all"; CRM_MARKETING_QUALIFICATION_READ_SINGLE: "crm.marketing_qualification.read.single"; CRM_MARKETING_QUALIFICATION_READ_AUDIT: "crm.marketing_qualification.read.audit"; CRM_MARKETING_QUALIFICATION_EXPORT: "crm.marketing_qualification.export"; CRM_MARKETING_QUALIFICATION_CREATE_SINGLE: "crm.marketing_qualification.create.single"; CRM_MARKETING_QUALIFICATION_CREATE_BULK: "crm.marketing_qualification.create.bulk"; CRM_MARKETING_QUALIFICATION_UPDATE_SINGLE: "crm.marketing_qualification.update.single"; CRM_MARKETING_QUALIFICATION_UPDATE_BULK: "crm.marketing_qualification.update.bulk"; CRM_MARKETING_QUALIFICATION_DELETE_SINGLE: "crm.marketing_qualification.delete.single"; CRM_MARKETING_QUALIFICATION_DELETE_BULK: "crm.marketing_qualification.delete.bulk"; CRM_MARKETING_QUALIFICATION_RESTORE_SINGLE: "crm.marketing_qualification.restore.single"; CRM_MARKETING_QUALIFICATION_RESTORE_BULK: "crm.marketing_qualification.restore.bulk"; CRM_MARKETING_QUALIFICATION_DUPLICATE_SINGLE: "crm.marketing_qualification.duplicate.single"; CRM_MARKETING_QUALIFICATION_DUPLICATE_BULK: "crm.marketing_qualification.duplicate.bulk"; CRM_CONTACT_TYPE_READ_ALL: "crm.contact_type.read.all"; CRM_CONTACT_TYPE_READ_SINGLE: "crm.contact_type.read.single"; CRM_CONTACT_TYPE_READ_AUDIT: "crm.contact_type.read.audit"; CRM_CONTACT_TYPE_EXPORT: "crm.contact_type.export"; CRM_CONTACT_TYPE_CREATE_SINGLE: "crm.contact_type.create.single"; CRM_CONTACT_TYPE_CREATE_BULK: "crm.contact_type.create.bulk"; CRM_CONTACT_TYPE_UPDATE_SINGLE: "crm.contact_type.update.single"; CRM_CONTACT_TYPE_UPDATE_BULK: "crm.contact_type.update.bulk"; CRM_CONTACT_TYPE_DELETE_SINGLE: "crm.contact_type.delete.single"; CRM_CONTACT_TYPE_DELETE_BULK: "crm.contact_type.delete.bulk"; CRM_CONTACT_TYPE_RESTORE_SINGLE: "crm.contact_type.restore.single"; CRM_CONTACT_TYPE_RESTORE_BULK: "crm.contact_type.restore.bulk"; CRM_CONTACT_TYPE_DUPLICATE_SINGLE: "crm.contact_type.duplicate.single"; CRM_CONTACT_TYPE_DUPLICATE_BULK: "crm.contact_type.duplicate.bulk"; CRM_ACCOUNT_KIND_READ_ALL: "crm.account_kind.read.all"; CRM_ACCOUNT_KIND_READ_SINGLE: "crm.account_kind.read.single"; CRM_ACCOUNT_KIND_READ_AUDIT: "crm.account_kind.read.audit"; CRM_ACCOUNT_KIND_EXPORT: "crm.account_kind.export"; CRM_ACCOUNT_KIND_CREATE_SINGLE: "crm.account_kind.create.single"; CRM_ACCOUNT_KIND_CREATE_BULK: "crm.account_kind.create.bulk"; CRM_ACCOUNT_KIND_UPDATE_SINGLE: "crm.account_kind.update.single"; CRM_ACCOUNT_KIND_UPDATE_BULK: "crm.account_kind.update.bulk"; CRM_ACCOUNT_KIND_DELETE_SINGLE: "crm.account_kind.delete.single"; CRM_ACCOUNT_KIND_DELETE_BULK: "crm.account_kind.delete.bulk"; CRM_ACCOUNT_KIND_RESTORE_SINGLE: "crm.account_kind.restore.single"; CRM_ACCOUNT_KIND_RESTORE_BULK: "crm.account_kind.restore.bulk"; CRM_ACCOUNT_KIND_DUPLICATE_SINGLE: "crm.account_kind.duplicate.single"; CRM_ACCOUNT_KIND_DUPLICATE_BULK: "crm.account_kind.duplicate.bulk"; CRM_CUSTOMER_LINK_TYPE_READ_ALL: "crm.customer_link_type.read.all"; CRM_CUSTOMER_LINK_TYPE_READ_SINGLE: "crm.customer_link_type.read.single"; CRM_CUSTOMER_LINK_TYPE_READ_AUDIT: "crm.customer_link_type.read.audit"; CRM_CUSTOMER_LINK_TYPE_EXPORT: "crm.customer_link_type.export"; CRM_CUSTOMER_LINK_TYPE_CREATE_SINGLE: "crm.customer_link_type.create.single"; CRM_CUSTOMER_LINK_TYPE_CREATE_BULK: "crm.customer_link_type.create.bulk"; CRM_CUSTOMER_LINK_TYPE_UPDATE_SINGLE: "crm.customer_link_type.update.single"; CRM_CUSTOMER_LINK_TYPE_UPDATE_BULK: "crm.customer_link_type.update.bulk"; CRM_CUSTOMER_LINK_TYPE_DELETE_SINGLE: "crm.customer_link_type.delete.single"; CRM_CUSTOMER_LINK_TYPE_DELETE_BULK: "crm.customer_link_type.delete.bulk"; CRM_CUSTOMER_LINK_TYPE_RESTORE_SINGLE: "crm.customer_link_type.restore.single"; CRM_CUSTOMER_LINK_TYPE_RESTORE_BULK: "crm.customer_link_type.restore.bulk"; CRM_CUSTOMER_LINK_TYPE_DUPLICATE_SINGLE: "crm.customer_link_type.duplicate.single"; CRM_CUSTOMER_LINK_TYPE_DUPLICATE_BULK: "crm.customer_link_type.duplicate.bulk"; CRM_CONSENT_TYPE_READ_ALL: "crm.consent_type.read.all"; CRM_CONSENT_TYPE_READ_SINGLE: "crm.consent_type.read.single"; CRM_CONSENT_TYPE_READ_AUDIT: "crm.consent_type.read.audit"; CRM_CONSENT_TYPE_EXPORT: "crm.consent_type.export"; CRM_CONSENT_TYPE_CREATE_SINGLE: "crm.consent_type.create.single"; CRM_CONSENT_TYPE_CREATE_BULK: "crm.consent_type.create.bulk"; CRM_CONSENT_TYPE_UPDATE_SINGLE: "crm.consent_type.update.single"; CRM_CONSENT_TYPE_UPDATE_BULK: "crm.consent_type.update.bulk"; CRM_CONSENT_TYPE_DELETE_SINGLE: "crm.consent_type.delete.single"; CRM_CONSENT_TYPE_DELETE_BULK: "crm.consent_type.delete.bulk"; CRM_CONSENT_TYPE_RESTORE_SINGLE: "crm.consent_type.restore.single"; CRM_CONSENT_TYPE_RESTORE_BULK: "crm.consent_type.restore.bulk"; CRM_CONSENT_TYPE_DUPLICATE_SINGLE: "crm.consent_type.duplicate.single"; CRM_CONSENT_TYPE_DUPLICATE_BULK: "crm.consent_type.duplicate.bulk"; CRM_LOCAL_ADDRESS_READ_ALL: "crm.local_address.read.all"; CRM_LOCAL_ADDRESS_READ_SINGLE: "crm.local_address.read.single"; CRM_LOCAL_ADDRESS_READ_AUDIT: "crm.local_address.read.audit"; CRM_LOCAL_ADDRESS_EXPORT: "crm.local_address.export"; CRM_LOCAL_ADDRESS_CREATE_SINGLE: "crm.local_address.create.single"; CRM_LOCAL_ADDRESS_CREATE_BULK: "crm.local_address.create.bulk"; CRM_LOCAL_ADDRESS_UPDATE_SINGLE: "crm.local_address.update.single"; CRM_LOCAL_ADDRESS_UPDATE_BULK: "crm.local_address.update.bulk"; CRM_LOCAL_ADDRESS_DELETE_SINGLE: "crm.local_address.delete.single"; CRM_LOCAL_ADDRESS_DELETE_BULK: "crm.local_address.delete.bulk"; CRM_LOCAL_ADDRESS_RESTORE_SINGLE: "crm.local_address.restore.single"; CRM_LOCAL_ADDRESS_RESTORE_BULK: "crm.local_address.restore.bulk"; CRM_LOCAL_ADDRESS_DUPLICATE_SINGLE: "crm.local_address.duplicate.single"; CRM_LOCAL_ADDRESS_DUPLICATE_BULK: "crm.local_address.duplicate.bulk"; CRM_CUSTOMER_ACCOUNT_READ_ALL: "crm.customer_account.read.all"; CRM_CUSTOMER_ACCOUNT_READ_SINGLE: "crm.customer_account.read.single"; CRM_CUSTOMER_ACCOUNT_READ_AUDIT: "crm.customer_account.read.audit"; CRM_CUSTOMER_ACCOUNT_EXPORT: "crm.customer_account.export"; CRM_CUSTOMER_ACCOUNT_CREATE_SINGLE: "crm.customer_account.create.single"; CRM_CUSTOMER_ACCOUNT_CREATE_BULK: "crm.customer_account.create.bulk"; CRM_CUSTOMER_ACCOUNT_UPDATE_SINGLE: "crm.customer_account.update.single"; CRM_CUSTOMER_ACCOUNT_UPDATE_BULK: "crm.customer_account.update.bulk"; CRM_CUSTOMER_ACCOUNT_DELETE_SINGLE: "crm.customer_account.delete.single"; CRM_CUSTOMER_ACCOUNT_DELETE_BULK: "crm.customer_account.delete.bulk"; CRM_CUSTOMER_ACCOUNT_RESTORE_SINGLE: "crm.customer_account.restore.single"; CRM_CUSTOMER_ACCOUNT_RESTORE_BULK: "crm.customer_account.restore.bulk"; CRM_CUSTOMER_ACCOUNT_DUPLICATE_SINGLE: "crm.customer_account.duplicate.single"; CRM_CUSTOMER_ACCOUNT_DUPLICATE_BULK: "crm.customer_account.duplicate.bulk"; CRM_CUSTOMER_CONTACT_READ_ALL: "crm.customer_contact.read.all"; CRM_CUSTOMER_CONTACT_READ_SINGLE: "crm.customer_contact.read.single"; CRM_CUSTOMER_CONTACT_READ_AUDIT: "crm.customer_contact.read.audit"; CRM_CUSTOMER_CONTACT_EXPORT: "crm.customer_contact.export"; CRM_CUSTOMER_CONTACT_CREATE_SINGLE: "crm.customer_contact.create.single"; CRM_CUSTOMER_CONTACT_CREATE_BULK: "crm.customer_contact.create.bulk"; CRM_CUSTOMER_CONTACT_UPDATE_SINGLE: "crm.customer_contact.update.single"; CRM_CUSTOMER_CONTACT_UPDATE_BULK: "crm.customer_contact.update.bulk"; CRM_CUSTOMER_CONTACT_DELETE_SINGLE: "crm.customer_contact.delete.single"; CRM_CUSTOMER_CONTACT_DELETE_BULK: "crm.customer_contact.delete.bulk"; CRM_CUSTOMER_CONTACT_RESTORE_SINGLE: "crm.customer_contact.restore.single"; CRM_CUSTOMER_CONTACT_RESTORE_BULK: "crm.customer_contact.restore.bulk"; CRM_CUSTOMER_CONTACT_DUPLICATE_SINGLE: "crm.customer_contact.duplicate.single"; CRM_CUSTOMER_CONTACT_DUPLICATE_BULK: "crm.customer_contact.duplicate.bulk"; CRM_CUSTOMER_CONSENT_READ_ALL: "crm.customer_consent.read.all"; CRM_CUSTOMER_CONSENT_READ_SINGLE: "crm.customer_consent.read.single"; CRM_CUSTOMER_CONSENT_READ_AUDIT: "crm.customer_consent.read.audit"; CRM_CUSTOMER_CONSENT_EXPORT: "crm.customer_consent.export"; CRM_CUSTOMER_CONSENT_CREATE_SINGLE: "crm.customer_consent.create.single"; CRM_CUSTOMER_CONSENT_CREATE_BULK: "crm.customer_consent.create.bulk"; CRM_CUSTOMER_CONSENT_UPDATE_SINGLE: "crm.customer_consent.update.single"; CRM_CUSTOMER_CONSENT_UPDATE_BULK: "crm.customer_consent.update.bulk"; CRM_CUSTOMER_CONSENT_DELETE_SINGLE: "crm.customer_consent.delete.single"; CRM_CUSTOMER_CONSENT_DELETE_BULK: "crm.customer_consent.delete.bulk"; CRM_CUSTOMER_CONSENT_RESTORE_SINGLE: "crm.customer_consent.restore.single"; CRM_CUSTOMER_CONSENT_RESTORE_BULK: "crm.customer_consent.restore.bulk"; CRM_CUSTOMER_CONSENT_DUPLICATE_SINGLE: "crm.customer_consent.duplicate.single"; CRM_CUSTOMER_CONSENT_DUPLICATE_BULK: "crm.customer_consent.duplicate.bulk"; CRM_CUSTOMER_LINK_READ_ALL: "crm.customer_link.read.all"; CRM_CUSTOMER_LINK_READ_SINGLE: "crm.customer_link.read.single"; CRM_CUSTOMER_LINK_READ_AUDIT: "crm.customer_link.read.audit"; CRM_CUSTOMER_LINK_EXPORT: "crm.customer_link.export"; CRM_CUSTOMER_LINK_CREATE_SINGLE: "crm.customer_link.create.single"; CRM_CUSTOMER_LINK_CREATE_BULK: "crm.customer_link.create.bulk"; CRM_CUSTOMER_LINK_UPDATE_SINGLE: "crm.customer_link.update.single"; CRM_CUSTOMER_LINK_UPDATE_BULK: "crm.customer_link.update.bulk"; CRM_CUSTOMER_LINK_DELETE_SINGLE: "crm.customer_link.delete.single"; CRM_CUSTOMER_LINK_DELETE_BULK: "crm.customer_link.delete.bulk"; CRM_CUSTOMER_LINK_RESTORE_SINGLE: "crm.customer_link.restore.single"; CRM_CUSTOMER_LINK_RESTORE_BULK: "crm.customer_link.restore.bulk"; CRM_CUSTOMER_LINK_DUPLICATE_SINGLE: "crm.customer_link.duplicate.single"; CRM_CUSTOMER_LINK_DUPLICATE_BULK: "crm.customer_link.duplicate.bulk"; ORGANIZATION_READ_ALL: "organization.read.all"; ORGANIZATION_READ_SINGLE: "organization.read.single"; ORGANIZATION_READ_AUDIT: "organization.read.audit"; ORGANIZATION_EXPORT: "organization.export"; ORGANIZATION_CREATE_SINGLE: "organization.create.single"; ORGANIZATION_CREATE_BULK: "organization.create.bulk"; ORGANIZATION_UPDATE_SINGLE: "organization.update.single"; ORGANIZATION_UPDATE_BULK: "organization.update.bulk"; ORGANIZATION_DELETE_SINGLE: "organization.delete.single"; ORGANIZATION_DELETE_BULK: "organization.delete.bulk"; ORGANIZATION_RESTORE_SINGLE: "organization.restore.single"; ORGANIZATION_RESTORE_BULK: "organization.restore.bulk"; ORGANIZATION_DUPLICATE_SINGLE: "organization.duplicate.single"; ORGANIZATION_DUPLICATE_BULK: "organization.duplicate.bulk"; ROLE_MAPPING_READ_ALL: "role_mapping.read.all"; ROLE_MAPPING_READ_SINGLE: "role_mapping.read.single"; ROLE_MAPPING_READ_AUDIT: "role_mapping.read.audit"; ROLE_MAPPING_EXPORT: "role_mapping.export"; ROLE_MAPPING_CREATE_SINGLE: "role_mapping.create.single"; ROLE_MAPPING_CREATE_BULK: "role_mapping.create.bulk"; ROLE_MAPPING_UPDATE_SINGLE: "role_mapping.update.single"; ROLE_MAPPING_UPDATE_BULK: "role_mapping.update.bulk"; ROLE_MAPPING_DELETE_SINGLE: "role_mapping.delete.single"; ROLE_MAPPING_DELETE_BULK: "role_mapping.delete.bulk"; ROLE_MAPPING_RESTORE_SINGLE: "role_mapping.restore.single"; ROLE_MAPPING_RESTORE_BULK: "role_mapping.restore.bulk"; ROLE_MAPPING_DUPLICATE_SINGLE: "role_mapping.duplicate.single"; ROLE_MAPPING_DUPLICATE_BULK: "role_mapping.duplicate.bulk"; TRANSLATION_READ_ALL: "translation.read.all"; TRANSLATION_READ_SINGLE: "translation.read.single"; TRANSLATION_READ_AUDIT: "translation.read.audit"; TRANSLATION_EXPORT: "translation.export"; TRANSLATION_CREATE_SINGLE: "translation.create.single"; TRANSLATION_CREATE_BULK: "translation.create.bulk"; TRANSLATION_UPDATE_SINGLE: "translation.update.single"; TRANSLATION_UPDATE_BULK: "translation.update.bulk"; TRANSLATION_DELETE_SINGLE: "translation.delete.single"; TRANSLATION_DELETE_BULK: "translation.delete.bulk"; TRANSLATION_RESTORE_SINGLE: "translation.restore.single"; TRANSLATION_RESTORE_BULK: "translation.restore.bulk"; TRANSLATION_DUPLICATE_SINGLE: "translation.duplicate.single"; TRANSLATION_DUPLICATE_BULK: "translation.duplicate.bulk"; USER_PROFILE_READ_ALL: "user_profile.read.all"; USER_PROFILE_READ_SINGLE: "user_profile.read.single"; USER_PROFILE_READ_AUDIT: "user_profile.read.audit"; USER_PROFILE_EXPORT: "user_profile.export"; USER_PROFILE_CREATE_SINGLE: "user_profile.create.single"; USER_PROFILE_CREATE_BULK: "user_profile.create.bulk"; USER_PROFILE_UPDATE_SINGLE: "user_profile.update.single"; USER_PROFILE_UPDATE_BULK: "user_profile.update.bulk"; USER_PROFILE_DELETE_SINGLE: "user_profile.delete.single"; USER_PROFILE_DELETE_BULK: "user_profile.delete.bulk"; USER_PROFILE_RESTORE_SINGLE: "user_profile.restore.single"; USER_PROFILE_RESTORE_BULK: "user_profile.restore.bulk"; USER_PROFILE_DUPLICATE_SINGLE: "user_profile.duplicate.single"; USER_PROFILE_DUPLICATE_BULK: "user_profile.duplicate.bulk"; EMAILSENDER_PROVIDER_READ_ALL: "emailsender.provider.read.all"; EMAILSENDER_PROVIDER_READ_SINGLE: "emailsender.provider.read.single"; EMAILSENDER_PROVIDER_READ_AUDIT: "emailsender.provider.read.audit"; EMAILSENDER_PROVIDER_EXPORT: "emailsender.provider.export"; EMAILSENDER_PROVIDER_CREATE_SINGLE: "emailsender.provider.create.single"; EMAILSENDER_PROVIDER_CREATE_BULK: "emailsender.provider.create.bulk"; EMAILSENDER_PROVIDER_UPDATE_SINGLE: "emailsender.provider.update.single"; EMAILSENDER_PROVIDER_UPDATE_BULK: "emailsender.provider.update.bulk"; EMAILSENDER_PROVIDER_DELETE_SINGLE: "emailsender.provider.delete.single"; EMAILSENDER_PROVIDER_DELETE_BULK: "emailsender.provider.delete.bulk"; EMAILSENDER_PROVIDER_RESTORE_SINGLE: "emailsender.provider.restore.single"; EMAILSENDER_PROVIDER_RESTORE_BULK: "emailsender.provider.restore.bulk"; EMAILSENDER_PROVIDER_DUPLICATE_SINGLE: "emailsender.provider.duplicate.single"; EMAILSENDER_PROVIDER_DUPLICATE_BULK: "emailsender.provider.duplicate.bulk"; EMAILSENDER_EMAIL_TEMPLATE_READ_ALL: "emailsender.email_template.read.all"; EMAILSENDER_EMAIL_TEMPLATE_READ_SINGLE: "emailsender.email_template.read.single"; EMAILSENDER_EMAIL_TEMPLATE_READ_AUDIT: "emailsender.email_template.read.audit"; EMAILSENDER_EMAIL_TEMPLATE_EXPORT: "emailsender.email_template.export"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_SINGLE: "emailsender.email_template.create.single"; EMAILSENDER_EMAIL_TEMPLATE_CREATE_BULK: "emailsender.email_template.create.bulk"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_SINGLE: "emailsender.email_template.update.single"; EMAILSENDER_EMAIL_TEMPLATE_UPDATE_BULK: "emailsender.email_template.update.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_SINGLE: "emailsender.email_template.delete.single"; EMAILSENDER_EMAIL_TEMPLATE_DELETE_BULK: "emailsender.email_template.delete.bulk"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_SINGLE: "emailsender.email_template.restore.single"; EMAILSENDER_EMAIL_TEMPLATE_RESTORE_BULK: "emailsender.email_template.restore.bulk"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_SINGLE: "emailsender.email_template.duplicate.single"; EMAILSENDER_EMAIL_TEMPLATE_DUPLICATE_BULK: "emailsender.email_template.duplicate.bulk"; EMAILSENDER_SEND: "emailsender.send"; EMAILSENDER_LOG_CREATE_SINGLE: "emailsender.log.create.single" }`
 
 | Field | Value |
 |-------|-------|
@@ -4247,6 +4412,216 @@ Three pseudo-permissions exist as sentinels handled directly by the middleware
 | CUSTOMER_RESTORE_BULK | "customer.restore.bulk" |
 | CUSTOMER_DUPLICATE_SINGLE | "customer.duplicate.single" |
 | CUSTOMER_DUPLICATE_BULK | "customer.duplicate.bulk" |
+| CRM_CUSTOMER_TYPE_READ_ALL | "crm.customer_type.read.all" |
+| CRM_CUSTOMER_TYPE_READ_SINGLE | "crm.customer_type.read.single" |
+| CRM_CUSTOMER_TYPE_READ_AUDIT | "crm.customer_type.read.audit" |
+| CRM_CUSTOMER_TYPE_EXPORT | "crm.customer_type.export" |
+| CRM_CUSTOMER_TYPE_CREATE_SINGLE | "crm.customer_type.create.single" |
+| CRM_CUSTOMER_TYPE_CREATE_BULK | "crm.customer_type.create.bulk" |
+| CRM_CUSTOMER_TYPE_UPDATE_SINGLE | "crm.customer_type.update.single" |
+| CRM_CUSTOMER_TYPE_UPDATE_BULK | "crm.customer_type.update.bulk" |
+| CRM_CUSTOMER_TYPE_DELETE_SINGLE | "crm.customer_type.delete.single" |
+| CRM_CUSTOMER_TYPE_DELETE_BULK | "crm.customer_type.delete.bulk" |
+| CRM_CUSTOMER_TYPE_RESTORE_SINGLE | "crm.customer_type.restore.single" |
+| CRM_CUSTOMER_TYPE_RESTORE_BULK | "crm.customer_type.restore.bulk" |
+| CRM_CUSTOMER_TYPE_DUPLICATE_SINGLE | "crm.customer_type.duplicate.single" |
+| CRM_CUSTOMER_TYPE_DUPLICATE_BULK | "crm.customer_type.duplicate.bulk" |
+| CRM_COMPANY_DIMENSION_READ_ALL | "crm.company_dimension.read.all" |
+| CRM_COMPANY_DIMENSION_READ_SINGLE | "crm.company_dimension.read.single" |
+| CRM_COMPANY_DIMENSION_READ_AUDIT | "crm.company_dimension.read.audit" |
+| CRM_COMPANY_DIMENSION_EXPORT | "crm.company_dimension.export" |
+| CRM_COMPANY_DIMENSION_CREATE_SINGLE | "crm.company_dimension.create.single" |
+| CRM_COMPANY_DIMENSION_CREATE_BULK | "crm.company_dimension.create.bulk" |
+| CRM_COMPANY_DIMENSION_UPDATE_SINGLE | "crm.company_dimension.update.single" |
+| CRM_COMPANY_DIMENSION_UPDATE_BULK | "crm.company_dimension.update.bulk" |
+| CRM_COMPANY_DIMENSION_DELETE_SINGLE | "crm.company_dimension.delete.single" |
+| CRM_COMPANY_DIMENSION_DELETE_BULK | "crm.company_dimension.delete.bulk" |
+| CRM_COMPANY_DIMENSION_RESTORE_SINGLE | "crm.company_dimension.restore.single" |
+| CRM_COMPANY_DIMENSION_RESTORE_BULK | "crm.company_dimension.restore.bulk" |
+| CRM_COMPANY_DIMENSION_DUPLICATE_SINGLE | "crm.company_dimension.duplicate.single" |
+| CRM_COMPANY_DIMENSION_DUPLICATE_BULK | "crm.company_dimension.duplicate.bulk" |
+| CRM_LEGAL_FORM_READ_ALL | "crm.legal_form.read.all" |
+| CRM_LEGAL_FORM_READ_SINGLE | "crm.legal_form.read.single" |
+| CRM_LEGAL_FORM_READ_AUDIT | "crm.legal_form.read.audit" |
+| CRM_LEGAL_FORM_EXPORT | "crm.legal_form.export" |
+| CRM_LEGAL_FORM_CREATE_SINGLE | "crm.legal_form.create.single" |
+| CRM_LEGAL_FORM_CREATE_BULK | "crm.legal_form.create.bulk" |
+| CRM_LEGAL_FORM_UPDATE_SINGLE | "crm.legal_form.update.single" |
+| CRM_LEGAL_FORM_UPDATE_BULK | "crm.legal_form.update.bulk" |
+| CRM_LEGAL_FORM_DELETE_SINGLE | "crm.legal_form.delete.single" |
+| CRM_LEGAL_FORM_DELETE_BULK | "crm.legal_form.delete.bulk" |
+| CRM_LEGAL_FORM_RESTORE_SINGLE | "crm.legal_form.restore.single" |
+| CRM_LEGAL_FORM_RESTORE_BULK | "crm.legal_form.restore.bulk" |
+| CRM_LEGAL_FORM_DUPLICATE_SINGLE | "crm.legal_form.duplicate.single" |
+| CRM_LEGAL_FORM_DUPLICATE_BULK | "crm.legal_form.duplicate.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_READ_ALL | "crm.local_address_type.read.all" |
+| CRM_LOCAL_ADDRESS_TYPE_READ_SINGLE | "crm.local_address_type.read.single" |
+| CRM_LOCAL_ADDRESS_TYPE_READ_AUDIT | "crm.local_address_type.read.audit" |
+| CRM_LOCAL_ADDRESS_TYPE_EXPORT | "crm.local_address_type.export" |
+| CRM_LOCAL_ADDRESS_TYPE_CREATE_SINGLE | "crm.local_address_type.create.single" |
+| CRM_LOCAL_ADDRESS_TYPE_CREATE_BULK | "crm.local_address_type.create.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_UPDATE_SINGLE | "crm.local_address_type.update.single" |
+| CRM_LOCAL_ADDRESS_TYPE_UPDATE_BULK | "crm.local_address_type.update.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_DELETE_SINGLE | "crm.local_address_type.delete.single" |
+| CRM_LOCAL_ADDRESS_TYPE_DELETE_BULK | "crm.local_address_type.delete.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_RESTORE_SINGLE | "crm.local_address_type.restore.single" |
+| CRM_LOCAL_ADDRESS_TYPE_RESTORE_BULK | "crm.local_address_type.restore.bulk" |
+| CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_SINGLE | "crm.local_address_type.duplicate.single" |
+| CRM_LOCAL_ADDRESS_TYPE_DUPLICATE_BULK | "crm.local_address_type.duplicate.bulk" |
+| CRM_QUALIFICATION_READ_ALL | "crm.qualification.read.all" |
+| CRM_QUALIFICATION_READ_SINGLE | "crm.qualification.read.single" |
+| CRM_QUALIFICATION_READ_AUDIT | "crm.qualification.read.audit" |
+| CRM_QUALIFICATION_EXPORT | "crm.qualification.export" |
+| CRM_QUALIFICATION_CREATE_SINGLE | "crm.qualification.create.single" |
+| CRM_QUALIFICATION_CREATE_BULK | "crm.qualification.create.bulk" |
+| CRM_QUALIFICATION_UPDATE_SINGLE | "crm.qualification.update.single" |
+| CRM_QUALIFICATION_UPDATE_BULK | "crm.qualification.update.bulk" |
+| CRM_QUALIFICATION_DELETE_SINGLE | "crm.qualification.delete.single" |
+| CRM_QUALIFICATION_DELETE_BULK | "crm.qualification.delete.bulk" |
+| CRM_QUALIFICATION_RESTORE_SINGLE | "crm.qualification.restore.single" |
+| CRM_QUALIFICATION_RESTORE_BULK | "crm.qualification.restore.bulk" |
+| CRM_QUALIFICATION_DUPLICATE_SINGLE | "crm.qualification.duplicate.single" |
+| CRM_QUALIFICATION_DUPLICATE_BULK | "crm.qualification.duplicate.bulk" |
+| CRM_MARKETING_QUALIFICATION_READ_ALL | "crm.marketing_qualification.read.all" |
+| CRM_MARKETING_QUALIFICATION_READ_SINGLE | "crm.marketing_qualification.read.single" |
+| CRM_MARKETING_QUALIFICATION_READ_AUDIT | "crm.marketing_qualification.read.audit" |
+| CRM_MARKETING_QUALIFICATION_EXPORT | "crm.marketing_qualification.export" |
+| CRM_MARKETING_QUALIFICATION_CREATE_SINGLE | "crm.marketing_qualification.create.single" |
+| CRM_MARKETING_QUALIFICATION_CREATE_BULK | "crm.marketing_qualification.create.bulk" |
+| CRM_MARKETING_QUALIFICATION_UPDATE_SINGLE | "crm.marketing_qualification.update.single" |
+| CRM_MARKETING_QUALIFICATION_UPDATE_BULK | "crm.marketing_qualification.update.bulk" |
+| CRM_MARKETING_QUALIFICATION_DELETE_SINGLE | "crm.marketing_qualification.delete.single" |
+| CRM_MARKETING_QUALIFICATION_DELETE_BULK | "crm.marketing_qualification.delete.bulk" |
+| CRM_MARKETING_QUALIFICATION_RESTORE_SINGLE | "crm.marketing_qualification.restore.single" |
+| CRM_MARKETING_QUALIFICATION_RESTORE_BULK | "crm.marketing_qualification.restore.bulk" |
+| CRM_MARKETING_QUALIFICATION_DUPLICATE_SINGLE | "crm.marketing_qualification.duplicate.single" |
+| CRM_MARKETING_QUALIFICATION_DUPLICATE_BULK | "crm.marketing_qualification.duplicate.bulk" |
+| CRM_CONTACT_TYPE_READ_ALL | "crm.contact_type.read.all" |
+| CRM_CONTACT_TYPE_READ_SINGLE | "crm.contact_type.read.single" |
+| CRM_CONTACT_TYPE_READ_AUDIT | "crm.contact_type.read.audit" |
+| CRM_CONTACT_TYPE_EXPORT | "crm.contact_type.export" |
+| CRM_CONTACT_TYPE_CREATE_SINGLE | "crm.contact_type.create.single" |
+| CRM_CONTACT_TYPE_CREATE_BULK | "crm.contact_type.create.bulk" |
+| CRM_CONTACT_TYPE_UPDATE_SINGLE | "crm.contact_type.update.single" |
+| CRM_CONTACT_TYPE_UPDATE_BULK | "crm.contact_type.update.bulk" |
+| CRM_CONTACT_TYPE_DELETE_SINGLE | "crm.contact_type.delete.single" |
+| CRM_CONTACT_TYPE_DELETE_BULK | "crm.contact_type.delete.bulk" |
+| CRM_CONTACT_TYPE_RESTORE_SINGLE | "crm.contact_type.restore.single" |
+| CRM_CONTACT_TYPE_RESTORE_BULK | "crm.contact_type.restore.bulk" |
+| CRM_CONTACT_TYPE_DUPLICATE_SINGLE | "crm.contact_type.duplicate.single" |
+| CRM_CONTACT_TYPE_DUPLICATE_BULK | "crm.contact_type.duplicate.bulk" |
+| CRM_ACCOUNT_KIND_READ_ALL | "crm.account_kind.read.all" |
+| CRM_ACCOUNT_KIND_READ_SINGLE | "crm.account_kind.read.single" |
+| CRM_ACCOUNT_KIND_READ_AUDIT | "crm.account_kind.read.audit" |
+| CRM_ACCOUNT_KIND_EXPORT | "crm.account_kind.export" |
+| CRM_ACCOUNT_KIND_CREATE_SINGLE | "crm.account_kind.create.single" |
+| CRM_ACCOUNT_KIND_CREATE_BULK | "crm.account_kind.create.bulk" |
+| CRM_ACCOUNT_KIND_UPDATE_SINGLE | "crm.account_kind.update.single" |
+| CRM_ACCOUNT_KIND_UPDATE_BULK | "crm.account_kind.update.bulk" |
+| CRM_ACCOUNT_KIND_DELETE_SINGLE | "crm.account_kind.delete.single" |
+| CRM_ACCOUNT_KIND_DELETE_BULK | "crm.account_kind.delete.bulk" |
+| CRM_ACCOUNT_KIND_RESTORE_SINGLE | "crm.account_kind.restore.single" |
+| CRM_ACCOUNT_KIND_RESTORE_BULK | "crm.account_kind.restore.bulk" |
+| CRM_ACCOUNT_KIND_DUPLICATE_SINGLE | "crm.account_kind.duplicate.single" |
+| CRM_ACCOUNT_KIND_DUPLICATE_BULK | "crm.account_kind.duplicate.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_READ_ALL | "crm.customer_link_type.read.all" |
+| CRM_CUSTOMER_LINK_TYPE_READ_SINGLE | "crm.customer_link_type.read.single" |
+| CRM_CUSTOMER_LINK_TYPE_READ_AUDIT | "crm.customer_link_type.read.audit" |
+| CRM_CUSTOMER_LINK_TYPE_EXPORT | "crm.customer_link_type.export" |
+| CRM_CUSTOMER_LINK_TYPE_CREATE_SINGLE | "crm.customer_link_type.create.single" |
+| CRM_CUSTOMER_LINK_TYPE_CREATE_BULK | "crm.customer_link_type.create.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_UPDATE_SINGLE | "crm.customer_link_type.update.single" |
+| CRM_CUSTOMER_LINK_TYPE_UPDATE_BULK | "crm.customer_link_type.update.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_DELETE_SINGLE | "crm.customer_link_type.delete.single" |
+| CRM_CUSTOMER_LINK_TYPE_DELETE_BULK | "crm.customer_link_type.delete.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_RESTORE_SINGLE | "crm.customer_link_type.restore.single" |
+| CRM_CUSTOMER_LINK_TYPE_RESTORE_BULK | "crm.customer_link_type.restore.bulk" |
+| CRM_CUSTOMER_LINK_TYPE_DUPLICATE_SINGLE | "crm.customer_link_type.duplicate.single" |
+| CRM_CUSTOMER_LINK_TYPE_DUPLICATE_BULK | "crm.customer_link_type.duplicate.bulk" |
+| CRM_CONSENT_TYPE_READ_ALL | "crm.consent_type.read.all" |
+| CRM_CONSENT_TYPE_READ_SINGLE | "crm.consent_type.read.single" |
+| CRM_CONSENT_TYPE_READ_AUDIT | "crm.consent_type.read.audit" |
+| CRM_CONSENT_TYPE_EXPORT | "crm.consent_type.export" |
+| CRM_CONSENT_TYPE_CREATE_SINGLE | "crm.consent_type.create.single" |
+| CRM_CONSENT_TYPE_CREATE_BULK | "crm.consent_type.create.bulk" |
+| CRM_CONSENT_TYPE_UPDATE_SINGLE | "crm.consent_type.update.single" |
+| CRM_CONSENT_TYPE_UPDATE_BULK | "crm.consent_type.update.bulk" |
+| CRM_CONSENT_TYPE_DELETE_SINGLE | "crm.consent_type.delete.single" |
+| CRM_CONSENT_TYPE_DELETE_BULK | "crm.consent_type.delete.bulk" |
+| CRM_CONSENT_TYPE_RESTORE_SINGLE | "crm.consent_type.restore.single" |
+| CRM_CONSENT_TYPE_RESTORE_BULK | "crm.consent_type.restore.bulk" |
+| CRM_CONSENT_TYPE_DUPLICATE_SINGLE | "crm.consent_type.duplicate.single" |
+| CRM_CONSENT_TYPE_DUPLICATE_BULK | "crm.consent_type.duplicate.bulk" |
+| CRM_LOCAL_ADDRESS_READ_ALL | "crm.local_address.read.all" |
+| CRM_LOCAL_ADDRESS_READ_SINGLE | "crm.local_address.read.single" |
+| CRM_LOCAL_ADDRESS_READ_AUDIT | "crm.local_address.read.audit" |
+| CRM_LOCAL_ADDRESS_EXPORT | "crm.local_address.export" |
+| CRM_LOCAL_ADDRESS_CREATE_SINGLE | "crm.local_address.create.single" |
+| CRM_LOCAL_ADDRESS_CREATE_BULK | "crm.local_address.create.bulk" |
+| CRM_LOCAL_ADDRESS_UPDATE_SINGLE | "crm.local_address.update.single" |
+| CRM_LOCAL_ADDRESS_UPDATE_BULK | "crm.local_address.update.bulk" |
+| CRM_LOCAL_ADDRESS_DELETE_SINGLE | "crm.local_address.delete.single" |
+| CRM_LOCAL_ADDRESS_DELETE_BULK | "crm.local_address.delete.bulk" |
+| CRM_LOCAL_ADDRESS_RESTORE_SINGLE | "crm.local_address.restore.single" |
+| CRM_LOCAL_ADDRESS_RESTORE_BULK | "crm.local_address.restore.bulk" |
+| CRM_LOCAL_ADDRESS_DUPLICATE_SINGLE | "crm.local_address.duplicate.single" |
+| CRM_LOCAL_ADDRESS_DUPLICATE_BULK | "crm.local_address.duplicate.bulk" |
+| CRM_CUSTOMER_ACCOUNT_READ_ALL | "crm.customer_account.read.all" |
+| CRM_CUSTOMER_ACCOUNT_READ_SINGLE | "crm.customer_account.read.single" |
+| CRM_CUSTOMER_ACCOUNT_READ_AUDIT | "crm.customer_account.read.audit" |
+| CRM_CUSTOMER_ACCOUNT_EXPORT | "crm.customer_account.export" |
+| CRM_CUSTOMER_ACCOUNT_CREATE_SINGLE | "crm.customer_account.create.single" |
+| CRM_CUSTOMER_ACCOUNT_CREATE_BULK | "crm.customer_account.create.bulk" |
+| CRM_CUSTOMER_ACCOUNT_UPDATE_SINGLE | "crm.customer_account.update.single" |
+| CRM_CUSTOMER_ACCOUNT_UPDATE_BULK | "crm.customer_account.update.bulk" |
+| CRM_CUSTOMER_ACCOUNT_DELETE_SINGLE | "crm.customer_account.delete.single" |
+| CRM_CUSTOMER_ACCOUNT_DELETE_BULK | "crm.customer_account.delete.bulk" |
+| CRM_CUSTOMER_ACCOUNT_RESTORE_SINGLE | "crm.customer_account.restore.single" |
+| CRM_CUSTOMER_ACCOUNT_RESTORE_BULK | "crm.customer_account.restore.bulk" |
+| CRM_CUSTOMER_ACCOUNT_DUPLICATE_SINGLE | "crm.customer_account.duplicate.single" |
+| CRM_CUSTOMER_ACCOUNT_DUPLICATE_BULK | "crm.customer_account.duplicate.bulk" |
+| CRM_CUSTOMER_CONTACT_READ_ALL | "crm.customer_contact.read.all" |
+| CRM_CUSTOMER_CONTACT_READ_SINGLE | "crm.customer_contact.read.single" |
+| CRM_CUSTOMER_CONTACT_READ_AUDIT | "crm.customer_contact.read.audit" |
+| CRM_CUSTOMER_CONTACT_EXPORT | "crm.customer_contact.export" |
+| CRM_CUSTOMER_CONTACT_CREATE_SINGLE | "crm.customer_contact.create.single" |
+| CRM_CUSTOMER_CONTACT_CREATE_BULK | "crm.customer_contact.create.bulk" |
+| CRM_CUSTOMER_CONTACT_UPDATE_SINGLE | "crm.customer_contact.update.single" |
+| CRM_CUSTOMER_CONTACT_UPDATE_BULK | "crm.customer_contact.update.bulk" |
+| CRM_CUSTOMER_CONTACT_DELETE_SINGLE | "crm.customer_contact.delete.single" |
+| CRM_CUSTOMER_CONTACT_DELETE_BULK | "crm.customer_contact.delete.bulk" |
+| CRM_CUSTOMER_CONTACT_RESTORE_SINGLE | "crm.customer_contact.restore.single" |
+| CRM_CUSTOMER_CONTACT_RESTORE_BULK | "crm.customer_contact.restore.bulk" |
+| CRM_CUSTOMER_CONTACT_DUPLICATE_SINGLE | "crm.customer_contact.duplicate.single" |
+| CRM_CUSTOMER_CONTACT_DUPLICATE_BULK | "crm.customer_contact.duplicate.bulk" |
+| CRM_CUSTOMER_CONSENT_READ_ALL | "crm.customer_consent.read.all" |
+| CRM_CUSTOMER_CONSENT_READ_SINGLE | "crm.customer_consent.read.single" |
+| CRM_CUSTOMER_CONSENT_READ_AUDIT | "crm.customer_consent.read.audit" |
+| CRM_CUSTOMER_CONSENT_EXPORT | "crm.customer_consent.export" |
+| CRM_CUSTOMER_CONSENT_CREATE_SINGLE | "crm.customer_consent.create.single" |
+| CRM_CUSTOMER_CONSENT_CREATE_BULK | "crm.customer_consent.create.bulk" |
+| CRM_CUSTOMER_CONSENT_UPDATE_SINGLE | "crm.customer_consent.update.single" |
+| CRM_CUSTOMER_CONSENT_UPDATE_BULK | "crm.customer_consent.update.bulk" |
+| CRM_CUSTOMER_CONSENT_DELETE_SINGLE | "crm.customer_consent.delete.single" |
+| CRM_CUSTOMER_CONSENT_DELETE_BULK | "crm.customer_consent.delete.bulk" |
+| CRM_CUSTOMER_CONSENT_RESTORE_SINGLE | "crm.customer_consent.restore.single" |
+| CRM_CUSTOMER_CONSENT_RESTORE_BULK | "crm.customer_consent.restore.bulk" |
+| CRM_CUSTOMER_CONSENT_DUPLICATE_SINGLE | "crm.customer_consent.duplicate.single" |
+| CRM_CUSTOMER_CONSENT_DUPLICATE_BULK | "crm.customer_consent.duplicate.bulk" |
+| CRM_CUSTOMER_LINK_READ_ALL | "crm.customer_link.read.all" |
+| CRM_CUSTOMER_LINK_READ_SINGLE | "crm.customer_link.read.single" |
+| CRM_CUSTOMER_LINK_READ_AUDIT | "crm.customer_link.read.audit" |
+| CRM_CUSTOMER_LINK_EXPORT | "crm.customer_link.export" |
+| CRM_CUSTOMER_LINK_CREATE_SINGLE | "crm.customer_link.create.single" |
+| CRM_CUSTOMER_LINK_CREATE_BULK | "crm.customer_link.create.bulk" |
+| CRM_CUSTOMER_LINK_UPDATE_SINGLE | "crm.customer_link.update.single" |
+| CRM_CUSTOMER_LINK_UPDATE_BULK | "crm.customer_link.update.bulk" |
+| CRM_CUSTOMER_LINK_DELETE_SINGLE | "crm.customer_link.delete.single" |
+| CRM_CUSTOMER_LINK_DELETE_BULK | "crm.customer_link.delete.bulk" |
+| CRM_CUSTOMER_LINK_RESTORE_SINGLE | "crm.customer_link.restore.single" |
+| CRM_CUSTOMER_LINK_RESTORE_BULK | "crm.customer_link.restore.bulk" |
+| CRM_CUSTOMER_LINK_DUPLICATE_SINGLE | "crm.customer_link.duplicate.single" |
+| CRM_CUSTOMER_LINK_DUPLICATE_BULK | "crm.customer_link.duplicate.bulk" |
 | ORGANIZATION_READ_ALL | "organization.read.all" |
 | ORGANIZATION_READ_SINGLE | "organization.read.single" |
 | ORGANIZATION_READ_AUDIT | "organization.read.audit" |
@@ -4372,6 +4747,22 @@ Rotation cadence + how long `previous` stays acceptable.
 | GET | "secret.get" |
 | ROTATED | "secret.rotated" |
 
+### `SEMANTIC_ICON_COLORS`
+
+Semantic action icons — names whose COLOR IS PART OF THE ICON's meaning.
+Each name binds to exactly one `ActionColor` (the label color); the icon
+component itself (in `@primebrick/ui`'s `SEMANTIC_ICONS` registry, which
+reads THIS table) renders the gradient surface self-colored. A meta that
+pairs a semantic icon with a different color is a contract violation —
+`validateActionChrome` rejects it at construction time, so icon and
+label can never drift apart even by accident.
+
+- `exec-start` → success   (start/enable is a positive op — deliberate
+  divergence from the standard restore-warning chrome)
+- `exec-stop`  → destructive (stop/disable is a destructive op)
+
+**Type:** `Record<string, ActionColor>`
+
 ### `SERVICE_SUBJECTS`
 
 NATS subjects and payload types for microservice lifecycle events.
@@ -4485,6 +4876,22 @@ jobs, system API keys). Audit columns will record the literal string
 
 **Type:** `Decimal`
 
+### `TRANSLATION_KEY_GRAMMAR`
+
+The ONE key grammar — `[a-z0-9_]+` dot-separated segments, ≥2 segments.
+Shared contract: BE guards, check-standards rules and the per-schema
+`translations_key_shape` CHECK constraint all enforce this exact shape
+(DAL engine and the zero-dep lint keep byte-identical local copies —
+change here, mirror there).
+
+**Type:** `RegExp`
+
+### `TRANSLATION_KEY_SEGMENT`
+
+Single-segment grammar — the unit the full-key grammar repeats.
+
+**Type:** `RegExp`
+
 ### `TYPE_CAPABILITIES`
 
 Capability matrix keyed by ConfigType. Frozen at module init — treat as
@@ -4587,6 +4994,18 @@ strip the code prefix and attach the name to the module namespace:
 | ns | `string` |  |
 | code | `string` |  |
 | sheetKey | `string` |  |
+
+### `actionColorClass(color): string`
+
+Maps an `ActionColor` to its Tailwind text utility. `neutral`/`undefined`
+resolves to the empty string — the item keeps the theme's default muted
+appearance (what standard CTAs like "Modifica" already show). This is the
+ONLY mapping of semantic color → class; renderers never hand-roll
+`text-${color}` strings.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| color | `ActionColor \| null \| undefined` |  |
 
 ### `add(a, b): Decimal`
 
@@ -4844,12 +5263,14 @@ Smallest integer `>= d`.
 
 Validate a wire entity object against `meta.columns`.
 Required = `nullable === false` AND client-writable — `audited`
-columns and `meta.uid` (server-generated identity) are system-managed
-(filled server-side) and never arrive on the wire, so an absent one is
-NOT a violation. A PRESENT empty value still fails `nullable === false`
-— clients must not send managed fields at all. Mirrors the form, where
-required only ever applies to declared placements
-(`placement.required ?? nullable`).
+columns, `meta.uid` (server-generated identity), `managed` columns
+(server-filled keys, e.g. an identity `@Key`) and `kind:"calculated" /
+"virtual"` columns (server/decorator-computed read projections — never
+writable) are system-managed and never arrive on the wire, so an
+absent one is NOT a violation. A
+PRESENT empty value still fails `nullable === false` — clients must
+not send managed fields at all. Mirrors the form, where required only
+ever applies to declared placements (`placement.required ?? nullable`).
 Unknown entity keys are ignored — system columns (`uuid`, `version`)
 need no column.
 
@@ -5006,10 +5427,6 @@ Register the identity provider once at boot:
 
 ### `createHttpServer(options): Promise<Server<typeof IncomingMessage, typeof ServerResponse>>`
 
-Minimal HTTP server with health endpoint. Uses native http module (no Express).
-All errors (unhandled routes, route handler crashes, auth errors) are returned
-as RFC 7807 Problem Details JSON — same format as the BE error handler.
-
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | options | `HttpServerOptions` |  |
@@ -5121,6 +5538,14 @@ Falls back to "EUR" for unknown locales.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | meta | `EntityMeta` |  |
+
+### `defaultRouteIcon(kind): string`
+
+The resolved default icon for `kind` — `file-box` outside the map.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| kind | `string \| undefined` |  |
 
 ### `defaultSearchGate(trimmed): boolean`
 
@@ -5852,11 +6277,12 @@ role_mappings write-path guard (rejection, not silent non-coverage):
 
 ### `isColumnFilterable(col): boolean`
 
-Column participates in the filters sheet — absent means filterable.
+Column participates in the filters sheet — absent means filterable,
+ except `kind:"virtual"` columns: never filterable, no opt-in exists.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| col | `Pick<MetaColumn, "filterable">` |  |
+| col | `Pick<MetaColumn, "filterable" \| "kind">` |  |
 
 ### `isColumnSearchable(col): boolean`
 
@@ -5865,15 +6291,16 @@ Column joins the search scope — absent means searchable (the caller
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| col | `Pick<MetaColumn, "searchable">` |  |
+| col | `Pick<MetaColumn, "searchable" \| "kind">` |  |
 
 ### `isColumnSortable(col): boolean`
 
-Column supports ORDER BY — absent means sortable.
+Column supports ORDER BY — absent means sortable, except `kind:"virtual"`
+ columns (post-query enrichment): never sortable, no opt-in exists.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| col | `Pick<MetaColumn, "sortable">` |  |
+| col | `Pick<MetaColumn, "sortable" \| "kind">` |  |
 
 ### `isColumnVisible(col): boolean`
 
@@ -5997,6 +6424,16 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 |-----------|------|-------------|
 | raw | `unknown` |  |
 
+### `isValidTranslationKey(key): boolean`
+
+`true` when every segment is `[a-z0-9_]+` and the key is namespaced
+(≥2 segments). Namespace *ownership* is a separate check —
+compare `keyNamespaceOf(key)` against `translationKeyNamespace(schema)`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+
 ### `isValidUrl(v): boolean`
 
 | Parameter | Type | Description |
@@ -6047,6 +6484,17 @@ First dotted segment of a translation key — `job.entities.x` → `job`.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | key | `string` |  |
+
+### `listColumnKeys(columns): { sortable: string[]; searchable: string[]; filterable: string[] }`
+
+Wire key sets derived from the RESOLVED `meta.columns` — sort_key enum,
+`search_in` scope, and `filters[i][field]` allowlists must mirror the
+served contract (system columns are injected by derivation; never
+compute these from the authored column list, which lacks them).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| columns | `MetaColumn[]` |  |
 
 ### `listNonSentinelPermissions(): string[]`
 
@@ -6099,12 +6547,13 @@ identically — validation of existence is the remote build's job.
 |-----------|------|-------------|
 | exportName | `string` |  |
 
-### `makeDbMigrationRouteHandler(boot, state): RouteHandler`
+### `makeDbMigrationRouteHandler(boot, state, onRecovered): RouteHandler`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | boot | `DbMigrationBootOptions` |  |
 | state | `MigrationBootState` |  |
+| onRecovered | `() => Promise<void>` | Fired once when a remediation run flips degraded → clean (e.g. deferred onReady). |
 
 ### `makeEntityRouter(config): RouteHandler`
 
@@ -6294,6 +6743,12 @@ roles path. Throws on empty payload or missing `sub` claim.
 |-----------|------|-------------|
 | payload | `JwtClaims \| null \| undefined` |  |
 | rolesPath | `string` |  |
+
+### `numericKindOf(col): NumericKind \| null`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `MetaColumn` |  |
 
 ### `operationIdFor(method, path): string`
 
@@ -6525,6 +6980,20 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 ### `resetSdkCachePort(): void`
 
 Clear the singleton (for tests or graceful shutdown).
+
+### `resolveHttpBindHost(): string`
+
+One bind-host policy for the whole stack. `server.listen(port)` with no
+host binds the `::` wildcard on Windows/Bun — an IPv6 socket that also
+accepts IPv4-mapped traffic, shows up as `[::]` in netstat, and exposes
+the port on every interface. Explicit host keeps the bind honest:
+
+- `0.0.0.0` under `NODE_ENV=production` (containers/LB need a reachable
+  socket — IPv4 wildcard, never an implicit IPv6 one);
+- `127.0.0.1` otherwise (dev services never leave the loopback).
+
+There is no opt-in: no config row, no option field — an IPv6 or
+interface-specific bind is simply not a supported deployment shape.
 
 ### `resolvePath(payload, path): unknown`
 
@@ -7010,6 +7479,16 @@ Wire form — `"…d"` suffixed string.
 |-----------|------|-------------|
 | d | `DecimalInput` |  |
 
+### `translationKeyGrammarError(key): string \| null`
+
+First grammar violation as a human-readable reason, `null` when legal.
+Consumers compose it into their own error shape (HTTP 400, engine
+throw, lint hint).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| key | `string` |  |
+
 ### `translationKeyNamespace(schema): string`
 
 Owning PG schema → the only translation-key namespace writable there.
@@ -7033,6 +7512,19 @@ Accessor — returns the capability record for a type.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | type | `ConfigType` |  |
+
+### `validateActionChrome(icon, color): string \| null`
+
+Validates the icon↔color contract of a single action chrome override.
+Returns a diagnostic string on violation, `null` when the pair is legal:
+- `color` must be a member of `ACTION_COLORS`;
+- a semantic icon (`SEMANTIC_ICON_COLORS` key) must carry its bound color —
+  `icon:"exec-stop", color:"success"` is an error, not a style choice.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| icon | `string \| undefined` |  |
+| color | `string \| undefined` |  |
 
 ### `validateCallablesDeclaration(code, decl): string \| null`
 

@@ -63,6 +63,23 @@ function sendRfcError(
  * All errors (unhandled routes, route handler crashes, auth errors) are returned
  * as RFC 7807 Problem Details JSON — same format as the BE error handler.
  */
+/**
+ * One bind-host policy for the whole stack. `server.listen(port)` with no
+ * host binds the `::` wildcard on Windows/Bun — an IPv6 socket that also
+ * accepts IPv4-mapped traffic, shows up as `[::]` in netstat, and exposes
+ * the port on every interface. Explicit host keeps the bind honest:
+ *
+ * - `0.0.0.0` under `NODE_ENV=production` (containers/LB need a reachable
+ *   socket — IPv4 wildcard, never an implicit IPv6 one);
+ * - `127.0.0.1` otherwise (dev services never leave the loopback).
+ *
+ * There is no opt-in: no config row, no option field — an IPv6 or
+ * interface-specific bind is simply not a supported deployment shape.
+ */
+export function resolveHttpBindHost(): string {
+  return process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1";
+}
+
 export async function createHttpServer(options: HttpServerOptions): Promise<Server> {
   const tracer = trace.getTracer("@primebrick/sdk", options.serviceVersion ?? "unknown");
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -218,8 +235,15 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
     });
   });
 
-  server.listen(options.port, () => {
-    logServiceStartup(options.serviceUrl ?? `http://localhost:${options.port}`);
+  const hostname = resolveHttpBindHost();
+  // Resolve only once the socket is actually bound — callers (and tests)
+  // legitimately read server.address()/hit /health right after await.
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(options.port, hostname, () => {
+      logServiceStartup(options.serviceUrl ?? `http://${hostname}:${options.port}`);
+      resolve();
+    });
   });
 
   return server;

@@ -15,8 +15,10 @@ const JOB_META = {
   translation_key: "job_rule",
   columns: [
     { key: "name", type: "varchar(200)", pg_type: "varchar(200)", nullable: false, max_length: 200, default_visible: true, sortable: true, filterable: true, label_key: "job.entities.job_rule.fields.name" },
-    { key: "event_subject", type: "varchar(200)", pg_type: "varchar(200)", nullable: false, max_length: 200, format: "nats-subject", default_visible: true, sortable: false, filterable: true, label_key: "job.entities.job_rule.fields.event_subject" },
-    { key: "payload_map", type: "jsonb", pg_type: "jsonb", nullable: true, json_schema: {}, default_visible: false, label_key: "job.entities.job_rule.fields.payload_map" },
+    // Control/options contract lives on the COLUMN (MetaColumn) —
+    // placements only position fields.
+    { key: "event_subject", type: "varchar(200)", pg_type: "varchar(200)", nullable: false, max_length: 200, format: "nats-subject", default_visible: true, sortable: false, filterable: true, options_source: "census.emits", allow_create: false, label_key: "job.entities.job_rule.fields.event_subject" },
+    { key: "payload_map", type: "jsonb", pg_type: "jsonb", nullable: true, json_schema: {}, default_visible: false, widget: "payload_map", label_key: "job.entities.job_rule.fields.payload_map" },
   ],
 };
 
@@ -41,8 +43,8 @@ const ROUTES: DocRoute[] = [
     form: {
       fields: [
         { key: "name" },
-        { key: "event_subject", options_source: "census.emits", allow_create: false },
-        { key: "payload_map", widget: "payload_map", col: 2, row: 1, row_span: 7 },
+        { key: "event_subject" },
+        { key: "payload_map", col: 2, row: 1, row_span: 7 },
       ],
     },
   },
