@@ -136,6 +136,7 @@ import { basename, dirname, join, relative } from "node:path";
 // checkouts sit side by side). Never @primebrick/core — that would force
 // an install step the tool must not need.
 import { HONEST_FORMAT_HINTS } from "../../primebrick-v3-core/src/honest-format-hints.ts";
+import { SUPPORTED_LANGUAGES } from "../../primebrick-v3-core/src/languages.ts";
 
 type RuleId =
   | "ext-json"
@@ -156,6 +157,7 @@ type RuleId =
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
+  | "i18n-language-literal"
   | "i18n-key-grammar"
   | "seed-audit-trail"
   | "nav-decl-access"
@@ -309,6 +311,13 @@ interface StandardsConfig {
    * grandfathered by name. New patches must comply.
    */
   i18n_sql_exempt?: string[];
+  /**
+   * db-meta/patches filenames exempt from `i18n-language-literal` — shipped
+   * patches that predate the language vocabulary can never be edited, so
+   * they are grandfathered by name; a corrective patch remedies their data
+   * instead. New patches must comply.
+   */
+  i18n_lang_exempt?: string[];
   /**
    * db-meta/patches filenames exempt from `seed-audit-trail` — shipped
    * seed patches that predate the audit-trail rule can never be edited;
@@ -1492,6 +1501,117 @@ function checkTranslationSeedPatches(repoRoot: string, exemptFiles: ReadonlySet<
   return out;
 }
 
+// i18n-language-literal — db-meta seed boundary: every `language` literal
+// inside a statement touching `*.translations` must be in
+// SUPPORTED_LANGUAGES (@primebrick/core — imported above via the same
+// sibling-checkout relative-path contract as HONEST_FORMAT_HINTS).
+// Positional by contract: the literal is read at the `language` column
+// index of the INSERT column list (translation VALUES may legitimately be
+// any short word — 'or', 'day', 'zu' — so shape-matching is unsound) or
+// out of explicit `language = 'x'` / `language IN (...)` clauses.
+const SQL_INS_TRANSLATIONS_COLS = /INSERT\s+INTO\s+"?(\w+)"?\s*\.\s*"?translations"?\s*\(([^)]*)\)/i;
+const SQL_STATEMENT_TRANSLATIONS = /\b(?:UPDATE|ALTER\s+TABLE)\s+"?(\w+)"?\s*\.\s*"?translations"?\b/i;
+const SQL_LANGUAGE_EQ = /\blanguage\s*=\s*'([^']*)'/i;
+const SQL_LANGUAGE_IN = /\blanguage\s+IN\s*\(([^)]*)\)/i;
+
+/** Split a SQL tuple body on top-level commas (quote + paren aware, '' escape). */
+function splitSqlTuple(body: string): string[] {
+  const out: string[] = [];
+  let depth = 0, cur = "", inQuote = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (inQuote) {
+      cur += ch;
+      if (ch === "'") {
+        if (body[i + 1] === "'") cur += body[++i];
+        else inQuote = false;
+      }
+      continue;
+    }
+    if (ch === "'") { inQuote = true; cur += ch; continue; }
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/** Scan db-meta/patches/*.sql for `language` literals outside the supported vocabulary. */
+function checkTranslationLanguageLiterals(repoRoot: string, exemptFiles: ReadonlySet<string>): Violation[] {
+  const out: Violation[] = [];
+  const dir = join(repoRoot, "db-meta", "patches");
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".sql") && !exemptFiles.has(f));
+  } catch {
+    return out; // no db-meta/patches in this repo — rule does not apply
+  }
+  const supported = new Set<string>(SUPPORTED_LANGUAGES);
+  const push = (f: string, line: number, text: string, lit: string) =>
+    out.push({
+      file: `db-meta/patches/${f}`,
+      line,
+      rule: "i18n-language-literal" as RuleId,
+      text,
+      hint: `language literal '${lit}' is not in SUPPORTED_LANGUAGES (@primebrick/core: ${SUPPORTED_LANGUAGES.join(", ")}) — full BCP-47 tags only`,
+    });
+  for (const f of files) {
+    const lines = readFileSync(join(dir, f), "utf8").split("\n");
+    let langIdx = -1;
+    let stmtCtx = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const ins = line.match(SQL_INS_TRANSLATIONS_COLS);
+      if (ins) {
+        langIdx = ins[2]!.split(",").map((c) => c.trim().replace(/"/g, "").toLowerCase()).indexOf("language");
+        stmtCtx = true;
+      }
+      if (SQL_STATEMENT_TRANSLATIONS.test(line)) stmtCtx = true;
+      if (stmtCtx) {
+        const eq = line.match(SQL_LANGUAGE_EQ);
+        if (eq && !supported.has(eq[1]!)) push(f, i + 1, line.trim(), eq[1]!);
+        const inn = line.match(SQL_LANGUAGE_IN);
+        if (inn) {
+          for (const lit of inn[1]!.split(",")) {
+            const v = lit.trim().replace(/'/g, "");
+            if (v && !supported.has(v)) push(f, i + 1, line.trim(), v);
+          }
+        }
+        if (langIdx >= 0 && line.includes("'")) {
+          // Every top-level `(...)` group after `VALUES` is a candidate
+          // row tuple — the shape `^\s*\(` alone misses `VALUES (` on the
+          // same line and multi-row `(...), (...)` statements.
+          const valuesPos = line.toUpperCase().indexOf("VALUES");
+          const scanFrom = valuesPos >= 0 ? valuesPos : 0;
+          let depth = 0, inQuote = false, tupleStart = -1;
+          for (let p = scanFrom; p < line.length; p++) {
+            const ch = line[p]!;
+            if (inQuote) {
+              if (ch === "'") { if (line[p + 1] === "'") p++; else inQuote = false; }
+              continue;
+            }
+            if (ch === "'") { inQuote = true; continue; }
+            if (ch === "(") { if (depth === 0) tupleStart = p; depth++; }
+            else if (ch === ")") {
+              depth--;
+              if (depth === 0 && tupleStart >= 0) {
+                const cell = splitSqlTuple(line.slice(tupleStart + 1, p))[langIdx];
+                const lm = cell?.match(/^'(.*)'$/s);
+                if (lm && !supported.has(lm[1]!)) push(f, i + 1, line.trim(), lm[1]!);
+                tupleStart = -1;
+              }
+            }
+          }
+        }
+      }
+      if (stmtCtx && /;\s*(?:--.*)?$/.test(line)) { langIdx = -1; stmtCtx = false; }
+    }
+  }
+  return out;
+}
+
 // seed-audit-trail — seeds bypass the DAL: a patch that INSERTs into an
 // auditable entity table (isAuditable in db-meta/snapshot-entities.json)
 // must write the <t>_audit rows itself, or carry `-- pb:no-audit-trail`.
@@ -1610,6 +1730,9 @@ if (dirNorm !== "fe/src" && existsSync(feDir)) {
 // always-on — the schema→namespace seed boundary is a repo invariant.
 // `i18n_sql_exempt` grandfathers shipped pre-boundary patches by filename.
 violations.push(...checkTranslationSeedPatches(process.cwd(), new Set(cfg.i18n_sql_exempt ?? [])));
+
+// `i18n_lang_exempt` grandfathers shipped pre-vocabulary patches by filename.
+violations.push(...checkTranslationLanguageLiterals(process.cwd(), new Set(cfg.i18n_lang_exempt ?? [])));
 
 // seed-audit-trail — repo-level scan of db-meta/patches (outside srcDir);
 // always-on when db-meta/snapshot-entities.json declares auditable
