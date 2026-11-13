@@ -57,15 +57,12 @@ export interface RenderContext {
   idp_name?: string;
   /** Access namespace of the module — nav.access (e.g. `access.system.job`). */
   access_namespace?: string;
-  /** Output directory — pipeline-owned; ghosts are deleted. */
-  out_dir: string;
   /**
-   * `.mdx` filenames in `out_dir` that other generators own (reference
-   * docs emitted into the same `generated/` dir — e.g. BE's
-   * entity-api-catalog). Everything else not re-emitted this run is a
-   * ghost and is deleted.
+   * Output directory — pipeline-owned by THIS generator alone; any `.mdx`
+   * not re-emitted this run is a stale ghost and is deleted. Other
+   * generators MUST emit into their own dir (never share `out_dir`).
    */
-  keep_files?: string[];
+  out_dir: string;
   /** Cross-doc link base for generated pages. */
   generated_base?: string;
   /** Cross-doc link base for hand-written dev-guide pages. */
@@ -970,15 +967,15 @@ export function generatePageDocs(ctx: RenderContext): RenderReport {
   }
   for (const sheet of ctx.sheets) emitSheet(sheet);
 
-  // ── ghost auto-delete — `out_dir` is pipeline-owned: any .mdx not
-  // re-emitted this run and not listed in `keep_files` (reference docs
-  // owned by sibling generators) is a stale ghost and is deleted.
-  const keep = new Set((ctx.keep_files ?? []).map((k) => k.replace(/\.mdx$/, "")));
+  // ── ghost auto-delete — `out_dir` is owned by this generator alone:
+  // any .mdx not re-emitted this run is a stale ghost and is deleted.
+  // (Other generators own their own dir — e.g. BE reference docs live
+  // under `reference/`, not here.)
   const ghosts: string[] = [];
   try {
     for (const f of readdirSync(outDir)) {
       if (!f.endsWith(".mdx")) continue;
-      if (!emitted.includes(f) && !keep.has(f.replace(/\.mdx$/, ""))) ghosts.push(f);
+      if (!emitted.includes(f)) ghosts.push(f);
     }
   } catch { /* out dir may not exist yet */ }
   const ghosts_deleted: string[] = [];

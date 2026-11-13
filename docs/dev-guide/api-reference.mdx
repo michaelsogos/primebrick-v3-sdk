@@ -2426,11 +2426,9 @@ the owning service's job); an entity merely lacking local meta/caps
 is still local (e.g. BE's own service_registry surface). |
 | idp_name | `string` | Identity-provider display name (config-derived). |
 | access_namespace | `string` | Access namespace of the module — nav.access (e.g. `access.system.job`). |
-| out_dir | `string` | Output directory — pipeline-owned; ghosts are deleted. |
-| keep_files | `string[]` | `.mdx` filenames in `out_dir` that other generators own (reference
-docs emitted into the same `generated/` dir — e.g. BE's
-entity-api-catalog). Everything else not re-emitted this run is a
-ghost and is deleted. |
+| out_dir | `string` | Output directory — pipeline-owned by THIS generator alone; any `.mdx`
+not re-emitted this run is a stale ghost and is deleted. Other
+generators MUST emit into their own dir (never share `out_dir`). |
 | generated_base | `string` | Cross-doc link base for generated pages. |
 | dev_guide_base | `string` | Cross-doc link base for hand-written dev-guide pages. |
 
@@ -7072,14 +7070,15 @@ Read service version from the deployed package.json — resolved by
 walking up from the entry file (`detectPackageIdentity`), so it is
 cwd-independent and always the same package as the service identity.
 
-### `reconcileOrder(generatedDir): { added: string[]; dropped: string[] }`
+### `reconcileOrder(dir): { added: string[]; dropped: string[] }`
 
-Reconcile `<generatedDir>/../_order.json` against the `.mdx` files in
-`generatedDir`. Returns the change summary for reporting.
+Reconcile `<dir>/../_order.json` against the `.mdx` files in `dir`,
+using `basename(dir)` as the entry prefix. Returns the change summary
+for reporting.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| generatedDir | `string` |  |
+| dir | `string` |  |
 
 ### `requireActor(): string`
 
