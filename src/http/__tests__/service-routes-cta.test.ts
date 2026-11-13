@@ -307,4 +307,44 @@ describe("entity_op → served meta CTA synthesis", () => {
       }),
     ).toThrow(/exec-stop.*destructive|destructive.*exec-stop/i);
   });
+
+  it("duplicate.bulk served chrome defaults to violet + copy (the clone semantic)", async () => {
+    const decl = {
+      ...entityDecl(),
+      service: { ...stubService(), clonable: true },
+      permissions: { ...entityDecl().permissions, duplicate: ["p"] },
+    };
+    const h = makeServiceRoutes({
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as { op: string; enabled: boolean; color?: string; icon?: string }[];
+    expect(actions.find((a) => a.op === "duplicate.bulk")).toMatchObject({
+      enabled: true,
+      color: "violet",
+      icon: "copy",
+    });
+  });
+
+  it("actions_overrides chrome wins over the violet clone default", async () => {
+    const decl = entityDecl();
+    decl.service = { ...stubService(), clonable: true };
+    decl.permissions = { ...decl.permissions, duplicate: ["p"] };
+    decl.meta.actions_overrides = {
+      "duplicate.bulk": { color: "info", icon: "files" },
+    };
+    const h = makeServiceRoutes({
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as { op: string; color?: string; icon?: string }[];
+    expect(actions.find((a) => a.op === "duplicate.bulk")).toMatchObject({
+      color: "info",
+      icon: "files",
+    });
+  });
 });

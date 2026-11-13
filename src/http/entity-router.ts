@@ -433,6 +433,13 @@ function deriveActions(
     // entry carries `primary` unless a `crud_action`/`actions_overrides`
     // declared a different color (override wins, contract unchanged).
     if (op === "update.single" && entry.color === undefined) entry.color = "primary";
+    // Violet IS the clone semantic — duplicate carries it (and its Copy
+    // icon) by default so version-history, row CTA, bulk bar and the
+    // confirm dialog can never drift on separate conventions.
+    if (op === "duplicate.bulk") {
+      entry.color ??= "violet";
+      entry.icon ??= "copy";
+    }
     // Icon↔color contract — the RESOLVED pair is validated once (a
     // `crud_action` CTA icon + an `actions_overrides` color could
     // combine into a divergent pair; semantic icons bind their color).

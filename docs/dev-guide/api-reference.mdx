@@ -3140,10 +3140,12 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 Closed action-color vocabulary — ONE semantic drives BOTH the icon and
  the label of a menu CTA (impossible to drift them apart). `neutral` is
  the default uncolored rendering; the destructive/warning/success/info/
- primary names map to the theme's semantic text utilities. A meta may
- never smuggle a Tailwind class here — the enum IS the contract.
+ primary names map to the theme's semantic text utilities. `violet` is
+ the clone/duplicate semantic — `duplicate.bulk` carries it by default
+ and the same hue marks `CLONE` entries in the version-history trail.
+ A meta may never smuggle a Tailwind class here — the enum IS the contract.
 
-**Type:** `"neutral" \| "primary" \| "info" \| "success" \| "warning" \| "destructive"`
+**Type:** `"neutral" \| "primary" \| "info" \| "success" \| "warning" \| "destructive" \| "violet"`
 
 ### `ActionsOverrides`
 
@@ -7164,6 +7166,19 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 ### `resetSdkCachePort(): void`
 
 Clear the singleton (for tests or graceful shutdown).
+
+### `resolveDisplayTemplate(meta): string \| null`
+
+The materialized display template — `meta.display_name` when authored,
+`"${" + display_field + "}"` otherwise (the served default). ONE rule
+used by both the served-meta assembler (EntityMetaResponse.display_name)
+and the DAL's display-join projection (`<key>_name` columns evaluate the
+SAME template on the joined row), so titles, combos and ref cells can
+never diverge.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `Pick<EntityMeta, "display_field" \| "display_name">` |  |
 
 ### `resolveHttpBindHost(): string`
 
