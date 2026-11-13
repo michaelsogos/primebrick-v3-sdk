@@ -84,8 +84,9 @@ export interface ServiceRoutesInput {
 
 // Router registration semantics (mirrored from entity-router.ts):
 //   enabled(a) = permissions[a] — for `duplicate`, presence is implied by
-//   `duplicate !== false` (the conventional `<entity>.duplicate.bulk`
-//   permission is auto-assigned). `meta` additionally requires `cfg.meta`.
+//   `duplicate !== false` AND the derived `service.clonable` capability
+//   (the conventional `<entity>.duplicate.bulk` permission is
+//   auto-assigned unless declared). `meta` additionally requires `cfg.meta`.
 const OP_ORDER: EntityAction[] = [
   "meta", "list", "export", "get", "create", "update", "delete",
   "purge", "restore", "audit", "duplicate", "bulkDelete", "bulkRestore",
@@ -98,7 +99,7 @@ const ACTION_TO_SPEC_OP: Partial<Record<EntityAction, EntityCrudOp>> = {
 function specOpsFor(cfg: EntityRouterConfig): EntityCrudOp[] {
   const enabled = (a: EntityAction): boolean => {
     if (a === "duplicate") {
-      return cfg.permissions.duplicate !== undefined || cfg.duplicate !== false;
+      return cfg.duplicate !== false && cfg.service.clonable === true;
     }
     return cfg.permissions[a] !== undefined;
   };

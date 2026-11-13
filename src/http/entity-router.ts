@@ -87,6 +87,12 @@ export interface EntityServiceLike<TEntity = unknown> {
   /** The entity's `dict` facet — populated by dal-pg `DomainService` when
    *  the entity class carries `@Dict`; injected into served meta. */
   dictFacet?: import("@primebrick/core").DictFacet;
+  /** `@AuditTrail()` on the entity class — populated by dal-pg. Drives
+   *  `collaboration.enabled` in served meta. Derived, never declared. */
+  auditable?: boolean;
+  /** `Clonable` mixin on the entity class — populated by dal-pg. Gates
+   *  `/duplicate` registration. Derived, never declared. */
+  clonable?: boolean;
 }
 
 export type EntityAction =
@@ -172,10 +178,10 @@ export interface EntityRouterConfig<TEntity = unknown> {
    *  `display_name` + `actions` + `collaboration`. When omitted, the meta
    *  route is not registered even if `permissions.meta` is set. */
   meta?: EntityMeta;
-  /** The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
-   *  in the meta response (the BE derives it from entity persistence meta;
-   *  the SDK cannot inspect decorators, so the caller declares it). */
-  auditable?: boolean;
+  /** A clonable entity may still hide the `/duplicate` route + CTA by
+   *  setting `duplicate: false`. On a NON-clonable service the route is
+   *  never registered regardless — the flag is ignored. */
+  duplicate?: false;
   /**
    * Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
    * receive the parsed bracket-notation query object; `createBody`/
@@ -193,10 +199,6 @@ export interface EntityRouterConfig<TEntity = unknown> {
      *  `file_type`/`locale`/`timezone`. */
     exportQuery?: (query: Record<string, unknown>) => EntityExportQuery;
   };
-  /** `duplicate` is ON by default (BE E.8): registers with the conventional
-   *  `<entity>.duplicate.bulk` permission when not declared. `false`
-   *  disables the route entirely. */
-  duplicate?: false;
   /** Export behaviour — column allowlist, template overrides, label
    *  resolution. Requires `permissions.export` (the route) and `meta`
    *  (the column driver). See `entity-export.ts`. */
@@ -386,8 +388,9 @@ function deriveActions(
 ): EntityActionMeta[] {
   const overrides = cfg.meta?.actions_overrides ?? {};
   const permsFor = (a: EntityAction): readonly string[] | undefined => {
-    if (a === "duplicate" && !cfg.permissions.duplicate && cfg.duplicate !== false) {
-      return [`${cfg.entityName}.duplicate.bulk`];
+    if (a === "duplicate") {
+      if (cfg.duplicate === false || cfg.service.clonable !== true) return undefined;
+      return cfg.permissions.duplicate ?? [`${cfg.entityName}.duplicate.bulk`];
     }
     return cfg.permissions[a];
   };
@@ -463,7 +466,7 @@ function assembleMeta(
       (meta.display_name as string | undefined) ??
       (meta.display_field ? `\${${meta.display_field}}` : null),
     collaboration: {
-      enabled: cfg.auditable === true,
+      enabled: cfg.service.auditable === true,
       expose_editing_value: true,
     },
     actions: deriveActions(cfg, registered),
@@ -500,14 +503,28 @@ export function makeEntityRouter<TEntity = unknown>(
     if (err) throw new Error(`entity-router[${config.entityName}] custom_op "${c.op}": ${err}`);
   }
 
+  // Clone capability is DERIVED from the service (dal-pg probes the entity
+  // class) — duplicate config authored on a non-clonable entity is a
+  // declaration bug: the route would clone rows without writing the
+  // cloned_* audit columns. Fail at construction, not at request time.
+  if (service.clonable !== true) {
+    if (config.permissions.duplicate || config.schemas?.duplicateBody) {
+      throw new Error(
+        `entity-router[${config.entityName}]: duplicate configured but the service is not clonable — ` +
+          `add the Clonable mixin to the entity class (or remove the duplicate config)`,
+      );
+    }
+  }
+
   const guard = (a: EntityAction) => config.guards?.[a];
   const runGuard = async (a: EntityAction, ctx: RpcRouteContext) => {
     await guard(a)?.(ctx);
   };
 
   const enabled = (a: EntityAction): readonly string[] | undefined => {
-    if (a === "duplicate" && !config.permissions.duplicate && config.duplicate !== false) {
-      return [`${config.entityName}.duplicate.bulk`];
+    if (a === "duplicate") {
+      if (config.duplicate === false || service.clonable !== true) return undefined;
+      return config.permissions.duplicate ?? [`${config.entityName}.duplicate.bulk`];
     }
     return config.permissions[a];
   };
@@ -629,13 +646,10 @@ export function makeEntityRouter<TEntity = unknown>(
   // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
   // DISTINCT writers of this entity's audit columns, label-resolved
   // server-side. Gated on the `list` permission (filter options are a
-  // list-UX read). Registered UNCONDITIONALLY for auditable entities —
-  // a lazy service getter must not be touched at mount time (property
-  // access constructs the service before initDal); the check happens
-  // per-request inside the handler, where an absent implementation
-  // yields an empty vocabulary.
+  // list-UX read) AND on the derived audit capability — a non-audited
+  // entity has no actor columns to vocabularize.
   // MUST precede `/:uuid` — literal segments before param captures.
-  if (config.permissions.list) {
+  if (config.permissions.list && service.auditable === true) {
     routes.push({
       method: "GET",
       path: `${base}/audit-actors`,
