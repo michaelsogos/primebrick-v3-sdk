@@ -144,6 +144,19 @@ export {
 } from "./docs-gen/collect.js";
 export { generatePageDocs, type RenderContext, type RenderReport } from "./docs-gen/render.js";
 export { reconcileOrder } from "./docs-gen/order.js";
+export {
+  loadDocsCompilers,
+  loadDocsDbContext,
+  applyRemoteFacts,
+  applyHostFacts,
+  printDocsReport,
+  type DocsCompilers,
+  type DocsDbContext,
+  type DocsPgClient,
+  type RegistryRow,
+  type RemoteDocsFe,
+  type HostDocsFe,
+} from "./docs-gen/service-docs.js";
 export type {
   SvelteCompilerPort,
   SveltePageFacts,
