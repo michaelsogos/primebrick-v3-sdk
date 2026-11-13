@@ -44,7 +44,7 @@
  */
 
 import { extJsonStringify } from "../json/ext-json.js";
-import { STANDARD_OPS, validateActionChrome, type ActionColor, type EntityMeta } from "@primebrick/core";
+import { STANDARD_OPS, validateActionChrome, resolveDisplayTemplate, type ActionColor, type EntityMeta } from "@primebrick/core";
 import {
   streamEntityExport,
   type EntityExportConfig,
@@ -462,9 +462,7 @@ function assembleMeta(
   const meta = cfg.meta!;
   return {
     ...meta,
-    display_name:
-      (meta.display_name as string | undefined) ??
-      (meta.display_field ? `\${${meta.display_field}}` : null),
+    display_name: resolveDisplayTemplate(meta),
     collaboration: {
       enabled: cfg.service.auditable === true,
       expose_editing_value: true,
