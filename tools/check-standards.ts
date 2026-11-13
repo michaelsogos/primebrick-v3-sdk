@@ -162,6 +162,7 @@ type RuleId =
   | "schema-honest-format"
   | "raw-switch"
   | "button-variant-toolbar"
+  | "docs-wiring"
   | "truncated-sibling"
   | "panel-layout"
   | "panel-content-scroll"
@@ -1614,6 +1615,53 @@ violations.push(...checkTranslationSeedPatches(process.cwd(), new Set(cfg.i18n_s
 // always-on when db-meta/snapshot-entities.json declares auditable
 // entities. `seed_audit_exempt` grandfathers shipped pre-rule patches.
 violations.push(...checkSeedAuditTrail(process.cwd(), new Set(cfg.seed_audit_exempt ?? [])));
+
+// docs-wiring — a service that self-declares a module surface must emit
+// its own docs. Presence is the trigger (same contract as fe/src):
+//   src/nav-declaration.ts present ⇒ package.json `generate:docs` runs
+//     the emit (`--emit-docs` or a generate-page-docs/emit-docs script).
+//   fe/ present ⇒ fe/vite.config.ts exists — the remote chunk entry the
+//     emit resolves page facts from.
+// The emit itself (createMicroservice --emit-docs) derives docs from the
+// boot declaration, so this check is the last net against a service
+// whose wiring was never born.
+function checkDocsWiring(repoRoot: string): Violation[] {
+  const out: Violation[] = [];
+  const navDecl = join(repoRoot, "src", "nav-declaration.ts");
+  const pkgPath = join(repoRoot, "package.json");
+  if (existsSync(navDecl) && existsSync(pkgPath)) {
+    try {
+      // standards-exempt: ext-json — package.json cannot carry BigInt/Date
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+        scripts?: Record<string, string>;
+      };
+      const gen = pkg.scripts?.["generate:docs"] ?? "";
+      if (!/--emit-docs|generate-page-docs|emit-docs/.test(gen)) {
+        out.push({
+          file: "package.json",
+          line: 1,
+          rule: "docs-wiring" as RuleId,
+          text: `"generate:docs": "${gen}"`,
+          hint: `src/nav-declaration.ts declares a module surface but generate:docs does not run the docs emit — use \`bun src/index.ts --emit-docs\``,
+        });
+      }
+    } catch { /* unreadable package.json — other checks will surface it */ }
+  }
+  const feDirExists = existsSync(join(repoRoot, "fe"));
+  if (feDirExists && !existsSync(join(repoRoot, "fe", "vite.config.ts"))) {
+    out.push({
+      file: "fe/",
+      line: 1,
+      rule: "docs-wiring" as RuleId,
+      text: "fe/ present without fe/vite.config.ts",
+      hint: `a remote fe chunk needs a vite config with lib.entry — the docs emit resolves page facts from it`,
+    });
+  }
+  return out;
+}
+
+// docs-wiring — repo-level: a declared module surface must emit docs.
+violations.push(...checkDocsWiring(process.cwd()));
 
 // truncated-sibling — always-on; sweeps every file in the REPO (cwd),
 // not just srcDir and not just .ts — the classic victims are root files

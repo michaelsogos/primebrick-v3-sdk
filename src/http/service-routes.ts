@@ -59,9 +59,12 @@ export interface EntityRouteDecl<TEntity = unknown> extends EntityRouterConfig<T
 
 /** The composed route handler returned by `makeServiceRoutes` — carries
  *  the built OpenAPI document so docs-pack builds (`buildDocsPack`) can
- *  embed `handler.spec` without a second spec declaration. */
+ *  embed `handler.spec` without a second spec declaration, and the entity
+ *  declarations so the docs emit derives pages from the same object that
+ *  serves the routes (one source, never re-imported). */
 export type ServiceRoutesHandler = RouteHandler & {
   readonly spec: Record<string, unknown>;
+  readonly entityDecls: EntityRouteDecl[];
 };
 
 export interface ServiceRoutesInput {
@@ -293,5 +296,5 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   });
   handlers.push(makeOpenApiHandler(spec));
 
-  return Object.assign(composeRouteHandlers(...handlers), { spec });
+  return Object.assign(composeRouteHandlers(...handlers), { spec, entityDecls });
 }

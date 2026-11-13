@@ -145,6 +145,12 @@ export {
 export { generatePageDocs, type RenderContext, type RenderReport } from "./docs-gen/render.js";
 export { reconcileOrder } from "./docs-gen/order.js";
 export {
+  docsPackStale,
+  emitServiceDocs,
+  type EmitServiceDocsInput,
+  type EmitServiceDocsResult,
+} from "./docs-gen/emit.js";
+export {
   loadDocsCompilers,
   loadDocsDbContext,
   applyRemoteFacts,

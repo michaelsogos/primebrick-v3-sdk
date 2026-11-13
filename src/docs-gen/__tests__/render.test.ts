@@ -142,13 +142,12 @@ describe("generatePageDocs", () => {
     writeFileSync(join(dir, "rules.mdx"), "stale");
     writeFileSync(join(dir, "customers.mdx"), "ghost");
     writeFileSync(join(dir, "entity-api-catalog.mdx"), "reference doc");
-    const c = ctx(dir);
-    c.keep_files = ["entity-api-catalog.mdx"];
-    const report = generatePageDocs(c);
+    const report = generatePageDocs(ctx(dir));
     expect(report.ghosts_deleted).toContain("customers.mdx");
     expect(existsSync(join(dir, "customers.mdx"))).toBe(false);
-    // reference docs owned by sibling generators survive
-    expect(existsSync(join(dir, "entity-api-catalog.mdx"))).toBe(true);
+    // generated/ is single-owner — sibling generators must emit elsewhere
+    expect(report.ghosts_deleted).toContain("entity-api-catalog.mdx");
+    expect(existsSync(join(dir, "entity-api-catalog.mdx"))).toBe(false);
     expect(report.emitted).toContain("rules.mdx");
   });
 

@@ -1371,6 +1371,37 @@ One file of pack content — wire format.
 
 ### `DocsPgClient`
 
+### `EmitServiceDocsInput`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| service_root | `string` | Service root (process.cwd() at boot). |
+| service_code | `string` | Resolved service code — `resolveServiceCode` output. |
+| nav | `ModuleNavDeclaration` | Module nav declaration — `options.nav`; absent → no page-docs (webhook). |
+| entity_decls | `EntityRouteDecl<unknown>[]` | `routeHandler.entityDecls` (makeServiceRoutes brand). |
+| spec | `Record<string, unknown>` | `routeHandler.spec` (makeServiceRoutes brand) → openapi.json. |
+| own_schemas | `string[]` | Own DB schemas (dbEnv.schemas — translations read own-first). |
+| lexicon_schemas | `string[]` | Extra high-priority translation schemas merged between `own_schemas`
+and the registry lexicon — the platform namespaces whose labels win
+over arbitrary service dicts (first-writer-wins). Default:
+`["system", "public", "custom"]` — the historical script convention. |
+| pack_dir | `string` | Pack output dir — default `<root>/dist/docs-pack`. |
+| emit_pages | `boolean` | Emit page-docs from sources (`fe/src` exists → remote facts).
+Default: auto — pages emit iff nav && fe/src are present; otherwise
+the pack assembles the already-committed docs verbatim (prod images
+ship no `src/`/`fe/` — re-emitting would lose remote facts). |
+| check | `boolean` | Emit into a temp dir and diff against committed generated/ — no writes. |
+| report | `boolean` | Print the console report (default true). |
+
+### `EmitServiceDocsResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| pages_emitted | `number` |  |
+| pages_skipped | `{ route: string; reason: string }[]` |  |
+| pack_files | `number` |  |
+| drift | `string[]` | `--check`: committed files that differ from a fresh emit. |
+
 ### `EntityAction`
 
 One entry of `meta.actions` — the derived capability contract.
@@ -3840,9 +3871,11 @@ declaring the vendor specifiers/versions it was compiled against.
 
 The composed route handler returned by `makeServiceRoutes` — carries
  the built OpenAPI document so docs-pack builds (`buildDocsPack`) can
- embed `handler.spec` without a second spec declaration.
+ embed `handler.spec` without a second spec declaration, and the entity
+ declarations so the docs emit derives pages from the same object that
+ serves the routes (one source, never re-imported).
 
-**Type:** `RouteHandler & { spec: Record<string, unknown> }`
+**Type:** `RouteHandler & { spec: Record<string, unknown>; entityDecls: EntityRouteDecl[] }`
 
 ### `SnakeCaseSingular`
 
@@ -5744,6 +5777,17 @@ scale the result is flagged `periodic` (`isPeriodic(d)` → true).
 | packDir | `string` | absolute path of the built pack (e.g. "dist/docs-pack").
   Must contain manifest.json + docs/. |
 
+### `docsPackStale(service_root, pack_dir): boolean`
+
+Boot-time staleness: emit iff the pack is missing or generation inputs
+ (sources, fe sources, authored docs) changed after it. Without any
+ sources (deployed image) the built pack stands — never re-emit.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| service_root | `string` |  |
+| pack_dir | `string` |  |
+
 ### `dueLaneVerify(lane): (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>`
 
 Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
@@ -5784,6 +5828,12 @@ The source's effective format — a `*.uuid` semantic slot IS a uuid.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | schema | `Record<string, unknown> \| undefined` |  |
+
+### `emitServiceDocs(input): Promise<EmitServiceDocsResult>`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `EmitServiceDocsInput` |  |
 
 ### `enforceHttpRbac(user, requiredPermissions, mode): void`
 
