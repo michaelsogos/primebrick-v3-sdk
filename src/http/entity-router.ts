@@ -87,6 +87,9 @@ export interface EntityServiceLike<TEntity = unknown> {
   /** The entity's `dict` facet — populated by dal-pg `DomainService` when
    *  the entity class carries `@Dict`; injected into served meta. */
   dictFacet?: import("@primebrick/core").DictFacet;
+  /** The entity's `relation` facet — populated by dal-pg `DomainService`
+   *  when the entity class carries `@Relation`; injected into served meta. */
+  relationFacet?: import("@primebrick/core").RelationFacet;
   /** `@AuditTrail()` on the entity class — populated by dal-pg. Drives
    *  `collaboration.enabled` in served meta. Derived, never declared. */
   auditable?: boolean;
@@ -476,6 +479,7 @@ function assembleMeta(
     },
     actions: deriveActions(cfg, registered),
     ...(cfg.service.dictFacet !== undefined ? { dict: cfg.service.dictFacet } : {}),
+    ...(cfg.service.relationFacet !== undefined ? { relation: cfg.service.relationFacet } : {}),
   };
 }
 
