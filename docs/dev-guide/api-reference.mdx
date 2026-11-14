@@ -3899,6 +3899,10 @@ Sort direction for server-side list queries and header UI.
 
 **Type:** `typeof STANDARD_OPS[number]`
 
+### `SupportedLanguage`
+
+**Type:** `typeof SUPPORTED_LANGUAGES[number]`
+
 ### `TooltipPriority`
 
 Tooltip visual severity — drives icon and title color in priority
@@ -4957,6 +4961,25 @@ handler (see emailsender's config-route for the canonical wiring).
 
 String-derived types — min/max mean LENGTH, regex rules apply.
 Mirrors the `isStringDerived` check in `config-validator.ts`.
+
+**Type:** `typeOperator`
+
+### `SUPPORTED_LANGUAGES`
+
+Supported languages — THE canonical vocabulary for the whole platform.
+
+BCP-47 full tags (language + region) — en-GB and en-US are distinct
+first-class locales because they carry different date/number/address
+formatting, not just different dictionaries.
+
+Consumers:
+- `@primebrick/sdk`/`@primebrick/ui` re-export (BE routers, FE pickers)
+- `check-standards` lint (relative-path import, sibling checkout)
+- DB `CHECK (language IN (...))` constraints on `*.translations` —
+  the SQL literals must mirror this list; the lint enforces it.
+
+Adding a language = add the tag here + seed translations + bump the
+CHECK constraints — a deliberate release-scoped change, never data.
 
 **Type:** `typeOperator`
 
@@ -6550,6 +6573,14 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | value | `string` |  |
+
+### `isSupportedLanguage(tag): tag is "en-US" \| "en-GB" \| "it-IT" \| "fr-FR" \| "es-ES" \| "de-DE" \| "pt-PT"`
+
+Type guard — is `tag` one of the platform-supported language tags?
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| tag | `string` |  |
 
 ### `isUUID(v): v is string`
 

@@ -41,7 +41,7 @@ import {
   type RpcRouterDeps,
   type RouteHandler,
 } from "./rpc-router.js";
-import { validateActionChrome, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
+import { validateActionChrome, resolveDisplayTemplate, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
 
 /** Entity declaration for `makeServiceRoutes`. `spec` only shapes the
  *  generated OpenAPI block — the router ignores it. Operation set is
@@ -268,6 +268,15 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     const ops = customOps.get(decl.entityName);
     const meta = ops?.length ? withSynthesizedCtas(decl, ops) : decl.meta;
     const effectiveDecl = meta !== decl.meta ? { ...decl, meta } : decl;
+    // Ref-display registration — feed the entity's materialized display
+    // template (derived from the SAME authored `decl.meta` that serves
+    // `/entities/{e}/meta`) into the DAL's ref-join registry through the
+    // service's duck-typed sink. Runs at module load — before `initDal`,
+    // before any lazy `svc` build — so every `@Ref` pointing here gets
+    // its `{key}_name` join from the first request. Domain services own
+    // the sink; plain `EntityServiceLike` facades skip it silently.
+    (decl.service as { registerRefDisplay?: (d: string | null) => void })
+      .registerRefDisplay?.(decl.meta ? resolveDisplayTemplate(decl.meta) : null);
     handlers.push(
       makeEntityRouter(ops ? { ...effectiveDecl, custom_ops: ops } : effectiveDecl),
     );

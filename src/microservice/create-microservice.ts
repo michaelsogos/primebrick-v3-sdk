@@ -396,6 +396,21 @@ export async function createMicroservice(
 
   // 2. DAL init (consumer callback — DB-agnostic)
   options.initDal();
+  // Warm every declared entity's dal service — `DomainService.svc` is
+  // lazy, but the ref-display registry resolves join targets at query
+  // time; warming here makes it complete before the first request,
+  // never hit-order-dependent. Plain `EntityServiceLike` facades carry
+  // no `svc` getter — the access is a harmless no-op.
+  const warmable = options.routeHandler as
+    | { entityDecls?: { service?: { svc?: unknown } }[] }
+    | undefined;
+  for (const d of warmable?.entityDecls ?? []) {
+    try {
+      void d.service?.svc;
+    } catch {
+      // registry stays cold for this decl — ref cells degrade to uuid
+    }
+  }
   if (options.dbBanner) {
     try {
       const banner = await options.dbBanner();
