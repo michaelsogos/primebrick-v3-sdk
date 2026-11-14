@@ -95,6 +95,7 @@ export {
 } from "./service/nav-declaration.js";
 export { validateEventsDeclaration } from "./service/events-declaration.js";
 export { validateCallablesDeclaration } from "./service/callables-declaration.js";
+export { validateEntitiesDeclaration } from "./service/entities-declaration.js";
 export type { CallableDecl } from "./service/callables-declaration.js";
 export {
   DOCS_PACK_CAPABILITY,

@@ -3873,7 +3873,10 @@ The composed route handler returned by `makeServiceRoutes` — carries
  the built OpenAPI document so docs-pack builds (`buildDocsPack`) can
  embed `handler.spec` without a second spec declaration, and the entity
  declarations so the docs emit derives pages from the same object that
- serves the routes (one source, never re-imported).
+ serves the routes (one source, never re-imported). `entityDecls` also
+ feeds `endpoints.entities` in `service.register` — the entity→service
+ ownership document `/modules` serves and the FE resolves api bases
+ from.
 
 **Type:** `RouteHandler & { spec: Record<string, unknown>; entityDecls: EntityRouteDecl[] }`
 
@@ -7777,6 +7780,13 @@ Validate a config value against its type and type_config.validation rules.
 | type_config | `string \| null \| undefined` | Raw type_config JSON string from the DB row |
 | value | `string` | The raw string value to validate |
 | config_key | `string` | The config key (for error context) |
+
+### `validateEntitiesDeclaration(code, decl): string \| null`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| decl | `unknown` |  |
 
 ### `validateEnv(schema): EnvValidationResult`
 

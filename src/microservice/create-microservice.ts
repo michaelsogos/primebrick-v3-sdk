@@ -566,10 +566,10 @@ export async function createMicroservice(
   const docsPackDir = options.docsPackDir ?? join(process.cwd(), "dist", "docs-pack");
   const emitFlag = process.argv.includes("--emit-docs");
   const emitCheck = process.argv.includes("--check");
+  const branded = options.routeHandler as
+    | (RouteHandler & { entityDecls?: EntityRouteDecl[]; spec?: Record<string, unknown> })
+    | undefined;
   if (emitFlag || emitCheck || docsPackStale(process.cwd(), docsPackDir)) {
-    const branded = options.routeHandler as
-      | (RouteHandler & { entityDecls?: EntityRouteDecl[]; spec?: Record<string, unknown> })
-      | undefined;
     const emitResult = await emitServiceDocs({
       service_root: process.cwd(),
       service_code: serviceCode,
@@ -761,6 +761,15 @@ export async function createMicroservice(
   // on /modules. Domain subject pickers resolve options from the census.
   if (options.events) {
     registrarEndpoints.events = options.events;
+  }
+
+  // Entity self-declaration — the entity names this service owns, derived
+  // from the SAME entityDecls that produce its CRUD routes. Persisted in
+  // service_registry.endpoints.entities and served on /modules: the FE
+  // resolves entity→service (ref-sheet drill-through, api base prefixes)
+  // from the discovery document — never a hand-maintained map.
+  if (branded?.entityDecls?.length) {
+    registrarEndpoints.entities = branded.entityDecls.map((d) => d.entityName);
   }
 
   // Docs pack dir — shared between the registrar (capability) and the

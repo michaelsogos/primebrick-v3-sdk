@@ -61,7 +61,10 @@ export interface EntityRouteDecl<TEntity = unknown> extends EntityRouterConfig<T
  *  the built OpenAPI document so docs-pack builds (`buildDocsPack`) can
  *  embed `handler.spec` without a second spec declaration, and the entity
  *  declarations so the docs emit derives pages from the same object that
- *  serves the routes (one source, never re-imported). */
+ *  serves the routes (one source, never re-imported). `entityDecls` also
+ *  feeds `endpoints.entities` in `service.register` — the entity→service
+ *  ownership document `/modules` serves and the FE resolves api bases
+ *  from. */
 export type ServiceRoutesHandler = RouteHandler & {
   readonly spec: Record<string, unknown>;
   readonly entityDecls: EntityRouteDecl[];
