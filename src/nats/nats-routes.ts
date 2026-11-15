@@ -132,8 +132,13 @@ export interface NatsRoute<TReq = unknown> {
   /** i18n keys for the callable census entry (picker label/description). */
   label_key?: string;
   description_key?: string;
-  /** The ONE service call. */
-  handler: (ctx: NatsRouteContext<TReq>) => Promise<void>;
+  /**
+   * The ONE service call. An object the handler returns is carried onto
+   * the `jobs.result.*` outcome message as `report` (same convention as
+   * `NatsClient.jetstreamSubscribe`) — a fire-and-forget route that wants
+   * its execution report recorded on the run row just returns it.
+   */
+  handler: (ctx: NatsRouteContext<TReq>) => Promise<unknown>;
 }
 
 export interface NatsRequestRoute<TReq = unknown, TRes = unknown> {
@@ -266,10 +271,11 @@ export async function makeNatsRoutes<TReq = unknown>(
           const user = await verifyAndAuthorize(msg, route);
           const raw = decode(msg.data);
           const request = runContract(route, raw);
-          await route.handler({ user, request, msg });
+          const out = await route.handler({ user, request, msg });
           await publishJobResultMessage(route.subject, msg.headers, {
             status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
+            report: typeof out === "object" && out !== null ? out : undefined,
           });
         } catch (err) {
           await publishJobResultMessage(route.subject, msg.headers, {

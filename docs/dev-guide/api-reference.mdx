@@ -951,26 +951,6 @@ wrapped by `CachingApiKeyPort` for the shared Redis/in-memory cache.
 | is_active | `boolean` |  |
 | expires_at | `Date \| null` |  |
 
-### `ArmJobScheduleRequest`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| name | `string` | Job name within the caller's namespace — the declaration subject is
-derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
-arm outside its own namespace (the job-handler enforces the same
-server-side). Dots allowed for sub-namespacing
-(`partition-maintenance.<id>`). |
-| schedule | `string` | `"@every 5m"` (≥1m floor) | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). |
-| target | `string` | Subject the stored message is republished to at fire time —
-`jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
-stream's subjects. |
-| payload | `unknown` | Payload stored on the schedule message — fired verbatim unless
- `source` is set. |
-| source | `string` | Fire-time indirection (ADR-51): at fire time the scheduler reads the
- LATEST message on this subject and fires THAT as the payload — the
- schedule declaration never holds business state. |
-| ttl | `string` | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
-
 ### `AuthConfig`
 
 Full auth configuration loaded at startup from the service's config table.
@@ -2011,6 +1991,15 @@ convention). Structurally assignable from the real `AuditParams`:
 Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
 inserted audit row id (used for the marker's `audit_log_id`).
 
+### `MaterializeResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | `string` |  |
+| action | `"inserted" \| "updated" \| "unchanged" \| "skipped_deleted"` |  |
+| uuid | `string` |  |
+| changed_fields | `string[]` |  |
+
 ### `MfaStepUpSpec`
 
 Route declaration: which action/resource the token must authorize.
@@ -2217,7 +2206,10 @@ AND wires the mandatory runtime validation. Omit for private routes:
 a callable without a contract is not mappable. |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
 | description_key | `string` |  |
-| handler | `(ctx: NatsRouteContext<TReq>) => Promise<void>` | The ONE service call. |
+| handler | `(ctx: NatsRouteContext<TReq>) => Promise<unknown>` | The ONE service call. An object the handler returns is carried onto
+the `jobs.result.*` outcome message as `report` (same convention as
+`NatsClient.jetstreamSubscribe`) — a fire-and-forget route that wants
+its execution report recorded on the run row just returns it. |
 
 ### `NatsRouteContext`
 
@@ -3039,6 +3031,25 @@ the historical `pages.json` carried, extended with remote-source facts.
 | remoteMount | `boolean` | RemotePageMount present on the page. |
 | sheetProps | `string[]` | Remote-source facts — `ctx.sheet.props.*` keys consumed by a sheet. |
 | sheetOpenings | `string[]` | Remote-source facts — `openSheet('<key>')` targets called by the source. |
+
+### `SystemJobDecl`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | `string` | Job id inside the caller's namespace — this helper prefixes
+`<this-service>.` automatically ("partition_maintenance" travels as
+"ai.partition_maintenance"). Subject-safe tokens only
+(`^[a-z0-9_][a-z0-9_.-]*$`). |
+| name | `string` | Display name — seeds the row; user-renameable afterwards. |
+| schedule_spec | `string` | `"@every 5m"` (≥1m floor) | `"@at …"` | 5-field cron (UTC). Seeds the
+ row; the user owns it afterwards — re-declaring never re-seeds. |
+| event_subject | `string` | Source contract (code-owned). Absent for schedule-only jobs. |
+| target_subject | `string` | Destination contract (code-owned) — the subject the due-forwarder
+ republishes the mapped payload onto; typically a callable. |
+| run_as | `"system" \| "author" \| "originator"` | Code-owned: `system` (no actor), `author` (arm-time actor),
+ `originator` (event actor — requires `event_subject`). |
+| payload_map | `Record<string, string>` | Code-owned: `{path → template}` payload map applied by the forwarder. |
+| filter | `unknown` | Code-owned: event filter (predicate-tree over the source payload). |
 
 ### `TableMeta`
 
@@ -4293,12 +4304,6 @@ Correlation header — the `job.job_runs` row this work belongs to.
 
 **Type:** `"x-job-run-id"`
 
-### `JOB_SCHEDULE_CANCEL_SUBJECT`
-
-Control-plane route for schedule cancellations (primebrick-job).
-
-**Type:** `"jobs.ctl.schedule.cancel"`
-
 ### `JOB_SCHEDULE_HEADERS`
 
 **Type:** `{ schedule: "Nats-Schedule"; target: "Nats-Schedule-Target"; ttl: "Nats-Schedule-TTL"; source: "Nats-Schedule-Source"; next: "Nats-Schedule-Next"; scheduler: "Nats-Scheduler" }`
@@ -4311,12 +4316,6 @@ Control-plane route for schedule cancellations (primebrick-job).
 | source | "Nats-Schedule-Source" |
 | next | "Nats-Schedule-Next" |
 | scheduler | "Nats-Scheduler" |
-
-### `JOB_SCHEDULE_REQUEST_SUBJECT`
-
-Control-plane route for schedule declarations (primebrick-job).
-
-**Type:** `"jobs.ctl.schedule.request"`
 
 ### `JOB_SCHEDULE_SUBJECT_HEADER`
 
@@ -4345,6 +4344,12 @@ clock. On `partial` (update), fields not present in `entity` are
 treated from the merged record the caller passes.
 
 **Type:** `typeOperator`
+
+### `JOB_TRIGGERS_MATERIALIZE_SUBJECT`
+
+Control-plane route for system-trigger materialization (primebrick-job).
+
+**Type:** `"jobs.ctl.triggers.materialize"`
 
 ### `LANG_RE`
 
@@ -5295,21 +5300,6 @@ historical behavior).
 | sheets | `DocSheet[]` |  |
 | deps | `ExtractDeps` |  |
 
-### `armJobSchedule(req, opts): Promise<{ seq: bigint; skipped: "terminal-once" }>`
-
-THE governed way to arm a schedule — the only public API. Issues a
-`callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
-awaits the COMPLETE operation: JetStream declaration → stored-message
-read-back → `job.job_schedules` mirror upsert (with purge compensation
-on mirror failure). Rejects on validation/namespace/internal errors —
-the caller retries or surfaces the error; it never falls back to a
-direct publish (the raw mechanism is job-handler internal).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| req | `ArmJobScheduleRequest` |  |
-| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
-
 ### `assertDbEnv(cwd): DbEnv`
 
 Validate the DB env contract and return the resolved `{ url, schemas }`.
@@ -5751,6 +5741,20 @@ The value a publisher must stamp on outbound calls.
 |-----------|------|-------------|
 | input | `DecimalInput` |  |
 
+### `declareSystemJobs(jobs, opts): Promise<MaterializeResult[]>`
+
+THE governed way to materialize a module's system jobs — awaited
+end-to-end: request/reply onto `jobs.ctl.triggers.materialize` on
+primebrick-job, which reconciles every declared job against its row
+(insert if absent, delta-update code-owned fields, skip deleted rows).
+Rejects on validation/namespace errors — the caller retries at the
+next registration; it never writes `job_triggers` directly.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| jobs | `SystemJobDecl[]` |  |
+| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
+
 ### `defaultCurrencyForLang(lang): string`
 
 Derive the default currency code from a locale string.
@@ -5840,18 +5844,6 @@ a semver-tolerant handshake would only defer an opaque import failure.
 |-----------|------|-------------|
 | requires | `Record<string, string>` |  |
 | manifest | `VendorManifest` |  |
-
-### `disarmJobSchedule(name, opts): Promise<void>`
-
-THE governed way to disarm a schedule — awaited end-to-end: purge
-publish → read-back confirms the declaration is gone → mirror flips to
-`disarmed`. Idempotent: disarming an already-disarmed/absent schedule
-resolves cleanly.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| name | `string` |  |
-| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
 
 ### `div(a, b, opts): Decimal`
 
@@ -7509,16 +7501,6 @@ keeps croner.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | raw | `unknown` |  |
-
-### `scheduleSubjectFor(name): string`
-
-Derive the declaration subject for this service — the static service
-code resolved from the deployed artifact, so a caller can never
-mis-namespace itself. Names are restricted to subject-safe tokens.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| name | `string` |  |
 
 ### `schemaHonestyIssue(field, prop): string \| null`
 

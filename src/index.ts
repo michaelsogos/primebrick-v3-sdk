@@ -218,17 +218,11 @@ export {
   type ShieldRegistryLike,
 } from "./nats/service-shield.js";
 export {
-  armJobSchedule,
-  disarmJobSchedule,
-  scheduleSubjectFor,
   dueLaneVerify,
   forwardAuthHeaders,
   forwardedActor,
   JOB_SCHEDULE_HEADERS,
   JOB_STREAM_SUBJECTS,
-  JOB_SCHEDULE_REQUEST_SUBJECT,
-  JOB_SCHEDULE_CANCEL_SUBJECT,
-  type ArmJobScheduleRequest,
 } from "./nats/job-schedule.js";
 export {
   declareSystemJobs,

@@ -36,12 +36,13 @@
  * The JOBS stream subjects are therefore the four data lanes ONLY — never
  * a bare `jobs.>`.
  *
- * GOVERNED API ONLY: services arm/disarm exclusively through
- * `armJobSchedule`/`disarmJobSchedule` (control-plane request/reply onto
- * primebrick-job — awaited end-to-end, declaration + mirror written
- * atomically with read-back and compensation). The raw publish mechanism
- * is NOT exported: it lives inside the job-handler, the only service that
- * may write `jobs.schedule.*`/`jobs.cancel.*`.
+ * NO ARM/DISARM API HERE: schedules are materialized exclusively by
+ * primebrick-job's triggers engine — every `jobs.schedule.*` mirror is
+ * owned by a `job_triggers` row. Modules declare jobs through
+ * `declareSystemJobs` (`jobs.ctl.triggers.materialize`, system-jobs.ts);
+ * user-made triggers ride the canonical entity API. The raw publish
+ * mechanism is NOT exported: it lives inside the job-handler, the only
+ * service that may write `jobs.schedule.*`/`jobs.cancel.*`.
  */
 
 /** Canonical JOBS stream capture set — schedule/due/result/cancel lanes only. */
@@ -52,17 +53,9 @@ export const JOB_STREAM_SUBJECTS = [
   "jobs.cancel.>",
 ] as const;
 
-/** Control-plane route for schedule declarations (primebrick-job). */
-export const JOB_SCHEDULE_REQUEST_SUBJECT = "jobs.ctl.schedule.request";
-
-/** Control-plane route for schedule cancellations (primebrick-job). */
-export const JOB_SCHEDULE_CANCEL_SUBJECT = "jobs.ctl.schedule.cancel";
-
-import type { MsgHdrs, NatsConnection } from "@nats-io/transport-node";
-import { callNats } from "./nats-routes.js";
+import type { MsgHdrs } from "@nats-io/transport-node";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
-import { currentServiceCode } from "../service/service-identity.js";
 import type { AuthUser } from "../auth/types.js";
 
 export const JOB_SCHEDULE_HEADERS = {
@@ -73,97 +66,6 @@ export const JOB_SCHEDULE_HEADERS = {
   next: "Nats-Schedule-Next",
   scheduler: "Nats-Scheduler",
 } as const;
-
-export interface ArmJobScheduleRequest {
-  /**
-   * Job name within the caller's namespace — the declaration subject is
-   * derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
-   * arm outside its own namespace (the job-handler enforces the same
-   * server-side). Dots allowed for sub-namespacing
-   * (`partition-maintenance.<id>`).
-   */
-  name: string;
-  /** `"@every 5m"` (≥1m floor) | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). */
-  schedule: string;
-  /**
-   * Subject the stored message is republished to at fire time —
-   * `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
-   * stream's subjects.
-   */
-  target: string;
-  /** Payload stored on the schedule message — fired verbatim unless
-   *  `source` is set. */
-  payload?: unknown;
-  /** Fire-time indirection (ADR-51): at fire time the scheduler reads the
-   *  LATEST message on this subject and fires THAT as the payload — the
-   *  schedule declaration never holds business state. */
-  source?: string;
-  /** `Nats-Schedule-TTL` — auto-purge the schedule after this duration. */
-  ttl?: string;
-}
-
-/**
- * Derive the declaration subject for this service — the static service
- * code resolved from the deployed artifact, so a caller can never
- * mis-namespace itself. Names are restricted to subject-safe tokens.
- */
-export function scheduleSubjectFor(name: string): string {
-  if (!/^[a-z0-9_][a-z0-9_.-]*$/.test(name)) {
-    throw new Error(
-      `scheduleSubjectFor: invalid job name "${name}" — expected ^[a-z0-9_][a-z0-9_.-]*$`,
-    );
-  }
-  return `jobs.schedule.${currentServiceCode()}.${name}`;
-}
-
-/**
- * THE governed way to arm a schedule — the only public API. Issues a
- * `callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
- * awaits the COMPLETE operation: JetStream declaration → stored-message
- * read-back → `job.job_schedules` mirror upsert (with purge compensation
- * on mirror failure). Rejects on validation/namespace/internal errors —
- * the caller retries or surfaces the error; it never falls back to a
- * direct publish (the raw mechanism is job-handler internal).
- */
-export async function armJobSchedule(
-  req: ArmJobScheduleRequest,
-  opts: { timeoutMs?: number; connection?: NatsConnection } = {},
-): Promise<{ seq?: bigint; skipped?: "terminal-once" }> {
-  const res = await callNats<{ armed: boolean; seq?: string; skipped?: "terminal-once" }>(
-    JOB_SCHEDULE_REQUEST_SUBJECT,
-    {
-      schedule_subject: scheduleSubjectFor(req.name),
-      schedule: req.schedule,
-      target: req.target,
-      ...(req.payload !== undefined ? { payload: req.payload } : {}),
-      ...(req.source !== undefined ? { source: req.source } : {}),
-      ...(req.ttl !== undefined ? { ttl: req.ttl } : {}),
-    },
-    opts,
-  );
-  // A terminal-once skip is a successful no-op: the one-shot already
-  // completed its lifecycle and must never re-declare (a past @at would
-  // fire immediately). No seq exists in that case.
-  if (res.skipped !== undefined) return { skipped: res.skipped };
-  return { seq: BigInt(res.seq!) };
-}
-
-/**
- * THE governed way to disarm a schedule — awaited end-to-end: purge
- * publish → read-back confirms the declaration is gone → mirror flips to
- * `disarmed`. Idempotent: disarming an already-disarmed/absent schedule
- * resolves cleanly.
- */
-export async function disarmJobSchedule(
-  name: string,
-  opts: { timeoutMs?: number; connection?: NatsConnection } = {},
-): Promise<void> {
-  await callNats(
-    JOB_SCHEDULE_CANCEL_SUBJECT,
-    { schedule_subject: scheduleSubjectFor(name) },
-    opts,
-  );
-}
 
 /**
  * Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
