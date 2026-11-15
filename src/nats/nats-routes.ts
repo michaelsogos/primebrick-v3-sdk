@@ -31,7 +31,24 @@ import { toValidationError, ValidationError } from "../http/rpc-router.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
 import type { AuthUser } from "../auth/types.js";
 import { logger } from "../lifecycle/logger.js";
+import { lifecycleRegistry } from "../lifecycle/process-registry.js";
 import { recordCallable } from "./callable-registry.js";
+
+/**
+ * Hot-reload dedupe for route subscriptions — the connection survives
+ * module reloads while each reload re-registers its routes; replace the
+ * previous subscription for the same subject+queue instead of letting a
+ * stale module's closure keep answering deliveries.
+ */
+function dedupedSubscribe(nc: NatsConnection, subject: string, queue?: string): Subscription {
+  const subKey = `route:${subject}::${queue ?? ""}`;
+  const reg = (lifecycleRegistry().natsSubscriptions ??= new Map());
+  const prev = reg.get(subKey);
+  if (prev && typeof prev.unsubscribe === "function") prev.unsubscribe();
+  const sub = nc.subscribe(subject, queue ? { queue } : undefined);
+  reg.set(subKey, sub);
+  return sub;
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -115,8 +132,13 @@ export interface NatsRoute<TReq = unknown> {
   /** i18n keys for the callable census entry (picker label/description). */
   label_key?: string;
   description_key?: string;
-  /** The ONE service call. */
-  handler: (ctx: NatsRouteContext<TReq>) => Promise<void>;
+  /**
+   * The ONE service call. An object the handler returns is carried onto
+   * the `jobs.result.*` outcome message as `report` (same convention as
+   * `NatsClient.jetstreamSubscribe`) — a fire-and-forget route that wants
+   * its execution report recorded on the run row just returns it.
+   */
+  handler: (ctx: NatsRouteContext<TReq>) => Promise<unknown>;
 }
 
 export interface NatsRequestRoute<TReq = unknown, TRes = unknown> {
@@ -228,7 +250,7 @@ export async function makeNatsRoutes<TReq = unknown>(
 
   for (const route of routes) {
     const queue = route.queue === null ? undefined : (route.queue ?? deps.serviceCode);
-    const sub = nc.subscribe(route.subject, queue ? { queue } : undefined);
+    const sub = dedupedSubscribe(nc, route.subject, queue);
     subs.push(sub);
 
     if (route.payload_schema) {
@@ -249,10 +271,11 @@ export async function makeNatsRoutes<TReq = unknown>(
           const user = await verifyAndAuthorize(msg, route);
           const raw = decode(msg.data);
           const request = runContract(route, raw);
-          await route.handler({ user, request, msg });
+          const out = await route.handler({ user, request, msg });
           await publishJobResultMessage(route.subject, msg.headers, {
             status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
+            report: typeof out === "object" && out !== null ? out : undefined,
           });
         } catch (err) {
           await publishJobResultMessage(route.subject, msg.headers, {
@@ -299,7 +322,7 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
 
   for (const route of routes) {
     const queue = route.queue === null ? undefined : (route.queue ?? deps.serviceCode);
-    const sub = nc.subscribe(route.subject, queue ? { queue } : undefined);
+    const sub = dedupedSubscribe(nc, route.subject, queue);
     subs.push(sub);
 
     if (route.payload_schema) {

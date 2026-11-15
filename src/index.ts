@@ -95,6 +95,7 @@ export {
 } from "./service/nav-declaration.js";
 export { validateEventsDeclaration } from "./service/events-declaration.js";
 export { validateCallablesDeclaration } from "./service/callables-declaration.js";
+export { validateEntitiesDeclaration } from "./service/entities-declaration.js";
 export type { CallableDecl } from "./service/callables-declaration.js";
 export {
   DOCS_PACK_CAPABILITY,
@@ -144,6 +145,25 @@ export {
 } from "./docs-gen/collect.js";
 export { generatePageDocs, type RenderContext, type RenderReport } from "./docs-gen/render.js";
 export { reconcileOrder } from "./docs-gen/order.js";
+export {
+  docsPackStale,
+  emitServiceDocs,
+  type EmitServiceDocsInput,
+  type EmitServiceDocsResult,
+} from "./docs-gen/emit.js";
+export {
+  loadDocsCompilers,
+  loadDocsDbContext,
+  applyRemoteFacts,
+  applyHostFacts,
+  printDocsReport,
+  type DocsCompilers,
+  type DocsDbContext,
+  type DocsPgClient,
+  type RegistryRow,
+  type RemoteDocsFe,
+  type HostDocsFe,
+} from "./docs-gen/service-docs.js";
 export type {
   SvelteCompilerPort,
   SveltePageFacts,
@@ -198,18 +218,18 @@ export {
   type ShieldRegistryLike,
 } from "./nats/service-shield.js";
 export {
-  armJobSchedule,
-  disarmJobSchedule,
-  scheduleSubjectFor,
   dueLaneVerify,
   forwardAuthHeaders,
   forwardedActor,
   JOB_SCHEDULE_HEADERS,
   JOB_STREAM_SUBJECTS,
-  JOB_SCHEDULE_REQUEST_SUBJECT,
-  JOB_SCHEDULE_CANCEL_SUBJECT,
-  type ArmJobScheduleRequest,
 } from "./nats/job-schedule.js";
+export {
+  declareSystemJobs,
+  JOB_TRIGGERS_MATERIALIZE_SUBJECT,
+  type SystemJobDecl,
+  type MaterializeResult,
+} from "./nats/system-jobs.js";
 export {
   JOB_RUN_ID_HEADER,
   JOB_SCHEDULE_SUBJECT_HEADER,

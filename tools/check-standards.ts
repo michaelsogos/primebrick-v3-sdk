@@ -136,6 +136,7 @@ import { basename, dirname, join, relative } from "node:path";
 // checkouts sit side by side). Never @primebrick/core — that would force
 // an install step the tool must not need.
 import { HONEST_FORMAT_HINTS } from "../../primebrick-v3-core/src/honest-format-hints.ts";
+import { SUPPORTED_LANGUAGES } from "../../primebrick-v3-core/src/languages.ts";
 
 type RuleId =
   | "ext-json"
@@ -156,12 +157,14 @@ type RuleId =
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
+  | "i18n-language-literal"
   | "i18n-key-grammar"
   | "seed-audit-trail"
   | "nav-decl-access"
   | "schema-honest-format"
   | "raw-switch"
   | "button-variant-toolbar"
+  | "docs-wiring"
   | "truncated-sibling"
   | "panel-layout"
   | "panel-content-scroll"
@@ -174,6 +177,7 @@ type RuleId =
   | "panel-raw-input"
   | "panel-footer-chrome"
   | "panel-footer-start"
+  | "panel-footer-cta"
   | "panel-toolbar-tools"
   | "panel-chrome-class"
   | "native-control"
@@ -223,7 +227,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-layout", "panel-content-scroll", "panel-raw-label",
   "panel-control-id", "panel-select-dropdown", "panel-button-testid",
   "panel-switch", "panel-search-clearable", "panel-raw-input",
-  "panel-footer-chrome", "panel-footer-start", "panel-toolbar-tools",
+  "panel-footer-chrome", "panel-footer-start", "panel-footer-cta", "panel-toolbar-tools",
   "panel-chrome-class",
   "field-stock-chrome",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
@@ -275,7 +279,8 @@ const GATED_LINE_RULES: Rule[] = [
   // them inert as line rules: the FOOT contract is "content through
   // <SheetPanelFooter>" and tools belong inside {#snippet toolbar}.
   { id: "panel-footer-chrome", pattern: /(?!)/, hint: "panel FOOT content goes through <SheetPanelFooter> — right-aligned natural-width CTAs on the layout-owned muted strip (w-full/p-3 wrapper footers are the old pattern)" },
-  { id: "panel-footer-start", pattern: /(?!)/, hint: "SheetPanelFooter {#snippet start} carries legend/meta content only (KeyboardHints, meta text) — interactive controls (Button) are CTAs and live in the right-aligned group" },
+  { id: "panel-footer-start", pattern: /(?!)/, hint: "SheetPanelFooter {#snippet start} carries legend/meta content only (status badges, KeyboardHints, meta text) — interactive controls (button/Button/link) are CTAs and live in the right-aligned default group" },
+  { id: "panel-footer-cta", pattern: /(?!)/, hint: "the SheetPanelFooter default group carries CTAs only (buttons/links) — a bare Badge or status text is legend/meta content and lives in {#snippet start}" },
   { id: "panel-toolbar-tools", pattern: /(?!)/, hint: "tools live inside {#snippet toolbar} (mode/connector ButtonGroup, SearchInput) — a tool in CONTENT lands under the toolbar border-b and reads as a second header" },
   // panel-chrome-class — findings come from the structural pass: a stock
   // component's opening tag + its class attribute may span lines, so the
@@ -306,6 +311,13 @@ interface StandardsConfig {
    * grandfathered by name. New patches must comply.
    */
   i18n_sql_exempt?: string[];
+  /**
+   * db-meta/patches filenames exempt from `i18n-language-literal` — shipped
+   * patches that predate the language vocabulary can never be edited, so
+   * they are grandfathered by name; a corrective patch remedies their data
+   * instead. New patches must comply.
+   */
+  i18n_lang_exempt?: string[];
   /**
    * db-meta/patches filenames exempt from `seed-audit-trail` — shipped
    * seed patches that predate the audit-trail rule can never be edited;
@@ -817,6 +829,35 @@ function isCommentOnly(line: string): boolean {
   return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*");
 }
 
+// commentLineMask — marks every line that lives entirely inside a comment,
+// so markup-scanning passes never see comment bodies (the classic false
+// positive: a `<!--` note mentioning `<button>` read as a real control).
+// Covers `//`, `/*…*/` script comments AND `<!--…-->` markup comments,
+// including multi-line blocks; single-line `isCommentOnly` stays for the
+// line-rule loop (script-side scanning).
+function commentLineMask(lines: string[]): boolean[] {
+  const mask = new Array<boolean>(lines.length).fill(false);
+  let inBlock = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (inBlock) {
+      mask[i] = true;
+      if (t.includes("-->") || t.includes("*/")) inBlock = false;
+      continue;
+    }
+    if (t.startsWith("<!--")) {
+      mask[i] = true;
+      if (!t.includes("-->")) inBlock = true;
+      continue;
+    }
+    if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) {
+      mask[i] = true;
+      if (t.startsWith("/*") && !t.includes("*/")) inBlock = true;
+    }
+  }
+  return mask;
+}
+
 function parseExempt(line: string, fileLevel = false): { rules: Set<string>; hasReason: boolean } | null {
   // Rule ids contain hyphens (ext-json) — the reason separator must be the
   // em-dash surrounded by spaces: `// standards-exempt: <ids> — <reason>`.
@@ -891,6 +932,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
   const out: Violation[] = [];
   const lines = readFileSync(file, "utf8").split("\n");
   const rel = relative(srcDir, file).replace(/\\/g, "/");
+  const commentMask = commentLineMask(lines);
 
   // Per-file rule scope: allowPaths skips the file entirely for that rule;
   // appliesTo restricts where the rule fires at all.
@@ -1096,7 +1138,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (isCommentOnly(line) || !line.includes("<button")) continue;
+      if (commentMask[i] || !line.includes("<button")) continue;
       let hasTestid = false;
       for (let j = i; j < lines.length && j - i < 15; j++) {
         const l = lines[j];
@@ -1142,11 +1184,22 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     const CHROME_UTIL =
       /(?:^|\s)(?:h-(?:\d|\[)|min-h-|max-h-|w-(?:\d|\[)|text-(?:xs|sm|base|lg|xl|\d+xl|\[)|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black|sans|serif|mono)|leading-|tracking-|p[xytblrse]?-(?:\d|\[)|rounded|ring-|shadow-|opacity-)/;
     const CLASS_ATTR = /\bclass\s*=\s*["']([^"']*)["']/;
+    // Canonical version-history badge anatomy (FormPageLayout /
+    // ConfigListRow / sheet footers) — contract chrome, not drift: every
+    // class token must belong to this set for the carve to apply.
+    const VERSION_BADGE_ANATOMY = new Set([
+      "text-xs",
+      "font-semibold",
+      "border",
+      "border-primary",
+      "cursor-pointer",
+      "hover:bg-primary/10",
+    ]);
     const exemptAt = (i: number) =>
       parseExempt(lines[i]) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (isCommentOnly(line) || !STOCK_COMP.test(line)) continue;
+      if (commentMask[i] || !STOCK_COMP.test(line)) continue;
       let block = line;
       for (let j = i + 1; j < lines.length && j - i < 15; j++) {
         if (lines[j - 1].trimEnd().endsWith(">") || lines[j - 1].trimEnd().endsWith("/>")) break;
@@ -1154,6 +1207,13 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       }
       const m = block.match(CLASS_ATTR);
       if (!m || !CHROME_UTIL.test(m[1])) continue;
+      if (
+        /<Badge\b/.test(block) &&
+        m[1]
+          .split(/\s+/)
+          .every((t) => VERSION_BADGE_ANATOMY.has(t))
+      )
+        continue;
       const exempt = exemptAt(i);
       if (isExempted(exempt, "panel-chrome-class")) continue;
       out.push({
@@ -1198,20 +1258,26 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     }
   }
 
-  // panel-footer-start — inside <SheetPanelFooter>, {#snippet start} is the
-  // LEFT slot reserved for legend/meta content (KeyboardHints, meta text).
-  // Interactive controls found there are CTAs misplaced out of the
-  // right-aligned group — flag them.
+  // panel-footer-start / panel-footer-cta — SheetPanelFooter is a split
+  // contract: {#snippet start} = the LEFT legend/meta slot (status badges,
+  // KeyboardHints, meta text — NO interactive controls); the default group
+  // = the RIGHT-aligned CTA slot (buttons/links ONLY — a bare Badge or
+  // status text there is legend/meta misplaced out of the start slot).
   const panelStartRule = LINE_RULES.find((r) => r.id === "panel-footer-start");
+  const panelCtaRule = LINE_RULES.find((r) => r.id === "panel-footer-cta");
+  const footerRuleActive = (rule: Rule | undefined, id: RuleId) =>
+    !!rule &&
+    rules.has(id) &&
+    !rule.allowPaths?.test(rel) &&
+    (!rule.appliesTo || rule.appliesTo.test(rel));
+  const startActive = footerRuleActive(panelStartRule, "panel-footer-start");
+  const ctaActive = footerRuleActive(panelCtaRule, "panel-footer-cta");
   if (
-    rules.has("panel-footer-start") &&
-    panelStartRule &&
-    !panelStartRule.allowPaths?.test(rel) &&
-    (!panelStartRule.appliesTo || panelStartRule.appliesTo.test(rel)) &&
+    (startActive || ctaActive) &&
     lines.some((l) => l.includes("<SheetPanelFooter"))
   ) {
-    // Ranges: <SheetPanelFooter …> … </SheetPanelFooter> → {#snippet start}
-    // … {/snippet} inside them → interactive lines inside the snippet.
+    // Ranges: <SheetPanelFooter …> … </SheetPanelFooter>; inside each,
+    // {#snippet start} … {/snippet} bounds the legend slot.
     const footerRanges: [number, number][] = [];
     let footOpen = -1;
     for (let i = 0; i < lines.length; i++) {
@@ -1222,21 +1288,70 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       }
     }
     for (const [fa, fb] of footerRanges) {
-      let startOpen = -1;
+      let sa = -1; // {#snippet start} line
+      let sb = -1; // its {/snippet} line
       for (let i = fa + 1; i < fb; i++) {
-        if (/\{#snippet\s+start\b/.test(lines[i])) startOpen = i;
-        else if (/\{\/snippet\}/.test(lines[i])) startOpen = -1;
-        else if (startOpen >= 0 && /<Button\b|<button\b/.test(lines[i])) {
-          const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
-          if (!isExempted(exempt, "panel-footer-start")) {
-            out.push({
-              file: rel,
-              line: i + 1,
-              rule: "panel-footer-start",
-              text: lines[i].trim(),
-              hint: "CTAs live in the right-aligned SheetPanelFooter group — {#snippet start} is for legend/meta content only",
-            });
+        if (/\{#snippet\s+start\b/.test(lines[i])) sa = i;
+        else if (/\{\/snippet\}/.test(lines[i]) && sa >= 0 && sb < 0) sb = i;
+        else if (
+          startActive &&
+          sa >= 0 &&
+          sb < 0 &&
+          !commentMask[i] &&
+          /<Button\b|<button\b|<a\b/.test(lines[i])
+        ) {
+          // A <button>/<a> whose content is a <Badge> is a badge-affordance
+          // — the version-history drill: visually a legend badge, not a
+          // commit CTA. The wrapper exists to attach the click handler.
+          let badgeAffordance = false;
+          if (!/<Button\b/.test(lines[i])) {
+            for (let j = i; j < Math.min(i + 10, fb); j++) {
+              if (/<Badge\b/.test(lines[j])) {
+                badgeAffordance = true;
+                break;
+              }
+              if (/<\/button>|<\/a>/.test(lines[j])) break;
+              if (j > i && /<button\b|<a\b|<Button\b/.test(lines[j])) break;
+            }
           }
+          if (!badgeAffordance) {
+            const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
+            if (!isExempted(exempt, "panel-footer-start")) {
+              out.push({
+                file: rel,
+                line: i + 1,
+                rule: "panel-footer-start",
+                text: lines[i].trim(),
+                hint: "commit CTAs live in the right-aligned SheetPanelFooter default group — {#snippet start} is for legend/meta content (status badges, meta text; a button-wrapped Badge stays: it IS a badge)",
+              });
+            }
+          }
+        }
+      }
+      // A Badge nested inside an open <button>/<Button>/<a> is the CTA's
+      // chrome (the version-history drill badge) — only a standalone one
+      // is misplaced meta content.
+      if (ctaActive) {
+        let interactive = 0;
+        for (let i = fa + 1; i < fb; i++) {
+          if (sa >= 0 && i >= sa && i <= sb) continue;
+          if (commentMask[i]) continue;
+          const opens = (lines[i].match(/<(?:button|Button|a)\b/g) ?? []).length;
+          const closes = (lines[i].match(/<\/(?:button|Button|a)>/g) ?? []).length;
+          if (interactive === 0 && opens === 0 && /<Badge\b/.test(lines[i])) {
+            const exempt = parseExempt(lines[i]) ?? parseExempt(lines[i - 1]);
+            if (!isExempted(exempt, "panel-footer-cta")) {
+              out.push({
+                file: rel,
+                line: i + 1,
+                rule: "panel-footer-cta",
+                text: lines[i].trim(),
+                hint: "bare Badge in the CTA group — legend/meta content lives in {#snippet start}; wrap in a button/link only when it IS the drill affordance",
+              });
+            }
+          }
+          interactive += opens - closes;
+          if (interactive < 0) interactive = 0;
         }
       }
     }
@@ -1268,7 +1383,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       toolbarRanges.some(([a, b]) => i > a && i < b);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (isCommentOnly(line)) continue;
+      if (commentMask[i]) continue;
       if (!/<ButtonGroup|<SearchInput\b/.test(line)) continue;
       if (inToolbar(i)) continue;
       const exempt = parseExempt(line) ?? (i > 0 ? parseExempt(lines[i - 1]) : null);
@@ -1381,6 +1496,117 @@ function checkTranslationSeedPatches(repoRoot: string, exemptFiles: ReadonlySet<
         }
         if (/;\s*(?:--.*)?$/.test(line) && !/INSERT\s+INTO/i.test(line)) targetSchema = null;
       }
+    }
+  }
+  return out;
+}
+
+// i18n-language-literal — db-meta seed boundary: every `language` literal
+// inside a statement touching `*.translations` must be in
+// SUPPORTED_LANGUAGES (@primebrick/core — imported above via the same
+// sibling-checkout relative-path contract as HONEST_FORMAT_HINTS).
+// Positional by contract: the literal is read at the `language` column
+// index of the INSERT column list (translation VALUES may legitimately be
+// any short word — 'or', 'day', 'zu' — so shape-matching is unsound) or
+// out of explicit `language = 'x'` / `language IN (...)` clauses.
+const SQL_INS_TRANSLATIONS_COLS = /INSERT\s+INTO\s+"?(\w+)"?\s*\.\s*"?translations"?\s*\(([^)]*)\)/i;
+const SQL_STATEMENT_TRANSLATIONS = /\b(?:UPDATE|ALTER\s+TABLE)\s+"?(\w+)"?\s*\.\s*"?translations"?\b/i;
+const SQL_LANGUAGE_EQ = /\blanguage\s*=\s*'([^']*)'/i;
+const SQL_LANGUAGE_IN = /\blanguage\s+IN\s*\(([^)]*)\)/i;
+
+/** Split a SQL tuple body on top-level commas (quote + paren aware, '' escape). */
+function splitSqlTuple(body: string): string[] {
+  const out: string[] = [];
+  let depth = 0, cur = "", inQuote = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (inQuote) {
+      cur += ch;
+      if (ch === "'") {
+        if (body[i + 1] === "'") cur += body[++i];
+        else inQuote = false;
+      }
+      continue;
+    }
+    if (ch === "'") { inQuote = true; cur += ch; continue; }
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/** Scan db-meta/patches/*.sql for `language` literals outside the supported vocabulary. */
+function checkTranslationLanguageLiterals(repoRoot: string, exemptFiles: ReadonlySet<string>): Violation[] {
+  const out: Violation[] = [];
+  const dir = join(repoRoot, "db-meta", "patches");
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".sql") && !exemptFiles.has(f));
+  } catch {
+    return out; // no db-meta/patches in this repo — rule does not apply
+  }
+  const supported = new Set<string>(SUPPORTED_LANGUAGES);
+  const push = (f: string, line: number, text: string, lit: string) =>
+    out.push({
+      file: `db-meta/patches/${f}`,
+      line,
+      rule: "i18n-language-literal" as RuleId,
+      text,
+      hint: `language literal '${lit}' is not in SUPPORTED_LANGUAGES (@primebrick/core: ${SUPPORTED_LANGUAGES.join(", ")}) — full BCP-47 tags only`,
+    });
+  for (const f of files) {
+    const lines = readFileSync(join(dir, f), "utf8").split("\n");
+    let langIdx = -1;
+    let stmtCtx = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const ins = line.match(SQL_INS_TRANSLATIONS_COLS);
+      if (ins) {
+        langIdx = ins[2]!.split(",").map((c) => c.trim().replace(/"/g, "").toLowerCase()).indexOf("language");
+        stmtCtx = true;
+      }
+      if (SQL_STATEMENT_TRANSLATIONS.test(line)) stmtCtx = true;
+      if (stmtCtx) {
+        const eq = line.match(SQL_LANGUAGE_EQ);
+        if (eq && !supported.has(eq[1]!)) push(f, i + 1, line.trim(), eq[1]!);
+        const inn = line.match(SQL_LANGUAGE_IN);
+        if (inn) {
+          for (const lit of inn[1]!.split(",")) {
+            const v = lit.trim().replace(/'/g, "");
+            if (v && !supported.has(v)) push(f, i + 1, line.trim(), v);
+          }
+        }
+        if (langIdx >= 0 && line.includes("'")) {
+          // Every top-level `(...)` group after `VALUES` is a candidate
+          // row tuple — the shape `^\s*\(` alone misses `VALUES (` on the
+          // same line and multi-row `(...), (...)` statements.
+          const valuesPos = line.toUpperCase().indexOf("VALUES");
+          const scanFrom = valuesPos >= 0 ? valuesPos : 0;
+          let depth = 0, inQuote = false, tupleStart = -1;
+          for (let p = scanFrom; p < line.length; p++) {
+            const ch = line[p]!;
+            if (inQuote) {
+              if (ch === "'") { if (line[p + 1] === "'") p++; else inQuote = false; }
+              continue;
+            }
+            if (ch === "'") { inQuote = true; continue; }
+            if (ch === "(") { if (depth === 0) tupleStart = p; depth++; }
+            else if (ch === ")") {
+              depth--;
+              if (depth === 0 && tupleStart >= 0) {
+                const cell = splitSqlTuple(line.slice(tupleStart + 1, p))[langIdx];
+                const lm = cell?.match(/^'(.*)'$/s);
+                if (lm && !supported.has(lm[1]!)) push(f, i + 1, line.trim(), lm[1]!);
+                tupleStart = -1;
+              }
+            }
+          }
+        }
+      }
+      if (stmtCtx && /;\s*(?:--.*)?$/.test(line)) { langIdx = -1; stmtCtx = false; }
     }
   }
   return out;
@@ -1505,10 +1731,60 @@ if (dirNorm !== "fe/src" && existsSync(feDir)) {
 // `i18n_sql_exempt` grandfathers shipped pre-boundary patches by filename.
 violations.push(...checkTranslationSeedPatches(process.cwd(), new Set(cfg.i18n_sql_exempt ?? [])));
 
+// `i18n_lang_exempt` grandfathers shipped pre-vocabulary patches by filename.
+violations.push(...checkTranslationLanguageLiterals(process.cwd(), new Set(cfg.i18n_lang_exempt ?? [])));
+
 // seed-audit-trail — repo-level scan of db-meta/patches (outside srcDir);
 // always-on when db-meta/snapshot-entities.json declares auditable
 // entities. `seed_audit_exempt` grandfathers shipped pre-rule patches.
 violations.push(...checkSeedAuditTrail(process.cwd(), new Set(cfg.seed_audit_exempt ?? [])));
+
+// docs-wiring — a service that self-declares a module surface must emit
+// its own docs. Presence is the trigger (same contract as fe/src):
+//   src/nav-declaration.ts present ⇒ package.json `generate:docs` runs
+//     the emit (`--emit-docs` or a generate-page-docs/emit-docs script).
+//   fe/ present ⇒ fe/vite.config.ts exists — the remote chunk entry the
+//     emit resolves page facts from.
+// The emit itself (createMicroservice --emit-docs) derives docs from the
+// boot declaration, so this check is the last net against a service
+// whose wiring was never born.
+function checkDocsWiring(repoRoot: string): Violation[] {
+  const out: Violation[] = [];
+  const navDecl = join(repoRoot, "src", "nav-declaration.ts");
+  const pkgPath = join(repoRoot, "package.json");
+  if (existsSync(navDecl) && existsSync(pkgPath)) {
+    try {
+      // standards-exempt: ext-json — package.json cannot carry BigInt/Date
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+        scripts?: Record<string, string>;
+      };
+      const gen = pkg.scripts?.["generate:docs"] ?? "";
+      if (!/--emit-docs|generate-page-docs|emit-docs/.test(gen)) {
+        out.push({
+          file: "package.json",
+          line: 1,
+          rule: "docs-wiring" as RuleId,
+          text: `"generate:docs": "${gen}"`,
+          hint: `src/nav-declaration.ts declares a module surface but generate:docs does not run the docs emit — use \`bun src/index.ts --emit-docs\``,
+        });
+      }
+    } catch { /* unreadable package.json — other checks will surface it */ }
+  }
+  const feDirExists = existsSync(join(repoRoot, "fe"));
+  if (feDirExists && !existsSync(join(repoRoot, "fe", "vite.config.ts"))) {
+    out.push({
+      file: "fe/",
+      line: 1,
+      rule: "docs-wiring" as RuleId,
+      text: "fe/ present without fe/vite.config.ts",
+      hint: `a remote fe chunk needs a vite config with lib.entry — the docs emit resolves page facts from it`,
+    });
+  }
+  return out;
+}
+
+// docs-wiring — repo-level: a declared module surface must emit docs.
+violations.push(...checkDocsWiring(process.cwd()));
 
 // truncated-sibling — always-on; sweeps every file in the REPO (cwd),
 // not just srcDir and not just .ts — the classic victims are root files

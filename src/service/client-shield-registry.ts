@@ -98,8 +98,8 @@ export class ClientShieldRegistry {
         await this.reload();
         this.logAllowed("are", attempt > 1 ? attempt : undefined);
         return;
-      } catch {
-        logger.warn(`client_shield_registry snapshot attempt ${attempt} failed (BE unreachable?) — retrying in 5s`, { tags: ["core"], attempt });
+      } catch (error) {
+        logger.warn(`client_shield_registry snapshot attempt ${attempt} failed — retrying in 5s`, { tags: ["core"], attempt, error });
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
@@ -113,6 +113,17 @@ export class ClientShieldRegistry {
     for (const prefix of this.rows.keys()) {
       logger.info(`  - ${prefix}`, { tags: ["core"] });
     }
+  }
+
+  /**
+   * Public forced re-fetch — the `ShieldRegistryLike.refresh` hook used by
+   * `verifyNatsPublisher`'s stale-snapshot recovery: a verified denial may
+   * simply be a cache that missed its `changed` broadcast (fire-and-forget
+   * core pub — no redelivery). One reload + retry closes that window;
+   * a genuinely unknown client still fails closed on the retry.
+   */
+  async refresh(): Promise<boolean> {
+    return this.reload();
   }
 
   /**

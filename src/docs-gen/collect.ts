@@ -54,24 +54,30 @@ export function assertWithinRoot(root: string, ...paths: string[]): void {
  */
 export function collectDocRoutes(nav: ModuleNavDeclaration): DocRoute[] {
   const out: DocRoute[] = [];
-  for (const r of nav.routes ?? []) {
-    if (r.route.includes("[...") || r.route.includes("*")) continue;
-    // normalize param segments once: `[uuid]` (FE file convention) →
-    // `{uuid}` — the renderer works on a single notation
-    const route = r.route.replace(/\[(\w+)\]/g, "{$1}");
-    out.push({
-      route,
-      kind: r.kind,
-      entity: r.entity,
-      label_key: r.label_key,
-      description_key: r.description_key,
-      icon: r.icon,
-      component_url: r.component_url,
-      presentation: r.presentation,
-      form: r.page_props?.form as DocRoute["form"],
-      delivery: r.component_url ? "remote" : r.page_props?.form ? "archetype" : "host-static",
-    });
-  }
+  const push = (routes: ModuleNavDeclaration["routes"]): void => {
+    for (const r of routes ?? []) {
+      if (r.route.includes("[...") || r.route.includes("*")) continue;
+      // normalize param segments once: `[uuid]` (FE file convention) →
+      // `{uuid}` — the renderer works on a single notation
+      const route = r.route.replace(/\[(\w+)\]/g, "{$1}");
+      out.push({
+        route,
+        kind: r.kind,
+        entity: r.entity,
+        label_key: r.label_key,
+        description_key: r.description_key,
+        icon: r.icon,
+        component_url: r.component_url,
+        presentation: r.presentation,
+        form: r.page_props?.form as DocRoute["form"],
+        delivery: r.component_url ? "remote" : r.page_props?.form ? "archetype" : "host-static",
+      });
+    }
+  };
+  push(nav.routes);
+  // sibling module nodes (e.g. CRM "Impostazioni") own their own route
+  // census — same PageRouteDeclaration shape, document them too
+  for (const sib of nav.siblings ?? []) push(sib.routes);
   return out;
 }
 

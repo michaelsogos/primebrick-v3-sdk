@@ -78,10 +78,13 @@ export async function verifyNatsPublisher(msg: { subject?: string; headers?: Msg
       },
     );
   let result = await doVerify();
-  // Stale-snapshot recovery: a client enrolled AFTER the last refresh is
-  // UNKNOWN to the cached prefix list. One forced refresh + retry closes
-  // the window; a real unknown client still fails closed on the retry.
-  if (!result.ok && result.status === 403) {
+  // Stale-snapshot recovery: a client enrolled/rotated AFTER the last
+  // reload is UNKNOWN (403) or presents a key the cached row doesn't
+  // carry yet (401 — rotation broadcasts are fire-and-forget core pubs;
+  // a missed one leaves the previous hash until the next change).
+  // One forced refresh + retry closes both windows; a genuinely
+  // invalid client still fails closed on the retry.
+  if (!result.ok) {
     try {
       await reg.refresh?.();
       result = await doVerify();

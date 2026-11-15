@@ -394,7 +394,9 @@ export function parseRemoteDispatch(
       if (!ts.isIdentifier(p.initializer)) continue;
       const file = importMap.get(p.initializer.text);
       if (!file) continue;
-      if (key.startsWith("/")) pages[key] = file;
+      // normalize `[param]` (FE/decl convention) → `{param}` — DocRoute
+      // routes carry the normalized form (collectDocRoutes)
+      if (key.startsWith("/")) pages[key.replace(/\[(\w+)\]/g, "{$1}")] = file;
       else if (/^\w+\.\w+$/.test(key)) sheets[key] = file;
     }
   };

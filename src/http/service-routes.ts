@@ -41,7 +41,7 @@ import {
   type RpcRouterDeps,
   type RouteHandler,
 } from "./rpc-router.js";
-import { validateActionChrome, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
+import { validateActionChrome, resolveDisplayTemplate, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
 
 /** Entity declaration for `makeServiceRoutes`. `spec` only shapes the
  *  generated OpenAPI block — the router ignores it. Operation set is
@@ -59,9 +59,15 @@ export interface EntityRouteDecl<TEntity = unknown> extends EntityRouterConfig<T
 
 /** The composed route handler returned by `makeServiceRoutes` — carries
  *  the built OpenAPI document so docs-pack builds (`buildDocsPack`) can
- *  embed `handler.spec` without a second spec declaration. */
+ *  embed `handler.spec` without a second spec declaration, and the entity
+ *  declarations so the docs emit derives pages from the same object that
+ *  serves the routes (one source, never re-imported). `entityDecls` also
+ *  feeds `endpoints.entities` in `service.register` — the entity→service
+ *  ownership document `/modules` serves and the FE resolves api bases
+ *  from. */
 export type ServiceRoutesHandler = RouteHandler & {
   readonly spec: Record<string, unknown>;
+  readonly entityDecls: EntityRouteDecl[];
 };
 
 export interface ServiceRoutesInput {
@@ -81,8 +87,9 @@ export interface ServiceRoutesInput {
 
 // Router registration semantics (mirrored from entity-router.ts):
 //   enabled(a) = permissions[a] — for `duplicate`, presence is implied by
-//   `duplicate !== false` (the conventional `<entity>.duplicate.bulk`
-//   permission is auto-assigned). `meta` additionally requires `cfg.meta`.
+//   `duplicate !== false` AND the derived `service.clonable` capability
+//   (the conventional `<entity>.duplicate.bulk` permission is
+//   auto-assigned unless declared). `meta` additionally requires `cfg.meta`.
 const OP_ORDER: EntityAction[] = [
   "meta", "list", "export", "get", "create", "update", "delete",
   "purge", "restore", "audit", "duplicate", "bulkDelete", "bulkRestore",
@@ -95,7 +102,7 @@ const ACTION_TO_SPEC_OP: Partial<Record<EntityAction, EntityCrudOp>> = {
 function specOpsFor(cfg: EntityRouterConfig): EntityCrudOp[] {
   const enabled = (a: EntityAction): boolean => {
     if (a === "duplicate") {
-      return cfg.permissions.duplicate !== undefined || cfg.duplicate !== false;
+      return cfg.duplicate !== false && cfg.service.clonable === true;
     }
     return cfg.permissions[a] !== undefined;
   };
@@ -264,6 +271,15 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     const ops = customOps.get(decl.entityName);
     const meta = ops?.length ? withSynthesizedCtas(decl, ops) : decl.meta;
     const effectiveDecl = meta !== decl.meta ? { ...decl, meta } : decl;
+    // Ref-display registration — feed the entity's materialized display
+    // template (derived from the SAME authored `decl.meta` that serves
+    // `/entities/{e}/meta`) into the DAL's ref-join registry through the
+    // service's duck-typed sink. Runs at module load — before `initDal`,
+    // before any lazy `svc` build — so every `@Ref` pointing here gets
+    // its `{key}_name` join from the first request. Domain services own
+    // the sink; plain `EntityServiceLike` facades skip it silently.
+    (decl.service as { registerRefDisplay?: (d: string | null) => void })
+      .registerRefDisplay?.(decl.meta ? resolveDisplayTemplate(decl.meta) : null);
     handlers.push(
       makeEntityRouter(ops ? { ...effectiveDecl, custom_ops: ops } : effectiveDecl),
     );
@@ -293,5 +309,5 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   });
   handlers.push(makeOpenApiHandler(spec));
 
-  return Object.assign(composeRouteHandlers(...handlers), { spec });
+  return Object.assign(composeRouteHandlers(...handlers), { spec, entityDecls });
 }

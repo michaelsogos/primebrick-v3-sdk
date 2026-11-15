@@ -63,7 +63,9 @@ import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
+import type { EntityRouteDecl } from "../http/service-routes.js";
 import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
+import { docsPackStale, emitServiceDocs } from "../docs-gen/emit.js";
 import {
   ConfigLoader,
   ServiceRegistrar,
@@ -394,6 +396,21 @@ export async function createMicroservice(
 
   // 2. DAL init (consumer callback — DB-agnostic)
   options.initDal();
+  // Warm every declared entity's dal service — `DomainService.svc` is
+  // lazy, but the ref-display registry resolves join targets at query
+  // time; warming here makes it complete before the first request,
+  // never hit-order-dependent. Plain `EntityServiceLike` facades carry
+  // no `svc` getter — the access is a harmless no-op.
+  const warmable = options.routeHandler as
+    | { entityDecls?: { service?: { svc?: unknown } }[] }
+    | undefined;
+  for (const d of warmable?.entityDecls ?? []) {
+    try {
+      void d.service?.svc;
+    } catch {
+      // registry stays cold for this decl — ref cells degrade to uuid
+    }
+  }
   if (options.dbBanner) {
     try {
       const banner = await options.dbBanner();
@@ -533,6 +550,42 @@ export async function createMicroservice(
   const selfIdentity = detectPackageIdentity();
   const serviceCode = resolveServiceCode(selfIdentity, configLoader.get("service_code"));
   setCurrentServiceCode(serviceCode);
+
+  // Docs emit — the service documents itself from THIS options object
+  // (nav + the route handler's .entityDecls/.spec brands), never a
+  // parallel docs config: a route/entity added to the service is in the
+  // docs by construction. Three modes on one code path:
+  //   `--emit-docs`        unconditional emit → exit — every service's
+  //                        `generate:docs` is literally this command.
+  //   `--emit-docs --check` fresh emit diffed vs committed generated/ —
+  //                        the release-close freshness gate (exit 1 on drift).
+  //   normal boot           emit only when generation inputs are newer
+  //                        than the pack — the `docs_pack` capability is
+  //                        always backed by a fresh pack in dev, and the
+  //                        pack is assembled before registration.
+  const docsPackDir = options.docsPackDir ?? join(process.cwd(), "dist", "docs-pack");
+  const emitFlag = process.argv.includes("--emit-docs");
+  const emitCheck = process.argv.includes("--check");
+  const branded = options.routeHandler as
+    | (RouteHandler & { entityDecls?: EntityRouteDecl[]; spec?: Record<string, unknown> })
+    | undefined;
+  if (emitFlag || emitCheck || docsPackStale(process.cwd(), docsPackDir)) {
+    const emitResult = await emitServiceDocs({
+      service_root: process.cwd(),
+      service_code: serviceCode,
+      ...(options.nav ? { nav: options.nav } : {}),
+      ...(branded?.entityDecls ? { entity_decls: branded.entityDecls } : {}),
+      ...(branded?.spec ? { spec: branded.spec } : {}),
+      own_schemas: dbEnv.schemas,
+      pack_dir: docsPackDir,
+      check: emitCheck,
+    });
+    if (emitFlag || emitCheck) {
+      await options.dalClose();
+      process.exit(emitCheck && emitResult.drift.length ? 1 : 0);
+    }
+  }
+
   const baseUrl = configLoader.require("service_base_url");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
   const clientKey = configLoader.get("service_client_shield_key");
@@ -710,10 +763,17 @@ export async function createMicroservice(
     registrarEndpoints.events = options.events;
   }
 
-  // Docs pack dir — shared between the registrar (capability) and the
-  // auto-mounted serving route below. One detection, one source of truth.
-  const docsPackDir = options.docsPackDir ?? join(process.cwd(), "dist", "docs-pack");
+  // Entity self-declaration — the entity names this service owns, derived
+  // from the SAME entityDecls that produce its CRUD routes. Persisted in
+  // service_registry.endpoints.entities and served on /modules: the FE
+  // resolves entity→service (ref-sheet drill-through, api base prefixes)
+  // from the discovery document — never a hand-maintained map.
+  if (branded?.entityDecls?.length) {
+    registrarEndpoints.entities = branded.entityDecls.map((d) => d.entityName);
+  }
 
+  // Docs pack dir — shared between the registrar (capability) and the
+  // auto-mounted serving route below (computed once, at the emit step).
   // Build health check function for registrar heartbeats
   const registrarHealthCheckFn: HealthCheckFn = async () => {
     const dbOk = await healthCheckPort.ping();

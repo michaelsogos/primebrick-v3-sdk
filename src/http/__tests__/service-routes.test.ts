@@ -27,12 +27,13 @@ async function hits(h: (req: IncomingMessage, res: ServerResponse, url: URL) => 
   }
 }
 
-function stubService(): EntityServiceLike {
+function stubService(caps: { clonable?: boolean; auditable?: boolean } = {}): EntityServiceLike {
   const fail = () => Promise.reject(new Error("not implemented"));
   return {
     list: fail, get: fail, create: fail, update: fail, delete: fail,
     restore: fail, purge: fail, duplicate: fail, bulkDelete: fail,
     bulkRestore: fail, audit: fail,
+    ...caps,
   } as EntityServiceLike;
 }
 
@@ -75,21 +76,23 @@ describe("makeServiceRoutes", () => {
     // disabled ops are NOT
     expect(paths["/api/v1/entities/job_rule/{uuid}/restore"]).toBeUndefined();
     expect(paths["/api/v1/entities/job_rule/duplicate"]).toBeUndefined();
-    expect(paths["/api/v1/entities/job_rule"]).not.toMatchObject({ post: expect.anything() });
+    expect(paths["/api/v1/entities/job_rule"]).toBeUndefined();
     // and the registered routes agree with the spec
     expect(await hits(h, "GET", "/api/v1/entities/job_rule/list")).toBe(true);
     expect(await hits(h, "POST", "/api/v1/entities/job_rule/duplicate")).toBe(false);
     expect(await hits(h, "POST", "/api/v1/entities/job_rule")).toBe(false);
   });
 
-  it("duplicate defaults ON (implied permission); meta requires cfg.meta", async () => {
+  it("duplicate registers only on clonable services; meta requires cfg.meta", async () => {
     const h = makeServiceRoutes({
       info: { title: "T", version: "0.0.0" },
       entities: [
-        // duplicate implicit, meta perm declared but NO meta object → no meta
-        { entityName: "a", service: stubService(), permissions: { list: ["p"], meta: ["p"] } },
-        // duplicate explicitly off
-        { entityName: "b", service: stubService(), permissions: { list: ["p"] }, duplicate: false },
+        // clonable + duplicate implicit, meta perm declared but NO meta object → no meta
+        { entityName: "a", service: stubService({ clonable: true }), permissions: { list: ["p"], meta: ["p"] } },
+        // clonable but duplicate explicitly off
+        { entityName: "b", service: stubService({ clonable: true }), permissions: { list: ["p"] }, duplicate: false },
+        // NOT clonable → implied duplicate never registers
+        { entityName: "c", service: stubService(), permissions: { list: ["p"] } },
       ],
     });
     const spec = await servedSpec(h);
@@ -97,8 +100,34 @@ describe("makeServiceRoutes", () => {
     expect(paths).toHaveProperty("/api/v1/entities/a/duplicate");
     expect(paths).not.toHaveProperty("/api/v1/entities/a/meta");
     expect(paths).not.toHaveProperty("/api/v1/entities/b/duplicate");
+    expect(paths).not.toHaveProperty("/api/v1/entities/c/duplicate");
     expect(await hits(h, "POST", "/api/v1/entities/a/duplicate")).toBe(true);
+    expect(await hits(h, "POST", "/api/v1/entities/c/duplicate")).toBe(false);
     expect(await hits(h, "GET", "/api/v1/entities/a/meta")).toBe(false);
+  });
+
+  it("duplicate config on a non-clonable service fails at construction", () => {
+    expect(() =>
+      makeServiceRoutes({
+        info: { title: "T", version: "0.0.0" },
+        entities: [{
+          entityName: "e",
+          service: stubService(),
+          permissions: { list: ["p"], duplicate: ["e.duplicate.bulk"] },
+        }],
+      }),
+    ).toThrow(/not clonable/);
+    expect(() =>
+      makeServiceRoutes({
+        info: { title: "T", version: "0.0.0" },
+        entities: [{
+          entityName: "e",
+          service: stubService(),
+          permissions: { list: ["p"] },
+          schemas: { duplicateBody: {} as never },
+        }],
+      }),
+    ).toThrow(/not clonable/);
   });
 
   it("rpc entries accept {routes, deps}; openapi metadata feeds the spec", async () => {

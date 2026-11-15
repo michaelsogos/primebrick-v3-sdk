@@ -117,6 +117,18 @@ describe("mapDalError", () => {
     expect(mapped!.status).toBe(400);
   });
 
+  it("maps PAGE_OUT_OF_RANGE → 400 with {page,last_page,total} extras", () => {
+    const err = Object.assign(new Error("Invalid page 99 — 2 record(s) fit 1 page(s)"), {
+      code: "PAGE_OUT_OF_RANGE",
+      detail: { page: 99, last_page: 1, total: 2 },
+    });
+    const mapped = mapDalError(err, "/api/v1/entities/job_schedule/list");
+    expect(mapped!.status).toBe(400);
+    expect(mapped!.body.internal_code).toBe("PAGE_OUT_OF_RANGE");
+    expect(mapped!.body.type).toBe("/errors/validation-error");
+    expect(mapped!.body.extra).toEqual({ page: 99, last_page: 1, total: 2 });
+  });
+
   it("returns null for non-DAL errors", () => {
     expect(mapDalError(new Error("boom"))).toBeNull();
     expect(mapDalError(null)).toBeNull();

@@ -121,6 +121,14 @@ material — the service registrar hooks this to re-register when its own
 |-----------|------|-------------|
 | cb | `() => void` |  |
 
+#### `ClientShieldRegistry.refresh(): Promise<boolean>`
+
+Public forced re-fetch — the `ShieldRegistryLike.refresh` hook used by
+`verifyNatsPublisher`'s stale-snapshot recovery: a verified denial may
+simply be a cache that missed its `changed` broadcast (fire-and-forget
+core pub — no redelivery). One reload + retry closes that window;
+a genuinely unknown client still fails closed on the retry.
+
 #### `ClientShieldRegistry.generationFor(uaPrefix): number`
 
 The generation the BE issued for `uaPrefix` — a derived-mode service
@@ -494,7 +502,7 @@ messages (concurrency), `maxDeliver` bounds retries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
+| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number; streamSequence: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
 
 ### `NatsHeaderProvider`
 
@@ -943,26 +951,6 @@ wrapped by `CachingApiKeyPort` for the shared Redis/in-memory cache.
 | is_active | `boolean` |  |
 | expires_at | `Date \| null` |  |
 
-### `ArmJobScheduleRequest`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| name | `string` | Job name within the caller's namespace — the declaration subject is
-derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
-arm outside its own namespace (the job-handler enforces the same
-server-side). Dots allowed for sub-namespacing
-(`partition-maintenance.<id>`). |
-| schedule | `string` | `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). |
-| target | `string` | Subject the stored message is republished to at fire time —
-`jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
-stream's subjects. |
-| payload | `unknown` | Payload stored on the schedule message — fired verbatim unless
- `source` is set. |
-| source | `string` | Fire-time indirection (ADR-51): at fire time the scheduler reads the
- LATEST message on this subject and fires THAT as the payload — the
- schedule declaration never holds business state. |
-| ttl | `string` | `Nats-Schedule-TTL` — auto-purge the schedule after this duration. |
-
 ### `AuthConfig`
 
 Full auth configuration loaded at startup from the service's config table.
@@ -1285,6 +1273,13 @@ a compact inline-editable list (rows add/edit in place).
 | order_field | `string` | Column key owning row ordering (convention default: `sort` when the
  entity declares it). Reorder CTAs mutate it and persist through the
  page's atomic bulk save — no dedicated reorder endpoint. |
+| directional | `{ forward_label_field: string; inverse_label_field: string }` | Directional label pair — declared when the dict rows are link-type
+ vocabularies consumed by `@Relation` edges. `forward_label_field`
+ names the column read parent-side ("the child IS a ‹label›"),
+ `inverse_label_field` names the column read child-side ("the parent
+ IS a ‹label›"); a NULL inverse label means the type is
+ self-inverse — same vocabulary read from both ends (e.g. partner).
+ Fields are PHYSICAL column keys on this dict entity. |
 
 ### `DocRoute`
 
@@ -1303,6 +1298,23 @@ One documentable route — normalized union of declared + static facts.
 | form | `{ fields: Record<string, unknown>[]; validators: string[] }` | `page_props.form` — the entity-form archetype declaration. |
 | facts | `SveltePageFacts` | AST facts when a source file exists (host static or remote). |
 | delivery | `"remote" \| "host-static" \| "archetype"` | How this route is delivered. |
+
+### `DocsCompilers`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| ts | `typeof ts` |  |
+| PgClient | `(cfg: { connectionString: string }) => DocsPgClient` |  |
+| svelte | `SvelteCompilerPort` |  |
+
+### `DocsDbContext`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| registry | `RegistryRow[]` |  |
+| translations | `Record<string, string>` |  |
+| census_options | `{ emits: CensusOption[]; callables: CensusOption[] }` |  |
+| idp_name | `string` |  |
 
 ### `DocSheet`
 
@@ -1351,6 +1363,39 @@ One file of pack content — wire format.
 | manifest | `DocsPackManifest` |  |
 | files | `DocsPackContentFile[]` |  |
 | openapi | `string` | Raw openapi.json content, when the pack carries one. |
+
+### `DocsPgClient`
+
+### `EmitServiceDocsInput`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| service_root | `string` | Service root (process.cwd() at boot). |
+| service_code | `string` | Resolved service code — `resolveServiceCode` output. |
+| nav | `ModuleNavDeclaration` | Module nav declaration — `options.nav`; absent → no page-docs (webhook). |
+| entity_decls | `EntityRouteDecl<unknown>[]` | `routeHandler.entityDecls` (makeServiceRoutes brand). |
+| spec | `Record<string, unknown>` | `routeHandler.spec` (makeServiceRoutes brand) → openapi.json. |
+| own_schemas | `string[]` | Own DB schemas (dbEnv.schemas — translations read own-first). |
+| lexicon_schemas | `string[]` | Extra high-priority translation schemas merged between `own_schemas`
+and the registry lexicon — the platform namespaces whose labels win
+over arbitrary service dicts (first-writer-wins). Default:
+`["system", "public", "custom"]` — the historical script convention. |
+| pack_dir | `string` | Pack output dir — default `<root>/dist/docs-pack`. |
+| emit_pages | `boolean` | Emit page-docs from sources (`fe/src` exists → remote facts).
+Default: auto — pages emit iff nav && fe/src are present; otherwise
+the pack assembles the already-committed docs verbatim (prod images
+ship no `src/`/`fe/` — re-emitting would lose remote facts). |
+| check | `boolean` | Emit into a temp dir and diff against committed generated/ — no writes. |
+| report | `boolean` | Print the console report (default true). |
+
+### `EmitServiceDocsResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| pages_emitted | `number` |  |
+| pages_skipped | `{ route: string; reason: string }[]` |  |
+| pack_files | `number` |  |
+| drift | `string[]` | `--check`: committed files that differ from a fresh emit. |
 
 ### `EntityAction`
 
@@ -1507,7 +1552,12 @@ must not declare it. |
 | uid | `string` | Field key holding the entity primary key (usually `uuid`). |
 | display_field | `string` | Canonical display field — the column key identifying the entity's
  human-readable label. Drives first-column/sticky table identity and
- default display resolution. |
+ default display resolution. OPTIONAL on the wire type only:
+ `withColumnConstraints` still REQUIRES it on every main-entity meta
+ (construction gate — a missing key throws), while relation entities
+ (`@Relation` marker — directed parent→child edges) MUST NOT declare
+ one: a directed edge has no single-column identity, its display is
+ viewpoint-dependent (`relation` facet). |
 | display_name | `string` | Display expression template (`${field}` syntax, dot-paths allowed).
 OPTIONAL here: `assembleMeta` materializes it as
 `"${" + display_field + "}"` when absent — it is always present in the
@@ -1533,17 +1583,14 @@ Entity declaration for `makeServiceRoutes`. `spec` only shapes the
 | meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
-| auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
- in the meta response (the BE derives it from entity persistence meta;
- the SDK cannot inspect decorators, so the caller declares it). |
+| duplicate | `false` | A clonable entity may still hide the `/duplicate` route + CTA by
+ setting `duplicate: false`. On a NON-clonable service the route is
+ never registered regardless — the flag is ignored. |
 | schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] }; exportQuery: (query: Record<string, unknown>) => EntityExportQuery }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
 receive the parsed bracket-notation query object; `createBody`/
 `updateBody`/`duplicateBody` receive the parsed JSON body and MUST
 validate the `{entity}` envelope (strict — reject `translations`).
 Throw `ValidationError` (or anything — it is wrapped) on failure. |
-| duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
- `<entity>.duplicate.bulk` permission when not declared. `false`
- disables the route entirely. |
 | export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
  resolution. Requires `permissions.export` (the route) and `meta`
  (the column driver). See `entity-export.ts`. |
@@ -1564,17 +1611,14 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 | meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
-| auditable | `boolean` | The entity is auditable (@AuditTrail) — drives `collaboration.enabled`
- in the meta response (the BE derives it from entity persistence meta;
- the SDK cannot inspect decorators, so the caller declares it). |
+| duplicate | `false` | A clonable entity may still hide the `/duplicate` route + CTA by
+ setting `duplicate: false`. On a NON-clonable service the route is
+ never registered regardless — the flag is ignored. |
 | schemas | `{ listQuery: (query: Record<string, unknown>) => Record<string, unknown>; createBody: (body: unknown) => { entity: Record<string, unknown> }; updateBody: (body: unknown) => { entity: Record<string, unknown> }; auditQuery: (query: Record<string, unknown>) => { page: number; limit: number }; duplicateBody: (body: unknown) => { uuids: string[] }; exportQuery: (query: Record<string, unknown>) => EntityExportQuery }` | Validators — plain `(raw) => T` functions. `listQuery`/`auditQuery`
 receive the parsed bracket-notation query object; `createBody`/
 `updateBody`/`duplicateBody` receive the parsed JSON body and MUST
 validate the `{entity}` envelope (strict — reject `translations`).
 Throw `ValidationError` (or anything — it is wrapped) on failure. |
-| duplicate | `false` | `duplicate` is ON by default (BE E.8): registers with the conventional
- `<entity>.duplicate.bulk` permission when not declared. `false`
- disables the route entirely. |
 | export | `EntityExportConfig` | Export behaviour — column allowlist, template overrides, label
  resolution. Requires `permissions.export` (the route) and `meta`
  (the column driver). See `entity-export.ts`. |
@@ -1590,6 +1634,12 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 |-------|------|-------------|
 | dictFacet | `DictFacet` | The entity's `dict` facet — populated by dal-pg `DomainService` when
  the entity class carries `@Dict`; injected into served meta. |
+| relationFacet | `RelationFacet` | The entity's `relation` facet — populated by dal-pg `DomainService`
+ when the entity class carries `@Relation`; injected into served meta. |
+| auditable | `boolean` | `@AuditTrail()` on the entity class — populated by dal-pg. Drives
+ `collaboration.enabled` in served meta. Derived, never declared. |
+| clonable | `boolean` | `Clonable` mixin on the entity class — populated by dal-pg. Gates
+ `/duplicate` registration. Derived, never declared. |
 
 ### `EnvSchema`
 
@@ -1699,7 +1749,7 @@ A single validation finding. `path` is the entity field key (or a
 | Field | Type | Description |
 |-------|------|-------------|
 | path | `string` |  |
-| code | `"required" \| "invalid_type" \| "too_small" \| "too_big" \| "invalid_string" \| "invalid_json" \| "schema_mismatch" \| "not_in_vocab"` |  |
+| code | `"required" \| "invalid_type" \| "too_small" \| "too_big" \| "invalid_string" \| "invalid_json" \| "schema_mismatch" \| "not_in_vocab" \| "immutable"` |  |
 | message | `string` |  |
 
 ### `GatewayConfig`
@@ -1765,6 +1815,14 @@ The unified health response returned by `/health` on both BE and US.
 | version | `string` | Service version (from package.json). |
 | url | `string` | Base URL the service is listening on (if applicable). |
 | checks | `Record<string, HealthCheckResult>` | Map of check name → result. Keys are service-specific (db, redis, nats, idp). |
+
+### `HostDocsFe`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| mode | `"host"` |  |
+| routes_root | `string` | FE routes root — `fe-v3/src/routes/(app)`. |
+| exclude | `(route: string) => boolean` | Extra exclusion beyond the defaults (catch-alls, `/`, `/dev/*`). |
 
 ### `HttpServerOptions`
 
@@ -1932,6 +1990,15 @@ convention). Structurally assignable from the real `AuditParams`:
 
 Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
 inserted audit row id (used for the marker's `audit_log_id`).
+
+### `MaterializeResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | `string` |  |
+| action | `"inserted" \| "updated" \| "unchanged" \| "skipped_deleted"` |  |
+| uuid | `string` |  |
+| changed_fields | `string[]` |  |
 
 ### `MfaStepUpSpec`
 
@@ -2139,7 +2206,10 @@ AND wires the mandatory runtime validation. Omit for private routes:
 a callable without a contract is not mappable. |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
 | description_key | `string` |  |
-| handler | `(ctx: NatsRouteContext<TReq>) => Promise<void>` | The ONE service call. |
+| handler | `(ctx: NatsRouteContext<TReq>) => Promise<unknown>` | The ONE service call. An object the handler returns is carried onto
+the `jobs.result.*` outcome message as `report` (same convention as
+`NatsClient.jetstreamSubscribe`) — a fire-and-forget route that wants
+its execution report recorded on the run row just returns it. |
 
 ### `NatsRouteContext`
 
@@ -2349,6 +2419,35 @@ sent as the initial SSE `snapshot` event on connect.
 | allowed | `boolean` |  |
 | missing | `string[]` | Missing permissions (only populated when not allowed) |
 
+### `RegistryRow`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| code | `string` |  |
+| schemas | `string[]` |  |
+| endpoints | `Record<string, unknown>` |  |
+
+### `RelationFacet`
+
+The `relation` facet — runtime-injected on served meta when the entity
+class carries the `@Relation` marker (dal-pg). Declares a DIRECTED
+parent→child edge table (e.g. `customer_link`): rows are typed arcs,
+never standalone page entities — no `display_field`, no pinned
+column, viewpoint-dependent display. `parent_field`/`child_field` are
+the physical `@Ref` column keys forming the arc (immutable after
+create — repointing is delete+create); `type_field` optionally points
+at the directional vocabulary entity (a `directional` dict);
+`hierarchical` opts the table into deep-cycle detection on insert
+(the 2-cycle is always rejected by the derived unordered-pair unique
+index — construction-derived, never authored).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| parent_field | `string` |  |
+| child_field | `string` |  |
+| type_field | `string` |  |
+| hierarchical | `boolean` |  |
+
 ### `RemoteDispatchMap`
 
 Route→source-file resolution for remote module chunks: the `PAGES`/
@@ -2359,6 +2458,18 @@ chunk entry tell which `.svelte` owns which declared route/sheet key.
 |-------|------|-------------|
 | pages | `Record<string, string>` | route path → fe-src-relative .svelte file. |
 | sheets | `Record<string, string>` | sheet key (`<module>.<name>`) → fe-src-relative .svelte file. |
+
+### `RemoteDocsFe`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| mode | `"remote"` |  |
+| src_dir | `string` | `fe/src` of the service (assertWithinRoot target). |
+| dispatch | `{ file: string; pages: boolean; sheets: boolean }[]` | Chunk entries to parse, merged in order. `pages`/`sheets` select which
+half of the dispatch map each file contributes (ai splits pages.ts /
+index.ts; single-entry chunks leave both on). Default:
+`[{ file: "index.ts", pages: true, sheets: true }]`. |
+| assertWithinRoot | `(root: string, paths: string[]) => void` |  |
 
 ### `RenderContext`
 
@@ -2379,11 +2490,9 @@ the owning service's job); an entity merely lacking local meta/caps
 is still local (e.g. BE's own service_registry surface). |
 | idp_name | `string` | Identity-provider display name (config-derived). |
 | access_namespace | `string` | Access namespace of the module — nav.access (e.g. `access.system.job`). |
-| out_dir | `string` | Output directory — pipeline-owned; ghosts are deleted. |
-| keep_files | `string[]` | `.mdx` filenames in `out_dir` that other generators own (reference
-docs emitted into the same `generated/` dir — e.g. BE's
-entity-api-catalog). Everything else not re-emitted this run is a
-ghost and is deleted. |
+| out_dir | `string` | Output directory — pipeline-owned by THIS generator alone; any `.mdx`
+not re-emitted this run is a stale ghost and is deleted. Other
+generators MUST emit into their own dir (never share `out_dir`). |
 | generated_base | `string` | Cross-doc link base for generated pages. |
 | dev_guide_base | `string` | Cross-doc link base for hand-written dev-guide pages. |
 
@@ -2923,6 +3032,25 @@ the historical `pages.json` carried, extended with remote-source facts.
 | sheetProps | `string[]` | Remote-source facts — `ctx.sheet.props.*` keys consumed by a sheet. |
 | sheetOpenings | `string[]` | Remote-source facts — `openSheet('<key>')` targets called by the source. |
 
+### `SystemJobDecl`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| key | `string` | Job id inside the caller's namespace — this helper prefixes
+`<this-service>.` automatically ("partition_maintenance" travels as
+"ai.partition_maintenance"). Subject-safe tokens only
+(`^[a-z0-9_][a-z0-9_.-]*$`). |
+| name | `string` | Display name — seeds the row; user-renameable afterwards. |
+| schedule_spec | `string` | `"@every 5m"` (≥1m floor) | `"@at …"` | 5-field cron (UTC). Seeds the
+ row; the user owns it afterwards — re-declaring never re-seeds. |
+| event_subject | `string` | Source contract (code-owned). Absent for schedule-only jobs. |
+| target_subject | `string` | Destination contract (code-owned) — the subject the due-forwarder
+ republishes the mapped payload onto; typically a callable. |
+| run_as | `"system" \| "author" \| "originator"` | Code-owned: `system` (no actor), `author` (arm-time actor),
+ `originator` (event actor — requires `event_subject`). |
+| payload_map | `Record<string, string>` | Code-owned: `{path → template}` payload map applied by the forwarder. |
+| filter | `unknown` | Code-owned: event filter (predicate-tree over the source payload). |
+
 ### `TableMeta`
 
 Table options — present only on entities with a table page.
@@ -3066,10 +3194,12 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 Closed action-color vocabulary — ONE semantic drives BOTH the icon and
  the label of a menu CTA (impossible to drift them apart). `neutral` is
  the default uncolored rendering; the destructive/warning/success/info/
- primary names map to the theme's semantic text utilities. A meta may
- never smuggle a Tailwind class here — the enum IS the contract.
+ primary names map to the theme's semantic text utilities. `violet` is
+ the clone/duplicate semantic — `duplicate.bulk` carries it by default
+ and the same hue marks `CLONE` entries in the version-history trail.
+ A meta may never smuggle a Tailwind class here — the enum IS the contract.
 
-**Type:** `"neutral" \| "primary" \| "info" \| "success" \| "warning" \| "destructive"`
+**Type:** `"neutral" \| "primary" \| "info" \| "success" \| "warning" \| "destructive" \| "violet"`
 
 ### `ActionsOverrides`
 
@@ -3228,7 +3358,7 @@ Values mirror the `Permission` enum in `@primebrick/sdk`.
 The served `GET /api/v1/entities/{entity}/meta` response:
 static meta + runtime-injected `display_name`, `actions`, `collaboration`.
 
-**Type:** `EntityMeta & { display_name: string; actions: EntityAction[]; collaboration: CollaborationMeta; dict: DictFacet }`
+**Type:** `EntityMeta & { display_name: string \| null; actions: EntityAction[]; collaboration: CollaborationMeta; dict: DictFacet; relation: RelationFacet }`
 
 ### `ExportFileType`
 
@@ -3364,6 +3494,20 @@ implicit index signature, keeping `MetaColumn` assignable to
 `Record<string, unknown>` — host/remotes pass columns through generic
 cell-snippet args typed as `Record<string, unknown>`.
 
+### `MetaColumnAvatar`
+
+Avatar renderer contract — the column renders the user/org avatar
+(initials + color swatch), NOT a text control. `color_field` names the
+SIBLING column that persists the per-row avatar color — same pattern
+`uom.field` uses for the currency code column. The avatar column's own
+value carries the initials; the sibling carries the color.
+The sibling requirement is verified by `withColumnConstraints`: an
+avatar column without its color column is a construction error.
+`initials_field` (optional) names the sibling column the initials
+DERIVE from (typically `display_name`): edit surfaces recompute the
+initials live from it and persist the derived value when that sibling
+crosses the wire. Same physical-column rule as `color_field`.
+
 ### `MetaColumnDependsCondition`
 
 A sibling-value condition — the SAME vocabulary `null_label.when` and
@@ -3384,7 +3528,7 @@ Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
 compile error — the US→FE option boundary is enforced by the type.
 New formats are additive literals (never breaking).
 
-**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "slug" \| "no_space" \| "lang"`
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "slug" \| "no_space" \| "lang"`
 
 ### `MetaColumnOptionsSource`
 
@@ -3393,14 +3537,14 @@ COLUMN (`MetaColumn.options_source`), never on a form placement:
 the same contract feeds forms, list filters and docs generation.
 Closed union on purpose — an unknown source is a construction error.
 
-**Type:** `"census.emits" \| "census.callables" \| "audit.actors"`
+**Type:** `"census.emits" \| "census.callables" \| "audit.actors" \| "system.roles"`
 
 ### `MetaColumnType`
 
 UI column renderer type. NOTE: this is the UI type, not the DB type —
  e.g. `roles` is `"text"` here but `jsonb` on disk (never ILIKE-searchable).
 
-**Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline" \| "ref" \| "ref_count"`
+**Type:** `"text" \| "badge" \| "boolean" \| "color" \| "date" \| "datetime" \| "number" \| "sparkline" \| "ref" \| "ref_count" \| "avatar"`
 
 ### `MetaColumnUom`
 
@@ -3777,13 +3921,25 @@ declaring the vendor specifiers/versions it was compiled against.
 
 **Type:** `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>`
 
+### `ScheduleSpecError`
+
+`schedule_spec` rejection reasons — `"below_min_interval"` gets its own
+ issue key so the form can say WHY, not just THAT it failed.
+
+**Type:** `"invalid" \| "below_min_interval"`
+
 ### `ServiceRoutesHandler`
 
 The composed route handler returned by `makeServiceRoutes` — carries
  the built OpenAPI document so docs-pack builds (`buildDocsPack`) can
- embed `handler.spec` without a second spec declaration.
+ embed `handler.spec` without a second spec declaration, and the entity
+ declarations so the docs emit derives pages from the same object that
+ serves the routes (one source, never re-imported). `entityDecls` also
+ feeds `endpoints.entities` in `service.register` — the entity→service
+ ownership document `/modules` serves and the FE resolves api bases
+ from.
 
-**Type:** `RouteHandler & { spec: Record<string, unknown> }`
+**Type:** `RouteHandler & { spec: Record<string, unknown>; entityDecls: EntityRouteDecl[] }`
 
 ### `SnakeCaseSingular`
 
@@ -3806,6 +3962,10 @@ Sort direction for server-side list queries and header UI.
 ### `StandardOp`
 
 **Type:** `typeof STANDARD_OPS[number]`
+
+### `SupportedLanguage`
+
+**Type:** `typeof SUPPORTED_LANGUAGES[number]`
 
 ### `TooltipPriority`
 
@@ -4063,9 +4223,13 @@ Alias of `dec()` — tolerates the `"…d"` wire suffix.
 
 ### `HONEST_FORMAT_HINTS`
 
-The name→format honesty matrix — exported so the check-standards lint
- (`schema-honest-format`) and the enrollment validator test the SAME
- hints. Add a case here, never re-invent it per surface.
+The name→format honesty matrix — the single source of truth consumed by:
+  - `schemaHonestyIssue` in ./field-validation.ts (runtime contract),
+  - the sdk enrollment validators (registry gate),
+  - the check-standards lint (`schema-honest-format`), which imports this
+    file BY RELATIVE PATH so the tool stays zero-dep and CI can run it
+    against bare checkouts with no install.
+A new dishonesty case is added HERE — never re-invented per surface.
 
 **Type:** `{ re: RegExp; formats: typeOperator; why: string }[]`
 
@@ -4140,12 +4304,6 @@ Correlation header — the `job.job_runs` row this work belongs to.
 
 **Type:** `"x-job-run-id"`
 
-### `JOB_SCHEDULE_CANCEL_SUBJECT`
-
-Control-plane route for schedule cancellations (primebrick-job).
-
-**Type:** `"jobs.ctl.schedule.cancel"`
-
 ### `JOB_SCHEDULE_HEADERS`
 
 **Type:** `{ schedule: "Nats-Schedule"; target: "Nats-Schedule-Target"; ttl: "Nats-Schedule-TTL"; source: "Nats-Schedule-Source"; next: "Nats-Schedule-Next"; scheduler: "Nats-Scheduler" }`
@@ -4159,12 +4317,6 @@ Control-plane route for schedule cancellations (primebrick-job).
 | next | "Nats-Schedule-Next" |
 | scheduler | "Nats-Scheduler" |
 
-### `JOB_SCHEDULE_REQUEST_SUBJECT`
-
-Control-plane route for schedule declarations (primebrick-job).
-
-**Type:** `"jobs.ctl.schedule.request"`
-
 ### `JOB_SCHEDULE_SUBJECT_HEADER`
 
 Correlation header — the `jobs.schedule.*` declaration that fired it.
@@ -4176,6 +4328,28 @@ Correlation header — the `jobs.schedule.*` declaration that fired it.
 Canonical JOBS stream capture set — schedule/due/result/cancel lanes only.
 
 **Type:** `typeOperator`
+
+### `JOB_TRIGGER_RUN_AS_VOCAB`
+
+`event_subject`/`schedule_spec` are mutually mandatory (at least one);
+`run_as` is closed-vocab (`originator`|`author`|`system`) and
+`run_as: "originator"` requires an event source to forward auth
+headers from; a one-shot `@at <ts>` must lie in the future — a past
+timestamp FIRES IMMEDIATELY at declare time (verified empirically:
+the declaration PubAcks, the scheduler dispatches at once, then the
+declaration self-purges — an unintended execution, not a dead one).
+`now` is injected so the predicate stays
+pure — the form passes the client clock, the write guard the server
+clock. On `partial` (update), fields not present in `entity` are
+treated from the merged record the caller passes.
+
+**Type:** `typeOperator`
+
+### `JOB_TRIGGERS_MATERIALIZE_SUBJECT`
+
+Control-plane route for system-trigger materialization (primebrick-job).
+
+**Type:** `"jobs.ctl.triggers.materialize"`
 
 ### `LANG_RE`
 
@@ -4204,6 +4378,16 @@ Canonical JOBS stream capture set — schedule/due/result/cancel lanes only.
 ### `MIGRATION_ROUTE_PREFIX`
 
 **Type:** `"/api/v1/system/db-migration"`
+
+### `MIN_SCHEDULE_INTERVAL_MS`
+
+The floor every recurring spec must respect: one minute. The 5-field
+cron grammar is already minute-floored by design (`* * * * *` is its
+tightest expression), so `@every` — the only grammar able to go
+sub-minute — must not undercut it: a job firing every few seconds is a
+design error and would hammer the host. `@at` is a one-shot and exempt.
+
+**Type:** `60000`
 
 ### `natsCarrier`
 
@@ -4864,6 +5048,25 @@ Mirrors the `isStringDerived` check in `config-validator.ts`.
 
 **Type:** `typeOperator`
 
+### `SUPPORTED_LANGUAGES`
+
+Supported languages — THE canonical vocabulary for the whole platform.
+
+BCP-47 full tags (language + region) — en-GB and en-US are distinct
+first-class locales because they carry different date/number/address
+formatting, not just different dictionaries.
+
+Consumers:
+- `@primebrick/sdk`/`@primebrick/ui` re-export (BE routers, FE pickers)
+- `check-standards` lint (relative-path import, sibling checkout)
+- DB `CHECK (language IN (...))` constraints on `*.translations` —
+  the SQL literals must mirror this list; the lint enforces it.
+
+Adding a language = add the tag here + seed translations + bump the
+CHECK constraints — a deliberate release-scoped change, never data.
+
+**Type:** `typeOperator`
+
 ### `SYSTEM_ACTOR`
 
 Sentinel actor used by non-HTTP code paths (seeds, migrations, scheduled
@@ -5037,6 +5240,22 @@ own namespace plus the CORE vocabularies (`app`, `system`).
 | opts | `ListFilterParamsOptions` |  |
 | startIdx | `number` |  |
 
+### `applyHostFacts(fe, routes, registry, service_code, deps): DocRoute[]`
+
+BE variant: walk every host `+page.svelte`, subtract routes claimed by
+module services (registry) or already declared, extract facts on the
+surviving set, and append the unclaimed statics as `kind:"page"` routes.
+Returns the final route list (routeMap mutated in place — declared
+routes gain `.facts`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| fe | `HostDocsFe` |  |
+| routes | `DocRoute[]` |  |
+| registry | `RegistryRow[]` |  |
+| service_code | `string` |  |
+| deps | `ExtractDeps` |  |
+
 ### `applyPayloadInjectors(payload, ctx): unknown`
 
 Fire-time pass run by the dispatcher on the armed payload: deep-walks
@@ -5067,20 +5286,19 @@ would fail the destination's own `items` validation downstream.
 | ctx | `PayloadMapContext` |  |
 | targetSchema | `Record<string, unknown>` |  |
 
-### `armJobSchedule(req, opts): Promise<{ seq: bigint; skipped: "terminal-once" }>`
+### `applyRemoteFacts(fe, routes, sheets, deps): void`
 
-THE governed way to arm a schedule — the only public API. Issues a
-`callNats` request to `jobs.ctl.schedule.request` on primebrick-job and
-awaits the COMPLETE operation: JetStream declaration → stored-message
-read-back → `job.job_schedules` mirror upsert (with purge compensation
-on mirror failure). Rejects on validation/namespace/internal errors —
-the caller retries or surfaces the error; it never falls back to a
-direct publish (the raw mechanism is job-handler internal).
+Parse the remote chunk dispatch maps and attach `extractRemoteFacts` to
+each route/sheet — plus `opened_by` (route facts naming the sheet via
+`openSheet('<key>')`). Mutates the passed collections (the scripts'
+historical behavior).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| req | `ArmJobScheduleRequest` |  |
-| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
+| fe | `RemoteDocsFe` |  |
+| routes | `DocRoute[]` |  |
+| sheets | `DocSheet[]` |  |
+| deps | `ExtractDeps` |  |
 
 ### `assertDbEnv(cwd): DbEnv`
 
@@ -5523,6 +5741,20 @@ The value a publisher must stamp on outbound calls.
 |-----------|------|-------------|
 | input | `DecimalInput` |  |
 
+### `declareSystemJobs(jobs, opts): Promise<MaterializeResult[]>`
+
+THE governed way to materialize a module's system jobs — awaited
+end-to-end: request/reply onto `jobs.ctl.triggers.materialize` on
+primebrick-job, which reconciles every declared job against its row
+(insert if absent, delta-update code-owned fields, skip deleted rows).
+Rejects on validation/namespace errors — the caller retries at the
+next registration; it never writes `job_triggers` directly.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| jobs | `SystemJobDecl[]` |  |
+| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
+
 ### `defaultCurrencyForLang(lang): string`
 
 Derive the default currency code from a locale string.
@@ -5613,18 +5845,6 @@ a semver-tolerant handshake would only defer an opaque import failure.
 | requires | `Record<string, string>` |  |
 | manifest | `VendorManifest` |  |
 
-### `disarmJobSchedule(name, opts): Promise<void>`
-
-THE governed way to disarm a schedule — awaited end-to-end: purge
-publish → read-back confirms the declaration is gone → mirror flips to
-`disarmed`. Idempotent: disarming an already-disarmed/absent schedule
-resolves cleanly.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| name | `string` |  |
-| opts | `{ timeoutMs: number; connection: NatsConnection }` |  |
-
 ### `div(a, b, opts): Decimal`
 
 `a / b`. Without `scale`, the result uses the PostgreSQL `numeric`
@@ -5650,6 +5870,17 @@ scale the result is flagged `periodic` (`isPeriodic(d)` → true).
 |-----------|------|-------------|
 | packDir | `string` | absolute path of the built pack (e.g. "dist/docs-pack").
   Must contain manifest.json + docs/. |
+
+### `docsPackStale(service_root, pack_dir): boolean`
+
+Boot-time staleness: emit iff the pack is missing or generation inputs
+ (sources, fe sources, authored docs) changed after it. Without any
+ sources (deployed image) the built pack stands — never re-emit.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| service_root | `string` |  |
+| pack_dir | `string` |  |
 
 ### `dueLaneVerify(lane): (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>`
 
@@ -5691,6 +5922,12 @@ The source's effective format — a `*.uuid` semantic slot IS a uuid.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | schema | `Record<string, unknown> \| undefined` |  |
+
+### `emitServiceDocs(input): Promise<EmitServiceDocsResult>`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `EmitServiceDocsInput` |  |
 
 ### `enforceHttpRbac(user, requiredPermissions, mode): void`
 
@@ -6408,6 +6645,22 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 |-----------|------|-------------|
 | value | `string` |  |
 
+### `isSupportedLanguage(tag): tag is "en-US" \| "en-GB" \| "it-IT" \| "fr-FR" \| "es-ES" \| "de-DE" \| "pt-PT"`
+
+Type guard — is `tag` one of the platform-supported language tags?
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| tag | `string` |  |
+
+### `isUUID(v): v is string`
+
+Type guard — validates RFC 4122 layout (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`, hex).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| v | `unknown` |  |
+
 ### `isValidNatsSubject(subject): boolean`
 
 | Parameter | Type | Description |
@@ -6415,10 +6668,6 @@ Runtime validator for SnakeCaseSingular — rejects strings with
 | subject | `unknown` |  |
 
 ### `isValidScheduleSpec(raw): boolean`
-
-`schedule_spec` grammar: `@every <n>[smhd]`, `@at <RFC3339>` or a
- 5-field cron — the NATS `Nats-Schedule` header contract. Pure; the UI
- interpreter (`parseScheduleSpec`/`nextScheduleRuns`) keeps croner.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6452,17 +6701,6 @@ off); anything else maps verbatim (`emailsender.send` →
 | subject | `string` |  |
 
 ### `jobTriggerShapeIssues(entity, now): FieldIssue[]`
-
-`event_subject`/`schedule_spec` are mutually mandatory (at least one);
-`execution_context: "user"` requires an event source to forward auth
-headers from; a one-shot `@at <ts>` must lie in the future — a past
-timestamp FIRES IMMEDIATELY at declare time (verified empirically:
-the declaration PubAcks, the scheduler dispatches at once, then the
-declaration self-purges — an unintended execution, not a dead one).
-`now` is injected so the predicate stays
-pure — the form passes the client clock, the write guard the server
-clock. On `partial` (update), fields not present in `entity` are
-treated from the merged record the caller passes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6507,6 +6745,29 @@ Used by the BE to build the permissions catalog for the FE role-management UI.
 Load auth config from the port into the in-memory cache.
 Called once at startup (and on invalidation).
 Throws if the port is not initialized or the DB is unreachable.
+
+### `loadDocsCompilers(service_root, svelte_root): Promise<DocsCompilers>`
+
+Resolve `typescript` + `pg` from the service's own node_modules and the
+svelte compiler from `svelte_root` (defaults to the service root — the BE
+passes the sanctioned fe-v3 root so the host-page AST dialect matches).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| service_root | `string` |  |
+| svelte_root | `string` |  |
+
+### `loadDocsDbContext(pg, own_schemas): Promise<DocsDbContext>`
+
+The identical DB preamble every script carried: registry rows, the
+en-GB translation dicts (own schemas first, then every other service
+schema as option-label lexicon), census emits/callables and the IdP
+display name. Caller owns connect()/end().
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| pg | `DocsPgClient` |  |
+| own_schemas | `string[]` |  |
 
 ### `loadPermValues(dtsPath): Record<string, string>`
 
@@ -6765,7 +7026,9 @@ operationId from method + path, snake_case:
 ### `orderedColumns(columns): MetaColumn[]`
 
 Columns in display order: sticky group → normal group → audited group,
-each sorted by `order`.
+each sorted by `order`. A column without `order` falls back to its own
+array index (the contract's last resort) — a raw `order - order`
+comparator returns NaN on undefined and corrupts the whole sort.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6901,6 +7164,15 @@ Format: `presence.{entityType}.{entityUuid}`
 | entityType | `string` |  |
 | entityUuid | `string` |  |
 
+### `printDocsReport(report, out_dir): void`
+
+Print the generation report and reconcile `_order.json` on disk.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| report | `RenderReport` |  |
+| out_dir | `string` |  |
+
 ### `publishEntityChanged(nc, marker): Promise<void>`
 
 Publish an entity-changed marker on the NATS
@@ -6935,14 +7207,15 @@ Read service version from the deployed package.json — resolved by
 walking up from the entry file (`detectPackageIdentity`), so it is
 cwd-independent and always the same package as the service identity.
 
-### `reconcileOrder(generatedDir): { added: string[]; dropped: string[] }`
+### `reconcileOrder(dir): { added: string[]; dropped: string[] }`
 
-Reconcile `<generatedDir>/../_order.json` against the `.mdx` files in
-`generatedDir`. Returns the change summary for reporting.
+Reconcile `<dir>/../_order.json` against the `.mdx` files in `dir`,
+using `basename(dir)` as the entry prefix. Returns the change summary
+for reporting.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| generatedDir | `string` |  |
+| dir | `string` |  |
 
 ### `requireActor(): string`
 
@@ -6980,6 +7253,19 @@ Test helper: drop all cached OIDC runtimes so new discovery happens.
 ### `resetSdkCachePort(): void`
 
 Clear the singleton (for tests or graceful shutdown).
+
+### `resolveDisplayTemplate(meta): string \| null`
+
+The materialized display template — `meta.display_name` when authored,
+`"${" + display_field + "}"` otherwise (the served default). ONE rule
+used by both the served-meta assembler (EntityMetaResponse.display_name)
+and the DAL's display-join projection (`<key>_name` columns evaluate the
+SAME template on the joined row), so titles, combos and ref cells can
+never diverge.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `Pick<EntityMeta, "display_field" \| "display_name">` |  |
 
 ### `resolveHttpBindHost(): string`
 
@@ -7165,6 +7451,10 @@ this directly, unless you are writing infrastructure code.
 ### `sanitizeVisibleKeys(visibleKeys, columns): string[]`
 
 Drop unknown keys and fall back to defaults when nothing left.
+ `hideable === false` columns are re-injected unconditionally — a stored
+ set predating the pin (or written when the column could still be hidden)
+ can never violate the declaration. `hideable !== false` columns — e.g.
+ `uuid`, sticky-but-selectable — stay user-controlled.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -7193,15 +7483,24 @@ Resolve the extra-scanned routes an entity's caps prefix covers.
 | caps | `EntityCaps \| undefined` |  |
 | extraRoutes | `ScannedRoute[]` |  |
 
-### `scheduleSubjectFor(name): string`
+### `scheduleEveryMs(spec): number \| undefined`
 
-Derive the declaration subject for this service — the static service
-code resolved from the deployed artifact, so a caller can never
-mis-namespace itself. Names are restricted to subject-safe tokens.
+`@every` interval in ms, or undefined when `spec` is not an `@every` spec.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| name | `string` |  |
+| spec | `string` |  |
+
+### `scheduleSpecError(raw): ScheduleSpecError \| null`
+
+`schedule_spec` grammar: `@every <n>[smhd]` (≥ MIN_SCHEDULE_INTERVAL_MS),
+`@at <RFC3339>` or a 5-field cron — the NATS `Nats-Schedule` header
+contract. Pure; the UI interpreter (`parseScheduleSpec`/`nextScheduleRuns`)
+keeps croner.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `unknown` |  |
 
 ### `schemaHonestyIssue(field, prop): string \| null`
 
@@ -7547,6 +7846,13 @@ Validate a config value against its type and type_config.validation rules.
 | type_config | `string \| null \| undefined` | Raw type_config JSON string from the DB row |
 | value | `string` | The raw string value to validate |
 | config_key | `string` | The config key (for error context) |
+
+### `validateEntitiesDeclaration(code, decl): string \| null`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| code | `string` |  |
+| decl | `unknown` |  |
 
 ### `validateEnv(schema): EnvValidationResult`
 
