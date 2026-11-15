@@ -231,6 +231,12 @@ export {
   type ArmJobScheduleRequest,
 } from "./nats/job-schedule.js";
 export {
+  declareSystemJobs,
+  JOB_TRIGGERS_MATERIALIZE_SUBJECT,
+  type SystemJobDecl,
+  type MaterializeResult,
+} from "./nats/system-jobs.js";
+export {
   JOB_RUN_ID_HEADER,
   JOB_SCHEDULE_SUBJECT_HEADER,
   jobResultSubject,
