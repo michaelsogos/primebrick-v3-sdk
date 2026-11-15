@@ -83,7 +83,7 @@ export interface ArmJobScheduleRequest {
    * (`partition-maintenance.<id>`).
    */
   name: string;
-  /** `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). */
+  /** `"@every 5m"` (≥1m floor) | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). */
   schedule: string;
   /**
    * Subject the stored message is republished to at fire time —

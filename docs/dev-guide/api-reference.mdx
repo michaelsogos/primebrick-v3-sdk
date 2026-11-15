@@ -3910,6 +3910,13 @@ declaring the vendor specifiers/versions it was compiled against.
 
 **Type:** `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>`
 
+### `ScheduleSpecError`
+
+`schedule_spec` rejection reasons — `"below_min_interval"` gets its own
+ issue key so the form can say WHY, not just THAT it failed.
+
+**Type:** `"invalid" \| "below_min_interval"`
+
 ### `ServiceRoutesHandler`
 
 The composed route handler returned by `makeServiceRoutes` — carries
@@ -4366,6 +4373,16 @@ treated from the merged record the caller passes.
 ### `MIGRATION_ROUTE_PREFIX`
 
 **Type:** `"/api/v1/system/db-migration"`
+
+### `MIN_SCHEDULE_INTERVAL_MS`
+
+The floor every recurring spec must respect: one minute. The 5-field
+cron grammar is already minute-floored by design (`* * * * *` is its
+tightest expression), so `@every` — the only grammar able to go
+sub-minute — must not undercut it: a job firing every few seconds is a
+design error and would hammer the host. `@at` is a one-shot and exempt.
+
+**Type:** `60000`
 
 ### `natsCarrier`
 
@@ -6660,10 +6677,6 @@ Type guard — validates RFC 4122 layout (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
 
 ### `isValidScheduleSpec(raw): boolean`
 
-`schedule_spec` grammar: `@every <n>[smhd]`, `@at <RFC3339>` or a
- 5-field cron — the NATS `Nats-Schedule` header contract. Pure; the UI
- interpreter (`parseScheduleSpec`/`nextScheduleRuns`) keeps croner.
-
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | raw | `unknown` |  |
@@ -7477,6 +7490,25 @@ Resolve the extra-scanned routes an entity's caps prefix covers.
 |-----------|------|-------------|
 | caps | `EntityCaps \| undefined` |  |
 | extraRoutes | `ScannedRoute[]` |  |
+
+### `scheduleEveryMs(spec): number \| undefined`
+
+`@every` interval in ms, or undefined when `spec` is not an `@every` spec.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| spec | `string` |  |
+
+### `scheduleSpecError(raw): ScheduleSpecError \| null`
+
+`schedule_spec` grammar: `@every <n>[smhd]` (≥ MIN_SCHEDULE_INTERVAL_MS),
+`@at <RFC3339>` or a 5-field cron — the NATS `Nats-Schedule` header
+contract. Pure; the UI interpreter (`parseScheduleSpec`/`nextScheduleRuns`)
+keeps croner.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `unknown` |  |
 
 ### `scheduleSubjectFor(name): string`
 
