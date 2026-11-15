@@ -223,6 +223,23 @@ export function mapDalError(err: unknown, instance?: string): MappedDalError | n
         },
       );
     }
+    // Out-of-range list page — 400. TS-originated (PageOutOfRangeError):
+    // `page` exceeds `last_page` while matching rows exist. `extra`
+    // carries `{page, last_page, total}` so a legitimately-stale client
+    // can clamp-and-retry; probing still gets a hard error.
+    case "PAGE_OUT_OF_RANGE": {
+      const info = parseDetail(err);
+      return body(
+        "PAGE_OUT_OF_RANGE",
+        400,
+        "Page out of range",
+        messageOf(err, "The requested page is out of range."),
+        "MEDIUM",
+        instance,
+        Object.keys(info).length > 0 ? { ...info } : undefined,
+        "/errors/validation-error",
+      );
+    }
     // Generic DAL codes — `/errors/*` type format (BE parity).
     case "NOT_FOUND":
       return body("NOT_FOUND", 404, "Not found", messageOf(err, "Not found"), "MEDIUM", instance, undefined, "/errors/not-found");
