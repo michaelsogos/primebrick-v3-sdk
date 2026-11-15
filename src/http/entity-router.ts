@@ -655,10 +655,12 @@ export function makeEntityRouter<TEntity = unknown>(
   // audit-actors — the `options_source:"audit.actors"` vocabulary feed:
   // DISTINCT writers of this entity's audit columns, label-resolved
   // server-side. Gated on the `list` permission (filter options are a
-  // list-UX read) AND on the derived audit capability — a non-audited
-  // entity has no actor columns to vocabularize.
+  // list-UX read) AND on capability PRESENCE — the service exposes
+  // `auditActors` only when audit columns exist (`Auditable` mixin).
+  // The audit-trail flag (`hasAuditTrail`) is a different capability:
+  // a table can stamp writers without keeping a change log.
   // MUST precede `/:uuid` — literal segments before param captures.
-  if (config.permissions.list && service.auditable === true) {
+  if (config.permissions.list && typeof service.auditActors === "function") {
     routes.push({
       method: "GET",
       path: `${base}/audit-actors`,
