@@ -116,6 +116,17 @@ export class ClientShieldRegistry {
   }
 
   /**
+   * Public forced re-fetch — the `ShieldRegistryLike.refresh` hook used by
+   * `verifyNatsPublisher`'s stale-snapshot recovery: a verified denial may
+   * simply be a cache that missed its `changed` broadcast (fire-and-forget
+   * core pub — no redelivery). One reload + retry closes that window;
+   * a genuinely unknown client still fails closed on the retry.
+   */
+  async refresh(): Promise<boolean> {
+    return this.reload();
+  }
+
+  /**
    * Re-fetch the snapshot. Returns true when the row material actually
    * changed — hash, previous-hash, or generation (a generation bump with an
    * unchanged hash is still a material change: the owning service must

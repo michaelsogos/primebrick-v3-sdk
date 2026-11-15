@@ -21,6 +21,13 @@ export interface LifecycleRegistry {
    * subscription per hot reload.
    */
   natsSubscriptions?: Map<string, { unsubscribe(): void }>;
+  /**
+   * JetStream pull-consumer fetch loops keyed by `stream::durable` —
+   * jetstreamSubscribe replaces the previous loop instead of stacking
+   * one fetcher per hot reload (a stacked loop still runs the OLD
+   * module's closure and steals messages from the live one).
+   */
+  jetstreamSubscriptions?: Map<string, { close(): Promise<void> }>;
   /** Currently-installed signal/crash listeners, for replacement. */
   signalListeners?: Array<{
     event: string;

@@ -69,9 +69,16 @@ export async function publishJobResultMessage(
     JobResultMessage,
     "status" | "error_code" | "error_detail" | "fire_seq" | "duration_ms" | "report"
   >,
+  /** Correlation the consumed message did NOT carry in headers but its
+   *  payload declares (the `jobs.due.*` envelope contract stamps
+   *  `schedule_subject` in the body). A verify-time denial happens
+   *  BEFORE the handler ever sees the payload — without this the
+   *  refusal is a silent term() with no run row. */
+  fallback?: { schedule_subject?: string },
 ): Promise<void> {
   const run_id = msgHeader(headers, JOB_RUN_ID_HEADER) ?? undefined;
-  const schedule_subject = msgHeader(headers, JOB_SCHEDULE_SUBJECT_HEADER) ?? undefined;
+  const schedule_subject =
+    msgHeader(headers, JOB_SCHEDULE_SUBJECT_HEADER) ?? fallback?.schedule_subject;
   if (run_id === undefined && schedule_subject === undefined) return;
   try {
     await NatsClient.jetstreamPublish(jobResultSubject(subject), {
@@ -121,6 +128,7 @@ export class NatsClient {
       NatsClient.serverVersion = null;
       NatsClient.serverUrl = null;
       lifecycleRegistry().natsSubscriptions?.clear();
+      lifecycleRegistry().jetstreamSubscriptions?.clear();
       logger.warn("NATS connection was closed — opening a fresh one", { tags: ["core"] });
     }
     // Closed-set env contract: no NATS_URL env read — callers pass the URL
@@ -425,7 +433,7 @@ export class NatsClient {
       msg: {
         subject: string;
         headers?: MsgHdrs;
-        info: { redeliveryCount: number };
+        info: { redeliveryCount: number; streamSequence: number };
         authUser?: AuthUser;
       },
     ) => Promise<unknown>;
@@ -481,11 +489,28 @@ export class NatsClient {
             const result = await opts.verify(m);
             if (result === null) {
               // Terminal denial — term() prevents pointless redelivery.
-              await publishJobResultMessage(subject, m.headers, {
-                status: "failed",
-                error_code: "DENIED",
-                fire_seq: m.seq,
-              });
+              // Correlate best-effort: job-lane envelopes declare their
+              // `schedule_subject` in the payload — decode it so the
+              // refusal lands as a visible `failed` run row instead of
+              // vanishing (uncorrelated refusals used to be a silent
+              // no-op — a denied due left zero trace anywhere).
+              let fallback: { schedule_subject?: string } | undefined;
+              try {
+                const decoded = extJsonParse<Record<string, unknown>>(
+                  new TextDecoder().decode(m.data),
+                );
+                if (typeof decoded?.schedule_subject === "string") {
+                  fallback = { schedule_subject: decoded.schedule_subject };
+                }
+              } catch {
+                // Not an envelope-shaped payload — stay uncorrelated.
+              }
+              await publishJobResultMessage(
+                subject,
+                m.headers,
+                { status: "failed", error_code: "DENIED", fire_seq: m.seq },
+                fallback,
+              );
               m.term();
               return;
             }
@@ -499,7 +524,7 @@ export class NatsClient {
             out = await opts.handler(data, {
               subject,
               headers: m.headers,
-              info: { redeliveryCount: m.info.deliveryCount },
+              info: { redeliveryCount: m.info.deliveryCount, streamSequence: m.seq },
               authUser,
             });
           } catch (handlerError) {
@@ -551,10 +576,20 @@ export class NatsClient {
       }
     })();
 
-    return {
+    const handle = {
       async close(): Promise<void> {
         stopped = true;
       },
     };
+    // Hot-reload dedupe — same invariant as core subscribe: a reloaded
+    // module replaces the previous fetch loop on this durable instead of
+    // stacking one (stacked loops keep running the stale module's closure
+    // and steal messages round-robin — silent split-brain consumption).
+    const subKey = `${opts.stream}::${opts.durable}`;
+    const reg = lifecycleRegistry();
+    const prev = reg.jetstreamSubscriptions?.get(subKey);
+    if (prev !== undefined) await prev.close().catch(() => {});
+    (reg.jetstreamSubscriptions ??= new Map()).set(subKey, handle);
+    return handle;
   }
 }

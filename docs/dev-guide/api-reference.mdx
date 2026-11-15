@@ -121,6 +121,14 @@ material — the service registrar hooks this to re-register when its own
 |-----------|------|-------------|
 | cb | `() => void` |  |
 
+#### `ClientShieldRegistry.refresh(): Promise<boolean>`
+
+Public forced re-fetch — the `ShieldRegistryLike.refresh` hook used by
+`verifyNatsPublisher`'s stale-snapshot recovery: a verified denial may
+simply be a cache that missed its `changed` broadcast (fire-and-forget
+core pub — no redelivery). One reload + retry closes that window;
+a genuinely unknown client still fails closed on the retry.
+
 #### `ClientShieldRegistry.generationFor(uaPrefix): number`
 
 The generation the BE issued for `uaPrefix` — a derived-mode service
@@ -494,7 +502,7 @@ messages (concurrency), `maxDeliver` bounds retries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
+| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number; streamSequence: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
 
 ### `NatsHeaderProvider`
 
