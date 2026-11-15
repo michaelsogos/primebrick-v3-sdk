@@ -1761,7 +1761,7 @@ A single validation finding. `path` is the entity field key (or a
 | Field | Type | Description |
 |-------|------|-------------|
 | path | `string` |  |
-| code | `"required" \| "invalid_type" \| "too_small" \| "too_big" \| "invalid_string" \| "invalid_json" \| "schema_mismatch" \| "not_in_vocab"` |  |
+| code | `"required" \| "invalid_type" \| "too_small" \| "too_big" \| "invalid_string" \| "invalid_json" \| "schema_mismatch" \| "not_in_vocab" \| "immutable"` |  |
 | message | `string` |  |
 
 ### `GatewayConfig`
@@ -4315,6 +4315,22 @@ Canonical JOBS stream capture set — schedule/due/result/cancel lanes only.
 
 **Type:** `typeOperator`
 
+### `JOB_TRIGGER_RUN_AS_VOCAB`
+
+`event_subject`/`schedule_spec` are mutually mandatory (at least one);
+`run_as` is closed-vocab (`originator`|`author`|`system`) and
+`run_as: "originator"` requires an event source to forward auth
+headers from; a one-shot `@at <ts>` must lie in the future — a past
+timestamp FIRES IMMEDIATELY at declare time (verified empirically:
+the declaration PubAcks, the scheduler dispatches at once, then the
+declaration self-purges — an unintended execution, not a dead one).
+`now` is injected so the predicate stays
+pure — the form passes the client clock, the write guard the server
+clock. On `partial` (update), fields not present in `entity` are
+treated from the merged record the caller passes.
+
+**Type:** `typeOperator`
+
 ### `LANG_RE`
 
 `lang` — BCP-47 language tag (`it-IT`, `en`, `zh-Hans`, `es-419`) —
@@ -6672,17 +6688,6 @@ off); anything else maps verbatim (`emailsender.send` →
 | subject | `string` |  |
 
 ### `jobTriggerShapeIssues(entity, now): FieldIssue[]`
-
-`event_subject`/`schedule_spec` are mutually mandatory (at least one);
-`execution_context: "user"` requires an event source to forward auth
-headers from; a one-shot `@at <ts>` must lie in the future — a past
-timestamp FIRES IMMEDIATELY at declare time (verified empirically:
-the declaration PubAcks, the scheduler dispatches at once, then the
-declaration self-purges — an unintended execution, not a dead one).
-`now` is injected so the predicate stays
-pure — the form passes the client clock, the write guard the server
-clock. On `partial` (update), fields not present in `entity` are
-treated from the merged record the caller passes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
