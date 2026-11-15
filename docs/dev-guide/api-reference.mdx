@@ -960,7 +960,7 @@ derived as `jobs.schedule.<this-service>.<name>`: a service can NEVER
 arm outside its own namespace (the job-handler enforces the same
 server-side). Dots allowed for sub-namespacing
 (`partition-maintenance.<id>`). |
-| schedule | `string` | `"@every 30s"` | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). |
+| schedule | `string` | `"@every 5m"` (≥1m floor) | `"@at 2025-12-01T09:00:00Z"` | 5-field cron (UTC). |
 | target | `string` | Subject the stored message is republished to at fire time —
 `jobs.due.user.*` or `jobs.due.system.*`. Must be covered by the same
 stream's subjects. |
