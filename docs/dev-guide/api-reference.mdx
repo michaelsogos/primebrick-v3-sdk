@@ -2311,6 +2311,9 @@ dal-pg's `makePartitionMaintenanceJob(entityRegistry)`:
 |-------|------|-------------|
 | needed | `boolean` | `false` when the registry has no maintained surface — nothing mounts. |
 | run | `() => Promise<unknown>` | Runs `dal.partitionMaintenance(entities)`; result → run report. |
+| i18nNs | `() => string` | The owning schema's translation namespace for the callable's
+label/description keys — `public`→`app`, every other schema owns
+itself. Resolved lazily at mount time by the dal-pg factory. |
 
 ### `PayloadInjectContext`
 
