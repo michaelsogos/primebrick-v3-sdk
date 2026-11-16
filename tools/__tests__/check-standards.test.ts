@@ -191,6 +191,30 @@ describe("check-standards — dal-access hardening", () => {
     expect(r.out).toContain("_dal!.hardDelete");
   }, T);
 
+  it("dal-member-write catches alias + bracket-access evasions, not reads", () => {
+    const r = runLint({
+      "services/x.ts": [
+        'declare const thisDal: any;',
+        'export const run = async () => {',
+        '  const dal = thisDal;                    // alias evasion',
+        '  await dal.update(E, { uuid: "1" }, {});',
+        '  await dal.add(E, {});',
+        '  await this.dal["hardDelete"](E, { uuid: "1" });',
+        '  await getDal().update(E, {});           // NOT this rule — dal-access owns getDal',
+        '  await dal.findAll(E);                   // read — clean',
+        '  await dal.transaction((tx: unknown) => tx);',
+        '};',
+        'const E = {};',
+        'declare function getDal(): any;',
+      ].join("\n"),
+    });
+    expect(r.code).toBe(1);
+    // Exactly the 3 writes — getDal() is dal-access's domain (flagged there
+    // too, but never under dal-member-write); reads stay clean.
+    expect(r.out.match(/\[dal-member-write\]/g)?.length).toBe(3);
+    expect(r.out).not.toMatch(/findAll.*\[dal-member-write\]/);
+  }, T);
+
   it("standards-exempt CANNOT suppress dal-member-write", () => {
     const r = runLint({
       "services/x.ts": '// standards-exempt: dal-member-write — tried to self-waive\nexport class X { m() { return this.dal.add(E, {}); } }\nconst E = {};\n',

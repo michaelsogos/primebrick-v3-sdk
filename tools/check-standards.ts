@@ -245,7 +245,7 @@ const LINE_RULES: Rule[] = [
   // Raw-dal writes remain legal ONLY in dal-access seams (standalone
   // services without this.dal — registry/translations/oauth), which never
   // match this pattern anyway.
-  { id: "dal-member-write", pattern: /\bthis\._?dal!?\.(?:add|update|delete|restore|hardDelete|truncate|addMany|updateMany|deleteMany|restoreMany|hardDeleteMany)\s*\(/, hint: "entity writes go through this.svc (or the owning DomainService) — raw dal writes skip hooks/actor/audit/marker" },
+  { id: "dal-member-write", pattern: /(?:\bthis\._?dal!?|\bdal)\s*(?:\.|\[\s*['"])(?:add|update|delete|restore|hardDelete|truncate|addMany|updateMany|deleteMany|restoreMany|hardDeleteMany)\b/, hint: "entity writes go through this.svc (or the owning DomainService) — raw dal writes skip hooks/actor/audit/marker" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
   { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
   {
