@@ -130,10 +130,12 @@
  * suppressed on every run; any violation NOT in the baseline fails.
  * Identity = file+rule+full line text (line numbers excluded: insertions
  * elsewhere must not resurrect hidden debt; editing the line IS new debt).
- * Stale entries warn, never fail. Regenerate: `--write-baseline`.
+ * Stale entries warn, never fail — hand-delete them (shrinking only).
+ * `--write-baseline` was REMOVED (exit 2): debt can never be minted —
+ * the only legal doors are code fixes and config-declared allowPaths.
  *
  * Usage:
- *   bun tools/check-standards.ts <srcDir> [--profile=consumer|lib|fe] [--tests] [--write-baseline]
+ *   bun tools/check-standards.ts <srcDir> [--profile=consumer|lib|fe] [--tests]
  * Exit 0 = clean, 1 = violations, 2 = malformed baseline/usage.
  *
  * Auto-scan: when the invoked repo contains `fe/src` (remote-module bundle),
@@ -143,7 +145,7 @@
  * sibling path (`bun ../../primebrick-v3-sdk/tools/check-standards.ts src`).
  */
 
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 // Zero-dep by contract: the honesty matrix is imported from the sibling
 // core checkout BY RELATIVE PATH (workspace layout — same shape in CI:
@@ -1891,7 +1893,8 @@ violations.push(...checkTruncatedSiblings(process.cwd()));
 // anything else fails the run. Identity = file + rule + full line text (line
 // numbers deliberately excluded — insertions elsewhere must not resurrect
 // hidden debt; a content edit IS a new violation). Stale entries (paid debt
-// or moved lines) warn but don't fail — regen with --write-baseline.
+// or moved lines) warn but don't fail — remove them by hand (shrinking the
+// baseline is always legal; growing it is not — the write path is gone).
 const BASELINE_PATH = join(process.cwd(), ".devin", "check-standards-baseline.json");
 interface BaselineEntry {
   file: string;
@@ -1902,14 +1905,13 @@ const baselineKey = (e: { file: string; rule: string; text: string }) =>
   `${e.file}${e.rule}${e.text.trim()}`;
 
 if (args.includes("--write-baseline")) {
-  const data = {
-    violations: violations.map((v) => ({ file: v.file, rule: v.rule, text: v.text.trim() })),
-  };
-  writeFileSync(BASELINE_PATH, JSON.stringify(data, null, 2) + "\n");
-  console.log(
-    `check-standards: baseline written — ${violations.length} violation(s) declared → ${BASELINE_PATH}`,
+  // Debt declaration is IMPOSSIBLE by construction: the tool refuses to
+  // write a baseline. Existing baselines are still honored (declared debt
+  // is paid down per-repo), but no run can ever mint new debt entries.
+  console.error(
+    `check-standards: --write-baseline was removed — debt is never declared. Fix the violation, or declare a governed seam via .devin/check-standards.json allowPaths.`,
   );
-  process.exit(0);
+  process.exit(2);
 }
 
 let baseline: BaselineEntry[] | null = null;
@@ -1939,7 +1941,7 @@ if (baseline) {
     console.log(`check-standards: ${suppressed} violation(s) suppressed by baseline (declared debt)`);
   if (stale > 0)
     console.log(
-      `check-standards: baseline carries ${stale} stale entr${stale === 1 ? "y" : "ies"} — paid debt or moved lines; regenerate with --write-baseline`,
+      `check-standards: baseline carries ${stale} stale entr${stale === 1 ? "y" : "ies"} — paid debt or moved lines; hand-delete the stale entr${stale === 1 ? "y" : "ies"} (shrinking only, never adding)`,
     );
   violations.length = 0;
   violations.push(...fresh);

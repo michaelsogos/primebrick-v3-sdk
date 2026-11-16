@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -162,5 +162,41 @@ describe("check-standards — dal-access hardening", () => {
     expect(r.code).toBe(1);
     expect(r.out).toContain("[exempt-governance]");
     expect(r.out).toContain("[pg-import]");
+  }, T);
+
+  it("--write-baseline is dead: exit 2 and NO baseline file is minted", () => {
+    const repo = mkdtempSync(join(tmpdir(), "cs-e2e-"));
+    try {
+      mkdirSync(join(repo, "src", "svc"), { recursive: true });
+      writeFileSync(join(repo, "src", "svc", "x.ts"), GETDAL);
+      const r = spawnSync("bun", [TOOL, "src", "--write-baseline"], { cwd: repo, encoding: "utf8" });
+      expect(r.status).toBe(2);
+      expect(`${r.stdout ?? ""}${r.stderr ?? ""}`).toContain("debt is never declared");
+      expect(existsSync(join(repo, ".devin", "check-standards-baseline.json"))).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, T);
+
+  it("existing baseline still suppresses declared debt but cannot grow", () => {
+    const repo = mkdtempSync(join(tmpdir(), "cs-e2e-"));
+    try {
+      mkdirSync(join(repo, "src", "svc"), { recursive: true });
+      mkdirSync(join(repo, ".devin"), { recursive: true });
+      writeFileSync(join(repo, "src", "svc", "old.ts"), 'export const x = () => getDal().findAll();\n');
+      writeFileSync(join(repo, "src", "svc", "fresh.ts"), GETDAL);
+      writeFileSync(
+        join(repo, ".devin", "check-standards-baseline.json"),
+        JSON.stringify({ violations: [{ file: "svc/old.ts", rule: "dal-access", text: "export const x = () => getDal().findAll();" }] }),
+      );
+      const r = spawnSync("bun", [TOOL, "src"], { cwd: repo, encoding: "utf8" });
+      const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+      expect(r.status).toBe(1); // fresh.ts is NOT declared → fails
+      expect(out).toContain("suppressed by baseline");
+      expect(out).toContain("fresh.ts");
+      expect(out).not.toContain("svc/old.ts:2");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   }, T);
 });
