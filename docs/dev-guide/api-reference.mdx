@@ -1483,7 +1483,9 @@ most recent change without scanning the audit log.
 | entity_type | `string` |  |
 | entity_uuid | `string` |  |
 | version | `number` | The new `version` after the save. |
-| audit_log_id | `number` | The `audit_log_id` of the change (for the GET audit/:auditLogId diff endpoint). |
+| audit_log_id | `string \| number` | The audit row key of the change — bigint for legacy surrogate-id
+ audit tables, uuid string for post-eradication `*_audit` rows
+ (PK `(uuid, changed_at)`). |
 | changed_by | `string` | user_uuid of the writer. |
 | changed_by_session | `string` | Tab session of the writer — stamped from `AuditParams.sessionId`, which
 the FE sends as `X-Client-Session` on writes. A save is "self" (silently
@@ -1989,7 +1991,8 @@ convention). Structurally assignable from the real `AuditParams`:
 ### `MarkerAuditPort`
 
 Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
-inserted audit row id (used for the marker's `audit_log_id`).
+inserted audit row key (used for the marker's `audit_log_id`): bigint
+for legacy surrogate-id audit tables, uuid string post-eradication.
 
 ### `MaterializeResult`
 
@@ -2117,6 +2120,13 @@ schema patches (`db-meta/patches` + signed MANIFEST.json) and applies
 them before registration. A critical failure boots the service in
 DEGRADED mode: only `/health` + the db-migration admin routes answer,
 domain traffic gets 503, heartbeat reports `db_migration.ok=false`. |
+| partitionMaintenance | `PartitionMaintenanceJob` | Partition/retention maintenance — the shared system job produced by
+dal-pg's `makePartitionMaintenanceJob(entityRegistry)`.
+`needed=false` (no `@Partition`/`@AuditTrail`/`@Retention` surface)
+mounts nothing and materializes no trigger. When set and needed, the
+`<svc>.partition_maintenance` callable is mounted inside the deferred
+on-ready init (post-NATS, post-migrations) and the system trigger is
+declared through the governed materialize route. |
 | onReady | `(ctx: MicroserviceContext) => Promise<void>` | Callback fired after everything is wired (NATS subscriptions, business
 logic init, etc.). Receives the full MicroserviceContext.
 SKIPPED entirely when the service booted degraded (migration failure). |
@@ -2289,6 +2299,18 @@ snake_case lowercase. Sent in `service.register` → persisted in
 `name` (`primebrick-<code>` → `<code>`). This is the ONLY way a
 service may carry a code that does not derive from its package name —
 it is part of the shipped artifact, not runtime-editable config. |
+
+### `PartitionMaintenanceJob`
+
+What `createMicroservice` needs to mount the job — produced by
+dal-pg's `makePartitionMaintenanceJob(entityRegistry)`:
+`needed` is the metadata gate (`needsPartitionMaintenance`),
+`run` is the DAL executor bound to the service's own registry.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| needed | `boolean` | `false` when the registry has no maintained surface — nothing mounts. |
+| run | `() => Promise<unknown>` | Runs `dal.partitionMaintenance(entities)`; result → run report. |
 
 ### `PayloadInjectContext`
 
@@ -7133,8 +7155,11 @@ dispatches `{}`). Each callable `required` prop is deliverable iff it is
 `x_inject`/`x_semantic`-satisfied at fire time, or the source event's
 declared schema guarantees it (required AND `pathCompatible`).
 
-`sourceSchema === undefined` → schema-less emit: nothing is provable,
-                               fail-open per field.
+`sourceSchema === undefined` → schema-less emit: supply is not
+                               DEMONSTRABLE — same rejection as a
+                               proven-uncovered emit. An explicit map
+                               (unchecked path entries) stays the
+                               escape hatch for dynamic sources.
 `sourceSchema === null`      → no source event (schedule-only): the
                                passthrough payload is `{}` — every
                                uncovered required is undeliverable.

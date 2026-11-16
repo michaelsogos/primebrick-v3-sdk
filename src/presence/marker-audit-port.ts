@@ -49,10 +49,11 @@ export interface MarkerAuditParams {
 
 /**
  * Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
- * inserted audit row id (used for the marker's `audit_log_id`).
+ * inserted audit row key (used for the marker's `audit_log_id`): bigint
+ * for legacy surrogate-id audit tables, uuid string post-eradication.
  */
 export interface MarkerAuditPort {
-  writeAudit(params: MarkerAuditParams): Promise<bigint>;
+  writeAudit(params: MarkerAuditParams): Promise<bigint | string>;
 }
 
 /** Actions that change entity state — INSERT never marks (a new row has no
@@ -69,7 +70,7 @@ export function makeMarkerAuditPort(
   entityType: string,
 ): MarkerAuditPort {
   return {
-    async writeAudit(params: MarkerAuditParams): Promise<bigint> {
+    async writeAudit(params: MarkerAuditParams): Promise<bigint | string> {
       const auditId = await inner.writeAudit(params);
       if (!MARKER_ACTIONS.has(params.action)) return auditId;
 
@@ -77,7 +78,7 @@ export function makeMarkerAuditPort(
         entity_type: entityType,
         entity_uuid: params.entityUuid,
         version: params.version,
-        audit_log_id: Number(auditId),
+        audit_log_id: typeof auditId === "bigint" ? Number(auditId) : auditId,
         changed_by: params.changedBy,
         // Writer's tab session (X-Client-Session → ALS): distinguishes
         // "my own tab saved" from "another tab of the same user saved".
