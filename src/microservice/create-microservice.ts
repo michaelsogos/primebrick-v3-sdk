@@ -123,6 +123,10 @@ import {
 } from "./db-migration-step.js";
 import { makeDbMigrationRouteHandler, MIGRATION_ROUTE_PREFIX } from "../http/migration-routes.js";
 import { snapshotCallables } from "../nats/callable-registry.js";
+import {
+  mountPartitionMaintenanceJob,
+  type PartitionMaintenanceJob,
+} from "./partition-maintenance-job.js";
 
 // ─── Options ───────────────────────────────────────────────────────────────
 
@@ -300,6 +304,17 @@ export interface MicroserviceOptions {
    * domain traffic gets 503, heartbeat reports `db_migration.ok=false`.
    */
   dbPatches?: DbMigrationBootOptions;
+
+  /**
+   * Partition/retention maintenance — the shared system job produced by
+   * dal-pg's `makePartitionMaintenanceJob(entityRegistry)`.
+   * `needed=false` (no `@Partition`/`@AuditTrail`/`@Retention` surface)
+   * mounts nothing and materializes no trigger. When set and needed, the
+   * `<svc>.partition_maintenance` callable is mounted inside the deferred
+   * on-ready init (post-NATS, post-migrations) and the system trigger is
+   * declared through the governed materialize route.
+   */
+  partitionMaintenance?: PartitionMaintenanceJob;
 
   /**
    * Callback fired after everything is wired (NATS subscriptions, business
@@ -986,6 +1001,18 @@ export async function createMicroservice(
 
   deferredOnReady = makeRunOnceInit(async () => {
     if (options.onReady) await options.onReady(ctx);
+    // Shared maintenance job — mounted before the census below so its
+    // callable is registered in the same payload-schema sweep. Gated by
+    // metadata (`needed`): a service with no maintained surface gets no
+    // callable and no trigger.
+    if (options.partitionMaintenance?.needed) {
+      await mountPartitionMaintenanceJob(options.partitionMaintenance);
+    } else if (options.partitionMaintenance) {
+      logger.info(
+        "partition_maintenance: no maintained surface in entity registry — job not declared",
+        { tags: ["jobs"] },
+      );
+    }
     // Callable census — makeNatsRoutes subscriptions run inside onReady,
     // AFTER the initial register() (NATS routes need a live connection).
     // Any route declared with payload_schema was collected by the

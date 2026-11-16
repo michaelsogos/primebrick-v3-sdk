@@ -365,6 +365,10 @@ export {
   type MicroserviceContext,
 } from "./microservice/create-microservice.js";
 
+// Shared partition/retention maintenance system job (callable +
+// materialize) — produced by dal-pg's makePartitionMaintenanceJob.
+export { type PartitionMaintenanceJob } from "./microservice/partition-maintenance-job.js";
+
 // DB migration boot step + db_patch remediation surface (step 2.5)
 export {
   runDbMigrationStep,
