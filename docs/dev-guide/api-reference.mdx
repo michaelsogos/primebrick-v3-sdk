@@ -7117,13 +7117,32 @@ Conformance of a `payload_map` document against the callable's emitted
 | map | `Record<string, unknown> \| PayloadMap \| null \| undefined` |  |
 | callableSchema | `Record<string, unknown>` |  |
 | sourceSchema | `Record<string, unknown>` |  |
-| mapKeySchemas | `Record<string, Record<string, Record<string, unknown>>>` | Resolved `x_map_keys` declarations per field — `{field: {key:
- schema}}` — the catalog-row contract (e.g. a template's
- `variables`). Optional: the wire gate can't resolve catalog rows
- synchronously and skips this layer; the design-time checker passes
- the resolved set so a `const` typed against a declared key schema
- (`"hhhhh"` on `amount:"number"`) fails `invalid_type` instead of
- passing on the record's empty `additionalProperties`. |
+| mapKeySchemas | `Record<string, Record<string, MapKeySchemaOrDecl>>` | Resolved `x_map_keys` declarations per field — `{field: {key:
+ schema | MapKeyDecl}}` — the catalog-row contract (e.g. a
+ template's `variables`). Optional: callers that can't resolve
+ catalog rows skip this layer. A bare schema only type-checks the
+ mapped value; a `MapKeyDecl` carrying `required` also demands the
+ key be PRESENT in the `kind:"map"` entries / `const` object — the
+ same gate the editor applies on save. |
+
+### `payloadPassthroughConformance(callableSchema, sourceSchema): FieldIssue[]`
+
+Passthrough coverage — an EMPTY `payload_map` forwards the event payload
+verbatim (`applyPayloadMap` returns it unchanged; a schedule-only fire
+dispatches `{}`). Each callable `required` prop is deliverable iff it is
+`x_inject`/`x_semantic`-satisfied at fire time, or the source event's
+declared schema guarantees it (required AND `pathCompatible`).
+
+`sourceSchema === undefined` → schema-less emit: nothing is provable,
+                               fail-open per field.
+`sourceSchema === null`      → no source event (schedule-only): the
+                               passthrough payload is `{}` — every
+                               uncovered required is undeliverable.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| callableSchema | `Record<string, unknown>` |  |
+| sourceSchema | `Record<string, unknown> \| null \| undefined` |  |
 
 ### `pgDivScale(a, b): number`
 
