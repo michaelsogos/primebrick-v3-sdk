@@ -52,6 +52,12 @@ export interface PartitionMaintenanceJob {
   needed: boolean;
   /** Runs `dal.partitionMaintenance(entities)`; result → run report. */
   run: () => Promise<unknown>;
+  /**
+   * The owning schema's translation namespace for the callable's
+   * label/description keys — `public`→`app`, every other schema owns
+   * itself. Resolved lazily at mount time by the dal-pg factory.
+   */
+  i18nNs: () => string;
 }
 
 const JOB_NAME = "partition_maintenance";
@@ -86,6 +92,10 @@ export async function mountPartitionMaintenanceJob(
 ): Promise<void> {
   const svc = currentServiceCode();
   const subject = `${svc}.${JOB_NAME}`;
+  // i18n namespace = the OWNING schema's translation namespace (dal-pg
+  // translationKeyNs) — coincides with the service code for every US,
+  // diverges for the BE (public schema → `app` keys).
+  const i18nNs = job.i18nNs();
 
   // The callable route — the actual executor, inside this process. A
   // work item (queue `<svc>`): exactly one replica runs each fire. No
@@ -98,8 +108,8 @@ export async function mountPartitionMaintenanceJob(
         queue: svc,
         permissions: [],
         payload_schema: { schema: PAYLOAD_JSON_SCHEMA, parse: parsePayload },
-        label_key: `${svc}.callable.partition_maintenance.label`,
-        description_key: `${svc}.callable.partition_maintenance.desc`,
+        label_key: `${i18nNs}.callable.partition_maintenance.label`,
+        description_key: `${i18nNs}.callable.partition_maintenance.desc`,
         handler: async () => {
           logger.info(`${JOB_NAME} fired`, { tags: ["jobs"] });
           const report = await job.run();

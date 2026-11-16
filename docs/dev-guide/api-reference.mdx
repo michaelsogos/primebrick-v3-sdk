@@ -6960,6 +6960,17 @@ census-wide lexicon of all service schemas for option labels).
 | a | `DecimalInput` |  |
 | b | `DecimalInput` |  |
 
+### `mountPartitionMaintenanceJob(job): Promise<void>`
+
+Mount the `<svc>.partition_maintenance` callable and materialize the
+system trigger. Called by `createMicroservice` inside the deferred
+on-ready init — NATS is connected and migrations have succeeded by
+then, and the callable is picked up by the post-onReady census.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| job | `PartitionMaintenanceJob` |  |
+
 ### `msgHeader(hdrs, name): string \| null`
 
 Case-insensitive lookup over a case-sensitive MsgHdrs.

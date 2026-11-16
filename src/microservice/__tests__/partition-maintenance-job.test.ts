@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   subscribeShielded: vi.fn(async (_subject?: unknown, _handler?: unknown) => {}),
   setProcessInterval: vi.fn((_key?: unknown, _ms?: unknown, _fn?: unknown) => 0 as never),
   run: vi.fn(async () => ({ dropped: 2 })),
+  i18nNs: "testsvc" as string,
   reset() {
     this.declareJobs.mockReset();
     this.declareJobs.mockResolvedValue([
@@ -35,21 +36,30 @@ const h = vi.hoisted(() => ({
     this.setProcessInterval.mockClear();
     this.run.mockReset();
     this.run.mockResolvedValue({ dropped: 2 });
+    this.i18nNs = "testsvc";
   },
 }));
 
-vi.mock("../nats/system-jobs.js", () => ({ declareSystemJobs: h.declareJobs }));
-vi.mock("../nats/nats-routes.js", () => ({ makeNatsRoutes: h.makeNatsRoutes }));
-vi.mock("../nats/service-shield.js", () => ({ subscribeShielded: h.subscribeShielded }));
-vi.mock("../lifecycle/process-registry.js", () => ({ setProcessInterval: h.setProcessInterval }));
-vi.mock("../service/service-identity.js", () => ({ currentServiceCode: () => "testsvc" }));
-vi.mock("../lifecycle/logger.js", () => ({
+vi.mock("../../nats/system-jobs.js", () => ({ declareSystemJobs: h.declareJobs }));
+vi.mock("../../nats/nats-routes.js", () => ({ makeNatsRoutes: h.makeNatsRoutes }));
+vi.mock("../../nats/service-shield.js", () => ({ subscribeShielded: h.subscribeShielded }));
+vi.mock("../../lifecycle/process-registry.js", () => ({ setProcessInterval: h.setProcessInterval }));
+vi.mock("../../service/service-identity.js", () => ({ currentServiceCode: () => "testsvc" }));
+
+vi.mock("../../lifecycle/logger.js", () => ({
   logger: { done: () => {}, warn: () => {}, info: () => {}, error: () => {}, debug: () => {} },
 }));
 
 import { mountPartitionMaintenanceJob } from "../partition-maintenance-job.js";
 
-type Route = { subject: string; queue?: string; permissions: readonly string[]; handler: (ctx: unknown) => Promise<unknown> };
+type Route = {
+  subject: string;
+  queue?: string;
+  permissions: readonly string[];
+  label_key: string;
+  description_key: string;
+  handler: (ctx: unknown) => Promise<unknown>;
+};
 const callableRoute = () => (h.makeNatsRoutes.mock.calls[0]![0] as Route[])[0]!;
 
 beforeEach(() => {
@@ -58,7 +68,7 @@ beforeEach(() => {
 
 describe("partition-maintenance-job — governed materialize", () => {
   it("declares the system job on the service's own namespace at boot", async () => {
-    await mountPartitionMaintenanceJob({ needed: true, run: h.run });
+    await mountPartitionMaintenanceJob({ needed: true, run: h.run, i18nNs: () => h.i18nNs });
     await vi.waitFor(() => expect(h.declareJobs).toHaveBeenCalledTimes(1));
     expect(h.declareJobs).toHaveBeenCalledWith(
       [
@@ -75,7 +85,7 @@ describe("partition-maintenance-job — governed materialize", () => {
 
   it("a failed materialize retries on the 30s interval tick until it lands", async () => {
     h.declareJobs.mockRejectedValueOnce(new Error("job-handler down"));
-    await mountPartitionMaintenanceJob({ needed: true, run: h.run });
+    await mountPartitionMaintenanceJob({ needed: true, run: h.run, i18nNs: () => h.i18nNs });
     await vi.waitFor(() => expect(h.declareJobs).toHaveBeenCalledTimes(1));
 
     const tick = h.setProcessInterval.mock.calls[0]![2] as () => Promise<void>;
@@ -90,7 +100,7 @@ describe("partition-maintenance-job — governed materialize", () => {
 
   it("a failed materialize also retries on the service.gateway_online broadcast", async () => {
     h.declareJobs.mockRejectedValueOnce(new Error("timeout"));
-    await mountPartitionMaintenanceJob({ needed: true, run: h.run });
+    await mountPartitionMaintenanceJob({ needed: true, run: h.run, i18nNs: () => h.i18nNs });
     await vi.waitFor(() => expect(h.declareJobs).toHaveBeenCalledTimes(1));
 
     const onGateway = h.subscribeShielded.mock.calls.find(
@@ -103,17 +113,33 @@ describe("partition-maintenance-job — governed materialize", () => {
 
 describe("partition-maintenance-job — callable contract", () => {
   it("binds the callable as a queued route on the service's own subject", async () => {
-    await mountPartitionMaintenanceJob({ needed: true, run: h.run });
+    await mountPartitionMaintenanceJob({ needed: true, run: h.run, i18nNs: () => h.i18nNs });
     const route = callableRoute();
     expect(route.subject).toBe("testsvc.partition_maintenance");
     expect(route.queue).toBe("testsvc");
     // System-lane: no user context — permissions empty, the L1 client
     // shield is the only gate.
     expect(route.permissions).toEqual([]);
+    // i18n keys ride the owning schema's translation namespace — for a
+    // US that namespace IS the service code.
+    expect(route.label_key).toBe("testsvc.callable.partition_maintenance.label");
+    expect(route.description_key).toBe("testsvc.callable.partition_maintenance.desc");
+  });
+
+  it("BE-shaped services (own schema 'public') label keys under the 'app' namespace", async () => {
+    h.i18nNs = "app";
+    await mountPartitionMaintenanceJob({ needed: true, run: h.run, i18nNs: () => h.i18nNs });
+    const route = callableRoute();
+    // The subject stays service-coded — only the i18n namespace follows
+    // the public→app rule the migration linter enforces on
+    // public.translations seeds.
+    expect(route.subject).toBe("testsvc.partition_maintenance");
+    expect(route.label_key).toBe("app.callable.partition_maintenance.label");
+    expect(route.description_key).toBe("app.callable.partition_maintenance.desc");
   });
 
   it("handler returns the partition report — the middleware's run outcome", async () => {
-    await mountPartitionMaintenanceJob({ needed: true, run: h.run });
+    await mountPartitionMaintenanceJob({ needed: true, run: h.run, i18nNs: () => h.i18nNs });
     const out = await callableRoute().handler({});
     expect(out).toEqual({ dropped: 2 });
     expect(h.run).toHaveBeenCalledTimes(1);
@@ -121,7 +147,7 @@ describe("partition-maintenance-job — callable contract", () => {
 
   it("handler rethrows — failed result via the middleware", async () => {
     h.run.mockRejectedValue(new Error("pg gone"));
-    await mountPartitionMaintenanceJob({ needed: true, run: h.run });
+    await mountPartitionMaintenanceJob({ needed: true, run: h.run, i18nNs: () => h.i18nNs });
     await expect(callableRoute().handler({})).rejects.toThrow("pg gone");
   });
 });
