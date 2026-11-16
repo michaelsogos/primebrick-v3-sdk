@@ -1483,7 +1483,9 @@ most recent change without scanning the audit log.
 | entity_type | `string` |  |
 | entity_uuid | `string` |  |
 | version | `number` | The new `version` after the save. |
-| audit_log_id | `number` | The `audit_log_id` of the change (for the GET audit/:auditLogId diff endpoint). |
+| audit_log_id | `string \| number` | The audit row key of the change — bigint for legacy surrogate-id
+ audit tables, uuid string for post-eradication `*_audit` rows
+ (PK `(uuid, changed_at)`). |
 | changed_by | `string` | user_uuid of the writer. |
 | changed_by_session | `string` | Tab session of the writer — stamped from `AuditParams.sessionId`, which
 the FE sends as `X-Client-Session` on writes. A save is "self" (silently
@@ -1989,7 +1991,8 @@ convention). Structurally assignable from the real `AuditParams`:
 ### `MarkerAuditPort`
 
 Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
-inserted audit row id (used for the marker's `audit_log_id`).
+inserted audit row key (used for the marker's `audit_log_id`): bigint
+for legacy surrogate-id audit tables, uuid string post-eradication.
 
 ### `MaterializeResult`
 
@@ -2117,6 +2120,13 @@ schema patches (`db-meta/patches` + signed MANIFEST.json) and applies
 them before registration. A critical failure boots the service in
 DEGRADED mode: only `/health` + the db-migration admin routes answer,
 domain traffic gets 503, heartbeat reports `db_migration.ok=false`. |
+| partitionMaintenance | `PartitionMaintenanceJob` | Partition/retention maintenance — the shared system job produced by
+dal-pg's `makePartitionMaintenanceJob(entityRegistry)`.
+`needed=false` (no `@Partition`/`@AuditTrail`/`@Retention` surface)
+mounts nothing and materializes no trigger. When set and needed, the
+`<svc>.partition_maintenance` callable is mounted inside the deferred
+on-ready init (post-NATS, post-migrations) and the system trigger is
+declared through the governed materialize route. |
 | onReady | `(ctx: MicroserviceContext) => Promise<void>` | Callback fired after everything is wired (NATS subscriptions, business
 logic init, etc.). Receives the full MicroserviceContext.
 SKIPPED entirely when the service booted degraded (migration failure). |
@@ -2289,6 +2299,21 @@ snake_case lowercase. Sent in `service.register` → persisted in
 `name` (`primebrick-<code>` → `<code>`). This is the ONLY way a
 service may carry a code that does not derive from its package name —
 it is part of the shipped artifact, not runtime-editable config. |
+
+### `PartitionMaintenanceJob`
+
+What `createMicroservice` needs to mount the job — produced by
+dal-pg's `makePartitionMaintenanceJob(entityRegistry)`:
+`needed` is the metadata gate (`needsPartitionMaintenance`),
+`run` is the DAL executor bound to the service's own registry.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| needed | `boolean` | `false` when the registry has no maintained surface — nothing mounts. |
+| run | `() => Promise<unknown>` | Runs `dal.partitionMaintenance(entities)`; result → run report. |
+| i18nNs | `() => string` | The owning schema's translation namespace for the callable's
+label/description keys — `public`→`app`, every other schema owns
+itself. Resolved lazily at mount time by the dal-pg factory. |
 
 ### `PayloadInjectContext`
 
@@ -6938,6 +6963,17 @@ census-wide lexicon of all service schemas for option labels).
 | a | `DecimalInput` |  |
 | b | `DecimalInput` |  |
 
+### `mountPartitionMaintenanceJob(job): Promise<void>`
+
+Mount the `<svc>.partition_maintenance` callable and materialize the
+system trigger. Called by `createMicroservice` inside the deferred
+on-ready init — NATS is connected and migrations have succeeded by
+then, and the callable is picked up by the post-onReady census.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| job | `PartitionMaintenanceJob` |  |
+
 ### `msgHeader(hdrs, name): string \| null`
 
 Case-insensitive lookup over a case-sensitive MsgHdrs.
@@ -7117,13 +7153,35 @@ Conformance of a `payload_map` document against the callable's emitted
 | map | `Record<string, unknown> \| PayloadMap \| null \| undefined` |  |
 | callableSchema | `Record<string, unknown>` |  |
 | sourceSchema | `Record<string, unknown>` |  |
-| mapKeySchemas | `Record<string, Record<string, Record<string, unknown>>>` | Resolved `x_map_keys` declarations per field — `{field: {key:
- schema}}` — the catalog-row contract (e.g. a template's
- `variables`). Optional: the wire gate can't resolve catalog rows
- synchronously and skips this layer; the design-time checker passes
- the resolved set so a `const` typed against a declared key schema
- (`"hhhhh"` on `amount:"number"`) fails `invalid_type` instead of
- passing on the record's empty `additionalProperties`. |
+| mapKeySchemas | `Record<string, Record<string, MapKeySchemaOrDecl>>` | Resolved `x_map_keys` declarations per field — `{field: {key:
+ schema | MapKeyDecl}}` — the catalog-row contract (e.g. a
+ template's `variables`). Optional: callers that can't resolve
+ catalog rows skip this layer. A bare schema only type-checks the
+ mapped value; a `MapKeyDecl` carrying `required` also demands the
+ key be PRESENT in the `kind:"map"` entries / `const` object — the
+ same gate the editor applies on save. |
+
+### `payloadPassthroughConformance(callableSchema, sourceSchema): FieldIssue[]`
+
+Passthrough coverage — an EMPTY `payload_map` forwards the event payload
+verbatim (`applyPayloadMap` returns it unchanged; a schedule-only fire
+dispatches `{}`). Each callable `required` prop is deliverable iff it is
+`x_inject`/`x_semantic`-satisfied at fire time, or the source event's
+declared schema guarantees it (required AND `pathCompatible`).
+
+`sourceSchema === undefined` → schema-less emit: supply is not
+                               DEMONSTRABLE — same rejection as a
+                               proven-uncovered emit. An explicit map
+                               (unchecked path entries) stays the
+                               escape hatch for dynamic sources.
+`sourceSchema === null`      → no source event (schedule-only): the
+                               passthrough payload is `{}` — every
+                               uncovered required is undeliverable.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| callableSchema | `Record<string, unknown>` |  |
+| sourceSchema | `Record<string, unknown> \| null \| undefined` |  |
 
 ### `pgDivScale(a, b): number`
 

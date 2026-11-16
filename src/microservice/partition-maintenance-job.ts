@@ -1,0 +1,166 @@
+/**
+ * Partition-maintenance — the shared SYSTEM JOB every service gets
+ * by construction when its entity registry carries a maintained
+ * surface (`@Partition`, `@AuditTrail`, or `@Retention`).
+ *
+ * The job is declared in code (the code owns the interchange contract)
+ * and materialized onto `job.job_triggers` via `declareSystemJobs` →
+ * `jobs.ctl.triggers.materialize` on primebrick-job. The trigger row is
+ * the declaration of record: primebrick-job's triggers engine arms the
+ * JetStream schedule, the due-forwarder republishes onto the
+ * `<svc>.partition_maintenance` callable mounted here, and the owning
+ * service executes the DAL partition maintenance inside its own
+ * process — the executor is the owning service itself, never a shared
+ * worker.
+ *
+ * Ownership split (the materialize contract):
+ *   - code owns   → `target_subject`, `run_as`, `event_subject`,
+ *                   `payload_map`, `filter` — releases reconcile them
+ *                   delta-only
+ *   - user owns   → `schedule_spec`, `name`, enable/disable — the row's
+ *                   user-visible schedule is THE schedule
+ *
+ * The declaration is GATED: the consumer passes
+ * `makePartitionMaintenanceJob(ENTITY_REGISTRY)` (dal-pg) and
+ * `needed=false` means no maintained surface — nothing is mounted and
+ * nothing is materialized (a trigger for a job that can't run is a lie).
+ *
+ * Materialize goes through the governed control route (primebrick-job
+ * down = the call rejects): retried every 30s and on
+ * `service.gateway_online`. The reconcile is idempotent — re-declaring
+ * the same contract is a pure read; a disabled (soft-deleted) trigger
+ * row is NEVER resurrected.
+ */
+
+import { makeNatsRoutes } from "../nats/nats-routes.js";
+import { subscribeShielded } from "../nats/service-shield.js";
+import { declareSystemJobs } from "../nats/system-jobs.js";
+import { setProcessInterval } from "../lifecycle/process-registry.js";
+import { SERVICE_SUBJECTS } from "../service/service-lifecycle-subjects.js";
+import { currentServiceCode } from "../service/service-identity.js";
+import { ValidationError } from "../http/rpc-router.js";
+import { logger } from "../lifecycle/logger.js";
+
+/**
+ * What `createMicroservice` needs to mount the job — produced by
+ * dal-pg's `makePartitionMaintenanceJob(entityRegistry)`:
+ * `needed` is the metadata gate (`needsPartitionMaintenance`),
+ * `run` is the DAL executor bound to the service's own registry.
+ */
+export interface PartitionMaintenanceJob {
+  /** `false` when the registry has no maintained surface — nothing mounts. */
+  needed: boolean;
+  /** Runs `dal.partitionMaintenance(entities)`; result → run report. */
+  run: () => Promise<unknown>;
+  /**
+   * The owning schema's translation namespace for the callable's
+   * label/description keys — `public`→`app`, every other schema owns
+   * itself. Resolved lazily at mount time by the dal-pg factory.
+   */
+  i18nNs: () => string;
+}
+
+const JOB_NAME = "partition_maintenance";
+/** Seed cadence — 03:00 UTC daily. The row is user-editable afterwards. */
+const SEED_SCHEDULE = "0 3 * * *";
+const ARM_RETRY_MS = 30_000;
+
+/**
+ * Parameterless maintenance call — the payload contract served to the
+ * callable census. Accepts a plain object or null (schedule-only
+ * triggers dispatch a null payload); anything else is rejected before
+ * the handler runs.
+ */
+const PAYLOAD_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: true,
+};
+const parsePayload = (raw: unknown): unknown => {
+  if (raw === null || raw === undefined) return undefined;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw;
+  throw new ValidationError(`${JOB_NAME}: payload must be an object or null`);
+};
+
+/**
+ * Mount the `<svc>.partition_maintenance` callable and materialize the
+ * system trigger. Called by `createMicroservice` inside the deferred
+ * on-ready init — NATS is connected and migrations have succeeded by
+ * then, and the callable is picked up by the post-onReady census.
+ */
+export async function mountPartitionMaintenanceJob(
+  job: PartitionMaintenanceJob,
+): Promise<void> {
+  const svc = currentServiceCode();
+  const subject = `${svc}.${JOB_NAME}`;
+  // i18n namespace = the OWNING schema's translation namespace (dal-pg
+  // translationKeyNs) — coincides with the service code for every US,
+  // diverges for the BE (public schema → `app` keys).
+  const i18nNs = job.i18nNs();
+
+  // The callable route — the actual executor, inside this process. A
+  // work item (queue `<svc>`): exactly one replica runs each fire. No
+  // user context rides a system-lane dispatch — `permissions: []` leaves
+  // the L1 client-shield as the only gate (primebrick-job publishes).
+  await makeNatsRoutes(
+    [
+      {
+        subject,
+        queue: svc,
+        permissions: [],
+        payload_schema: { schema: PAYLOAD_JSON_SCHEMA, parse: parsePayload },
+        label_key: `${i18nNs}.callable.partition_maintenance.label`,
+        description_key: `${i18nNs}.callable.partition_maintenance.desc`,
+        handler: async () => {
+          logger.info(`${JOB_NAME} fired`, { tags: ["jobs"] });
+          const report = await job.run();
+          logger.done(`${JOB_NAME} done`, { tags: ["jobs"] });
+          return report;
+        },
+      },
+    ],
+    { serviceCode: svc },
+  );
+  logger.done(`${JOB_NAME} callable ready on ${subject}`, { tags: ["jobs"] });
+
+  let armed = false;
+  /** One materialize attempt — idempotent (an unchanged contract is a
+   *  pure read). A failure is never fatal: the callable route above is
+   *  ready regardless, and the retry loop re-attempts until
+   *  primebrick-job answers. */
+  const tryDeclare = async (reason: string): Promise<void> => {
+    if (armed) return;
+    try {
+      const results = await declareSystemJobs(
+        [
+          {
+            key: JOB_NAME,
+            name: `${svc}-partition-maintenance`,
+            schedule_spec: SEED_SCHEDULE,
+            target_subject: subject,
+            run_as: "system",
+          },
+        ],
+        { timeoutMs: 3000 },
+      );
+      armed = true;
+      logger.done(
+        `${JOB_NAME} system trigger materialized (${results.map((r) => `${r.key}:${r.action}`).join(", ")})`,
+        { tags: ["jobs"] },
+      );
+    } catch (err) {
+      logger.warn(
+        `${JOB_NAME} materialize failed (${reason}): ${err instanceof Error ? err.message : err} — retry pending`,
+        { tags: ["jobs"] },
+      );
+    }
+  };
+
+  // Materialize now; if primebrick-job is unreachable the interval + the
+  // gateway_online broadcast (ecosystem restart — services re-register)
+  // keep retrying.
+  void tryDeclare("boot");
+  setProcessInterval(`${svc}-partition-materialize-retry`, ARM_RETRY_MS, () => {
+    void tryDeclare("interval");
+  });
+  await subscribeShielded(SERVICE_SUBJECTS.GATEWAY_ONLINE, () => tryDeclare("gateway_online"));
+}
