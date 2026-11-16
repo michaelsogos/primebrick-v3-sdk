@@ -113,8 +113,18 @@
  *   // standards-exempt-file: <rule-id>[,<rule-id>…] — <reason (required)>
  * A missing/short reason is itself a violation.
  *
- * Governance rules (dal-access, dal-construct, pg-*, raw-*, upsert,
- * new-repository, withClient, pool-ping) are NEVER suppressible — an
+ *   dal-member-write (consumer profile, always-on)
+ *                   `this.dal.<add|update|delete|restore|hardDelete|truncate|
+ *                   *Many>` — DomainService members never write raw: writes go
+ *                   through `this.svc` (or the owning service for foreign
+ *                   entities) so hooks/actor/audit/marker cannot be skipped.
+ *                   Reads and infra (find*, transaction, entityService) are
+ *                   unaffected; standalone getDal() seams stay governed by
+ *                   dal-access allowPaths instead.
+ *
+ * Governance rules (dal-access, dal-construct, dal-member-write, pg-*,
+ * raw-*, upsert, new-repository, withClient, pool-ping) are NEVER
+ * suppressible — an
  * inline exemption targeting one is itself a violation
  * (`exempt-governance`). Their only legal exemptions live in
  * `.devin/check-standards.json` `allowPaths`, as reviewable diffs.
@@ -171,6 +181,7 @@ type RuleId =
   | "error-detail-stringify"
   | "dal-access"
   | "dal-construct"
+  | "dal-member-write"
   | "exempt-governance"
   | "layer-repo-import"
   | "i18n-key-ns"
@@ -228,6 +239,13 @@ const LINE_RULES: Rule[] = [
   { id: "upsert", pattern: /\.upsert(?:Many)?\s*\(/, hint: "upsert removed — find → add | update(version)" },
   { id: "new-repository", pattern: /\bnew\s+Repository\s*\(/, hint: "use dal.entityService()/dal.tableAuditPort()" },
   { id: "dal-construct", pattern: /\bnew\s+Dal\s*\(/, hint: "consumers never construct Dal — the gateway singleton is owned by initDal" },
+  // `this.dal`/`this._dal` writes bypass the svc pipeline (hooks, actor
+  // resolution, audit port, marker publish) — every DomainService write has
+  // an owner: svc for the own entity, the owning service for foreign ones.
+  // Raw-dal writes remain legal ONLY in dal-access seams (standalone
+  // services without this.dal — registry/translations/oauth), which never
+  // match this pattern anyway.
+  { id: "dal-member-write", pattern: /\bthis\._?dal!?\.(?:add|update|delete|restore|hardDelete|truncate|addMany|updateMany|deleteMany|restoreMany|hardDeleteMany)\s*\(/, hint: "entity writes go through this.svc (or the owning DomainService) — raw dal writes skip hooks/actor/audit/marker" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
   { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
   {
@@ -827,7 +845,7 @@ const SQL_SHAPES =
 const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
-  "dal-construct",
+  "dal-construct", "dal-member-write",
   "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
   "schema-honest-format", "entity-type-declared",
 ]);
@@ -841,8 +859,8 @@ const CONSUMER_RULES = new Set<RuleId>([
  * (`exempt-governance`).
  */
 const NO_EXEMPT_RULES = new Set<RuleId>([
-  "dal-access", "dal-construct", "pg-import", "pg-pool", "raw-query",
-  "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
+  "dal-access", "dal-construct", "dal-member-write", "pg-import", "pg-pool",
+  "raw-query", "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
 ]);
 const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control"]);
 // `fe` — browser SPA: no base line rules (server-side contracts don't

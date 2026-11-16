@@ -164,6 +164,42 @@ describe("check-standards — dal-access hardening", () => {
     expect(r.out).toContain("[pg-import]");
   }, T);
 
+  it("dal-member-write flags this.dal.<write> — svc is the only write path", () => {
+    const r = runLint({
+      "services/x.ts": [
+        'export class X {',
+        '  private dal = {',
+        '    update: async (e: unknown, d: unknown, o: unknown) => d,',
+        '    findAll: async (e: unknown) => [] as unknown[],',
+        '    transaction: async (f: (t: unknown) => unknown) => f({}),',
+        '  };',
+        '  private svc = { update: async (u: string, b: unknown) => b };',
+        '  async a() { return this.dal.update(E, { uuid: "1" }, {}); }',
+        '  async b() { return this._dal!.hardDelete(E, { uuid: "1" }); }',
+        '  private _dal?: { hardDelete: (e: unknown, d: unknown) => unknown };',
+        '  async c() { return this.svc.update("1", { name: "x" }); }',
+        '  async d() { return this.dal.findAll(E); }',
+        '  async e() { return this.dal.transaction((tx) => tx); }',
+        '}',
+        'const E = {};',
+      ].join("\n"),
+    });
+    expect(r.code).toBe(1);
+    // update + hardDelete flagged; findAll/transaction reads stay clean.
+    expect(r.out.match(/\[dal-member-write\]/g)?.length).toBe(2);
+    expect(r.out).toContain("dal.update");
+    expect(r.out).toContain("_dal!.hardDelete");
+  }, T);
+
+  it("standards-exempt CANNOT suppress dal-member-write", () => {
+    const r = runLint({
+      "services/x.ts": '// standards-exempt: dal-member-write — tried to self-waive\nexport class X { m() { return this.dal.add(E, {}); } }\nconst E = {};\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[exempt-governance]");
+    expect(r.out).toContain("[dal-member-write]");
+  }, T);
+
   it("--write-baseline is dead: exit 2 and NO baseline file is minted", () => {
     const repo = mkdtempSync(join(tmpdir(), "cs-e2e-"));
     try {
