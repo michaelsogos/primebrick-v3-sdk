@@ -13,10 +13,11 @@
  * service's package.json, svelte from the service's — or the sanctioned
  * BE↔FE pair root's — compiler). The engine never hardcodes a dependency.
  */
-// standards-exempt-file: raw-sql — build-time doc tooling queries dynamic
-// `<schema>.translations` across every registry schema: no entity DSL can
-// express a runtime-interpolated schema/table; the queries read
-// service_registry/config_entries, never entity rows
+// Build-time doc tooling queries dynamic `<schema>.translations` across
+// every registry schema: no entity DSL can express a runtime-interpolated
+// schema/table; the queries read service_registry/config_entries, never
+// entity rows. The sanctioned seam is declared in .devin/check-standards.json
+// (raw-sql allowPaths) — never via inline suppression.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

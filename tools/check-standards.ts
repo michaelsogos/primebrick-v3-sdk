@@ -14,6 +14,8 @@
  *   withClient      `withClient` — use dal.transaction(repo => …)
  *   upsert          `.upsert(`/`.upsertMany(` — removed; find → add | update
  *   new-repository  `new Repository(` — use dal.entityService/tableAuditPort
+ *   dal-construct   `new Dal(` — consumers never construct Dal; initDal owns
+ *                   the gateway singleton
  *   pool-ping       `client|pool|conn.ping(` — raw driver ping; use dal.serverVersion()
  *   column-flag-defaults
  *                   `col.default_visible|sortable|filterable|searchable
@@ -111,6 +113,18 @@
  *   // standards-exempt-file: <rule-id>[,<rule-id>…] — <reason (required)>
  * A missing/short reason is itself a violation.
  *
+ * Governance rules (dal-access, dal-construct, pg-*, raw-*, upsert,
+ * new-repository, withClient, pool-ping) are NEVER suppressible — an
+ * inline exemption targeting one is itself a violation
+ * (`exempt-governance`). Their only legal exemptions live in
+ * `.devin/check-standards.json` `allowPaths`, as reviewable diffs.
+ *
+ * `dal-access`/`layer-repo-import` are ALWAYS-ON for the consumer
+ * profile: a repo's config may narrow their allowPaths/appliesTo, but a
+ * repo with NO config is still governed (default allowPaths
+ * `db/dal.ts|db/dal-gateway.ts|index.ts`, appliesTo `controllers/`) — a
+ * missing opt-in can no longer mean "unguarded".
+ *
  * Baseline (declared-debt gate): `.devin/check-standards-baseline.json` in
  * the repo root carries `{ "violations": [{file,rule,text}] }` — entries
  * suppressed on every run; any violation NOT in the baseline fails.
@@ -154,6 +168,8 @@ type RuleId =
   | "column-flag-defaults"
   | "error-detail-stringify"
   | "dal-access"
+  | "dal-construct"
+  | "exempt-governance"
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
@@ -209,6 +225,7 @@ const LINE_RULES: Rule[] = [
   { id: "withClient", pattern: /\bwithClient\b/, hint: "use dal.transaction(repo => …)" },
   { id: "upsert", pattern: /\.upsert(?:Many)?\s*\(/, hint: "upsert removed — find → add | update(version)" },
   { id: "new-repository", pattern: /\bnew\s+Repository\s*\(/, hint: "use dal.entityService()/dal.tableAuditPort()" },
+  { id: "dal-construct", pattern: /\bnew\s+Dal\s*\(/, hint: "consumers never construct Dal — the gateway singleton is owned by initDal" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
   { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
   {
@@ -233,7 +250,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
 ]);
 const GATED_LINE_RULES: Rule[] = [
-  { id: "dal-access", pattern: /\b(?:initDal|getDal)\s*\(/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal() only inside the declared allowlist" },
+  { id: "dal-access", pattern: /\b(?:initDal|getDal|resetDal)\s*\(|\bimport\s+(?:type\s+)?\{[^}]*\b(?:initDal|getDal|resetDal)\b/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal()/resetDal() only inside the declared allowlist" },
   { id: "layer-repo-import", pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'][^"']*[-_](?:dal|repo|repository)(?:\.js|\.ts)?["']/, hint: "transport/dispatch layers must call services — never import *-dal/*-repo modules" },
   // Single-line `import { …Switch… } from '@primebrick/ui'` — \b after
   // "Switch" never matches SwitchField. Multi-line import lists are caught
@@ -808,8 +825,22 @@ const SQL_SHAPES =
 const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
+  "dal-construct",
   "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
   "schema-honest-format", "entity-type-declared",
+]);
+
+/**
+ * Governance rules `standards-exempt`/`standards-exempt-file`/`all` can
+ * NEVER suppress — a self-granted exemption is the drift vector these
+ * rules exist to close. Exemptions for them live ONLY in
+ * `.devin/check-standards.json` `allowPaths`, where they are reviewable
+ * diffs; an inline exemption targeting one is itself a violation
+ * (`exempt-governance`).
+ */
+const NO_EXEMPT_RULES = new Set<RuleId>([
+  "dal-access", "dal-construct", "pg-import", "pg-pool", "raw-query",
+  "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
 ]);
 const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control"]);
 // `fe` — browser SPA: no base line rules (server-side contracts don't
@@ -928,7 +959,7 @@ function isTestFile(p: string): boolean {
   );
 }
 
-function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespaces?: ReadonlySet<string>): Violation[] {
+function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespaces?: ReadonlySet<string>, cfgRuleScopes?: ReadonlyMap<RuleId, { allowPaths?: RegExp; appliesTo?: RegExp }>): Violation[] {
   const out: Violation[] = [];
   const lines = readFileSync(file, "utf8").split("\n");
   const rel = relative(srcDir, file).replace(/\\/g, "/");
@@ -945,16 +976,20 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
 
   // File-level exemption — scanned before the loop; still requires a reason.
   const fileExempt = lines.map((l) => parseExempt(l, true)).find(Boolean) ?? null;
+  const fileExemptLine = lines.findIndex((l) => l.includes("standards-exempt-file:")) + 1;
   if (fileExempt && !fileExempt.hasReason) {
-    const lineNo = lines.findIndex((l) => l.includes("standards-exempt-file:")) + 1;
     out.push({
-      file: rel, line: lineNo, rule: "exempt-no-reason",
-      text: lines[lineNo - 1]?.trim() ?? "", hint: "standards-exempt-file requires a reason after '—'",
+      file: rel, line: fileExemptLine, rule: "exempt-no-reason",
+      text: lines[fileExemptLine - 1]?.trim() ?? "", hint: "standards-exempt-file requires a reason after '—'",
     });
   }
   const isExempted = (exempt: { rules: Set<string>; hasReason: boolean } | null, id: string) =>
     (exempt?.hasReason && (exempt.rules.has(id) || exempt.rules.has("all"))) ||
     (fileExempt?.hasReason && (fileExempt.rules.has(id) || fileExempt.rules.has("all")));
+
+  /** Exempt-comment lines already flagged for trying to suppress a
+   *  governance rule — one `exempt-governance` finding per tag per rule. */
+  const governanceFlagged = new Set<string>();
 
   // `@Calculated(...)` argument context — the decorator OWNS raw SQL by
   // contract: entity classes are the one sanctioned place for projection
@@ -998,19 +1033,44 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
       calculatedDepth += parenDelta(line);
     }
 
+    /** Flag an exemption tag that tried to suppress a governance rule —
+     *  the attempt is itself a finding (one per tag per rule). */
+    const flagGovernanceExempt = (ruleId: RuleId) => {
+      const tagLine = exemptHere ? i + 1 : exemptAbove ? i : fileExemptLine;
+      const flagKey = `${tagLine}:${ruleId}`;
+      if (governanceFlagged.has(flagKey)) return;
+      governanceFlagged.add(flagKey);
+      out.push({
+        file: rel, line: tagLine, rule: "exempt-governance",
+        text: lines[tagLine - 1]?.trim() ?? "",
+        hint: `standards-exempt cannot suppress '${ruleId}' — exemptions for governance rules live only in .devin/check-standards.json allowPaths`,
+      });
+    };
+
     for (const rule of activeLineRules) {
       if (!rule.pattern.test(line)) continue;
-      if (isExempted(exempt, rule.id)) continue;
+      if (isExempted(exempt, rule.id)) {
+        if (!NO_EXEMPT_RULES.has(rule.id)) continue;
+        flagGovernanceExempt(rule.id);
+      }
       out.push({ file: rel, line: i + 1, rule: rule.id, text: line.trim(), hint: rule.hint });
       break; // one finding per line keeps output readable
     }
 
-    if (rules.has("raw-sql") && !inCalculated) {
+    const rawSqlScope = cfgRuleScopes?.get("raw-sql");
+    if (
+      rules.has("raw-sql") && !inCalculated &&
+      !rawSqlScope?.allowPaths?.test(rel) &&
+      (!rawSqlScope?.appliesTo || rawSqlScope.appliesTo.test(rel))
+    ) {
       STRING_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = STRING_RE.exec(line))) {
         if (SQL_SHAPES.test(m[0])) {
-          if (!isExempted(exempt, "raw-sql")) {
+          if (isExempted(exempt, "raw-sql") && NO_EXEMPT_RULES.has("raw-sql")) {
+            flagGovernanceExempt("raw-sql");
+          }
+          if (!isExempted(exempt, "raw-sql") || NO_EXEMPT_RULES.has("raw-sql")) {
             out.push({ file: rel, line: i + 1, rule: "raw-sql", text: line.trim(), hint: "raw SQL literal — use entity DSL/Repository" });
           }
           break;
@@ -1688,17 +1748,51 @@ const rules = new Set(
 // rule objects here — patterns stay fixed in code).
 const cfg = loadStandardsConfig();
 const cfgEnabled = new Set<RuleId>();
+/** Config-declared scopes for rules whose checks are STRUCTURAL (they don't
+ *  flow through `activeLineRules` — e.g. the raw-sql string scan): the
+ *  allowPaths/appliesTo the repo declared, consulted at the check site. */
+const cfgRuleScopes = new Map<RuleId, { allowPaths?: RegExp; appliesTo?: RegExp }>();
 for (const [id, opts] of Object.entries(cfg.rules ?? {})) {
-  if (!GATED_RULE_IDS.has(id as RuleId)) continue;
-  const rule = GATED_LINE_RULES.find((r) => r.id === id);
+  const rid = id as RuleId;
+  // Config may (a) ACTIVATE a gated rule, or (b) inject allowPaths/
+  // appliesTo onto an already-active rule — the latter is how sanctioned
+  // seams are declared for unsuppressible governance rules.
+  const gated = GATED_RULE_IDS.has(rid);
+  if (!gated && !rules.has(rid)) continue;
+  // Scope regexes from the declared config — populated even when no rule
+  // object exists (structural checks like raw-sql have no LINE_RULE entry).
+  const scope = {
+    allowPaths: opts !== true ? exactPathsRegex(opts.allowPaths) : undefined,
+    appliesTo: opts !== true ? prefixRegex(opts.appliesTo) : undefined,
+  };
+  cfgRuleScopes.set(rid, scope);
+  const rule = GATED_LINE_RULES.find((r) => r.id === rid) ?? LINE_RULES.find((r) => r.id === rid);
   if (!rule) continue;
-  if (opts !== true) {
-    rule.allowPaths = exactPathsRegex(opts.allowPaths);
-    rule.appliesTo = prefixRegex(opts.appliesTo);
-  }
-  LINE_RULES.push(rule);
+  rule.allowPaths = scope.allowPaths;
+  rule.appliesTo = scope.appliesTo;
+  if (!LINE_RULES.includes(rule)) LINE_RULES.push(rule);
   rules.add(rule.id);
   cfgEnabled.add(rule.id);
+}
+
+// Always-on governance (consumer profile): a repo may NARROW these rules'
+// scope via config, but absent config must never mean "rule off" — a
+// missing opt-in is an unguarded surface (e.g. a new service bootstrapped
+// without check-standards.json would carry no dal-access at all).
+if (profile === "consumer") {
+  const defaults: { id: RuleId; allowPaths?: string[]; appliesTo?: string[] }[] = [
+    { id: "dal-access", allowPaths: ["db/dal.ts", "db/dal-gateway.ts", "index.ts"] },
+    { id: "layer-repo-import", appliesTo: ["controllers/"] },
+  ];
+  for (const d of defaults) {
+    if (cfgEnabled.has(d.id)) continue;
+    const rule = GATED_LINE_RULES.find((r) => r.id === d.id);
+    if (!rule) continue;
+    rule.allowPaths = exactPathsRegex(d.allowPaths);
+    rule.appliesTo = prefixRegex(d.appliesTo);
+    LINE_RULES.push(rule);
+    rules.add(rule.id);
+  }
 }
 
 const violations: Violation[] = [];
@@ -1707,7 +1801,7 @@ const i18nNamespaces = cfg.i18n_namespaces?.length ? new Set(cfg.i18n_namespaces
 
 for (const file of walk(dir)) {
   if (!includeTests && isTestFile(file)) continue;
-  violations.push(...checkFile(file, dir, rules, i18nNamespaces));
+  violations.push(...checkFile(file, dir, rules, i18nNamespaces, cfgRuleScopes));
 }
 
 // Remote-module surfaces (`fe/src`) are browser code inside service repos —
@@ -1722,7 +1816,7 @@ if (dirNorm !== "fe/src" && existsSync(feDir)) {
   const feRules = new Set<RuleId>([...FE_RULES, ...cfgEnabled]);
   for (const file of walk(feDir)) {
     if (!includeTests && isTestFile(file)) continue;
-    violations.push(...checkFile(file, process.cwd(), feRules, i18nNamespaces));
+    violations.push(...checkFile(file, process.cwd(), feRules, i18nNamespaces, cfgRuleScopes));
   }
 }
 
