@@ -186,6 +186,7 @@ type RuleId =
   | "layer-repo-import"
   | "i18n-key-ns"
   | "i18n-sql-ns"
+  | "i18n-sql-key-ref"
   | "i18n-language-literal"
   | "i18n-key-grammar"
   | "seed-audit-trail"
@@ -348,6 +349,13 @@ interface StandardsConfig {
    * grandfathered by name. New patches must comply.
    */
   i18n_sql_exempt?: string[];
+  /**
+   * db-meta/patches filenames exempt from `i18n-sql-key-ref` — shipped
+   * patches whose `*_key`/tooltip-family references predate the namespace
+   * boundary can never be edited, so they are grandfathered by name; a
+   * corrective patch remedies their data instead. New patches must comply.
+   */
+  i18n_key_ref_exempt?: string[];
   /**
    * db-meta/patches filenames exempt from `i18n-language-literal` — shipped
    * patches that predate the language vocabulary can never be edited, so
@@ -1099,11 +1107,9 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
     }
 
     if (i18nNamespaces) {
-      I18N_KEY_LITERAL.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = I18N_KEY_LITERAL.exec(line))) {
-        const lit = m[1]!;
-        if (!lit.includes(".")) continue; // field-name, not an i18n key
+      const allowed = [...i18nNamespaces].join(", ");
+      /** ns-check + (when ns passes) grammar-check one proven literal. */
+      const checkKey = (lit: string, what: string) => {
         const ns = lit.split(".")[0]!;
         if (!i18nNamespaces.has(ns)) {
           out.push({
@@ -1111,7 +1117,7 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
             line: i + 1,
             rule: "i18n-key-ns" as RuleId,
             text: line.trim(),
-            hint: `i18n key namespace '${ns}' is outside this repo's allowlist {${[...i18nNamespaces].join(", ")}} — declarations may reference own + CORE (app/system) namespaces only`,
+            hint: `${what} namespace '${ns}' is outside this repo's allowlist {${allowed}} — a module's literals may cite only its declared namespaces`,
           });
         } else if (!KEY_GRAMMAR.test(lit)) {
           out.push({
@@ -1119,32 +1125,62 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
             line: i + 1,
             rule: "i18n-key-grammar" as RuleId,
             text: line.trim(),
-            hint: `i18n key '${lit}' violates the segment grammar — every segment must be [a-z0-9_]+ (lowercase snake_case), ≥2 dot-separated segments`,
+            hint: `${what} '${lit}' violates the segment grammar — every segment must be [a-z0-9_]+ (lowercase snake_case), ≥2 dot-separated segments`,
           });
         }
+      };
+      /** Template body — provable only through its static prefix: a `.`
+       *  before the first `${` completes the namespace segment; the
+       *  grammar check runs on completed segments (or the whole body
+       *  when no interpolation exists). */
+      const checkTemplate = (body: string, what: string) => {
+        const prefix = body.split("${")[0]!;
+        if (!prefix.includes(".")) return; // ns segment incomplete — unprovable
+        if (prefix === body) return checkKey(prefix, `${what} template`);
+        const ns = prefix.split(".")[0]!;
+        if (!i18nNamespaces.has(ns)) {
+          out.push({
+            file: rel,
+            line: i + 1,
+            rule: "i18n-key-ns" as RuleId,
+            text: line.trim(),
+            hint: `${what} template namespace '${ns}' is outside this repo's allowlist {${allowed}} — a module's literals may cite only its declared namespaces`,
+          });
+          return;
+        }
+        const completed = prefix.replace(/[^.]*$/, "").replace(/\.$/, "");
+        if (completed.includes(".") && !KEY_GRAMMAR.test(completed)) {
+          out.push({
+            file: rel,
+            line: i + 1,
+            rule: "i18n-key-grammar" as RuleId,
+            text: line.trim(),
+            hint: `${what} template prefix '${completed}' violates the segment grammar — every segment must be [a-z0-9_]+ (lowercase snake_case), ≥2 dot-separated segments`,
+          });
+        }
+      };
+      let m: RegExpExecArray | null;
+      I18N_KEY_LITERAL.lastIndex = 0;
+      while ((m = I18N_KEY_LITERAL.exec(line))) {
+        if (NON_I18N_KEY_FIELDS.has(m[1]!)) continue;
+        const lit = m[2]!;
+        if (!lit.includes(".")) continue; // field-name, not an i18n key
+        checkKey(lit, "i18n key");
       }
       T_CALL_LITERAL.lastIndex = 0;
       while ((m = T_CALL_LITERAL.exec(line))) {
         const lit = m[1]!;
         if (!lit.includes(".")) continue;
-        const ns = lit.split(".")[0]!;
-        if (!i18nNamespaces.has(ns)) {
-          out.push({
-            file: rel,
-            line: i + 1,
-            rule: "i18n-key-ns" as RuleId,
-            text: line.trim(),
-            hint: `t() references namespace '${ns}' outside this repo's allowlist {${[...i18nNamespaces].join(", ")}} — callsites may reference own + CORE (app/system) namespaces only`,
-          });
-        } else if (!KEY_GRAMMAR.test(lit)) {
-          out.push({
-            file: rel,
-            line: i + 1,
-            rule: "i18n-key-grammar" as RuleId,
-            text: line.trim(),
-            hint: `t() literal '${lit}' violates the segment grammar — every segment must be [a-z0-9_]+ (lowercase snake_case), ≥2 dot-separated segments`,
-          });
-        }
+        checkKey(lit, "t() literal");
+      }
+      I18N_KEY_TEMPLATE.lastIndex = 0;
+      while ((m = I18N_KEY_TEMPLATE.exec(line))) {
+        if (NON_I18N_KEY_FIELDS.has(m[1]!)) continue;
+        checkTemplate(m[2]!, "i18n key");
+      }
+      T_CALL_TEMPLATE.lastIndex = 0;
+      while ((m = T_CALL_TEMPLATE.exec(line))) {
+        checkTemplate(m[1]!, "t()");
       }
     }
   }
@@ -1517,8 +1553,22 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
 // TRANSLATION_KEY_GRAMMAR — this tool is zero-dep by design). Also covers
 // `t(`/`$t(` callsite literals via T_CALL_LITERAL below.
 const KEY_GRAMMAR = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
-const I18N_KEY_LITERAL = /\b(?:\w*_key|tooltip|tooltip_title)\s*:\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
+// Not every `*_key` carries an i18n key — the field name is captured so
+// NON_I18N_KEY_FIELDS can be skipped. `system_key` is the callable-subject
+// field (`system_key: "ai.partition_maintenance"` is a NATS subject, not a
+// translation) — checking it against the i18n allowlist is a false
+// positive by construction.
+const NON_I18N_KEY_FIELDS = new Set(["system_key"]);
+const I18N_KEY_LITERAL = /\b(\w*_key|tooltip|tooltip_title)\s*:\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
 const T_CALL_LITERAL = /\b\$?t\(\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
+// Template literals — `t(`ns.rest.${x}`)` / `field_key: `ns.rest.${x}`` —
+// evade the quoted-literal patterns (the `${` breaks the tail). The
+// checkable surface is the STATIC prefix before the first `${`: when it
+// already contains a `.`, the namespace segment is complete and provable.
+// A template that opens with `${` — or breaks inside the first segment —
+// is unprovable and skipped: a static analyzer flags what it can prove.
+const I18N_KEY_TEMPLATE = /\b(\w*_key|tooltip|tooltip_title)\s*:\s*`([^`]*)`/g;
+const T_CALL_TEMPLATE = /\b\$?t\(\s*`([^`]*)`/g;
 
 // i18n-sql-ns — db-meta seed boundary: a patch may insert translation keys
 // only inside the namespace owned by the target schema. Canonical rule
@@ -1692,6 +1742,134 @@ function checkTranslationLanguageLiterals(repoRoot: string, exemptFiles: Readonl
   return out;
 }
 
+// i18n-sql-key-ref — db-meta seed boundary for REFERENCES: `*_key`/
+// tooltip-family values inside INSERT/UPDATE statements may cite only the
+// repo's declared `i18n_namespaces` (the module contract) — or, when the
+// repo declares none, {app, <statement target's namespace>}: a US patch
+// writing `job.config_entries` may reference `app.*`/`job.*` and nothing
+// else. Three surfaces per statement:
+//   • column refs — `*_key`/`tooltip` cells at their position in the
+//     INSERT column list (`label_key`, `description_key`, …)
+//   • SET refs — `UPDATE … SET x_key = 'ns.x'`, incl. ON CONFLICT clauses
+//   • nested JSON refs — `"label_key": "ns.x"` inside type_config/meta
+//     string literals
+// `*.translations` targets are skipped: the seeded `key` column is data,
+// and the write boundary is i18n-sql-ns's job — this rule guards the
+// reference side. NON_I18N_KEY_FIELDS are skipped (callable subjects,
+// not translations). Statement context closes at `;` like the sibling
+// checkers; tuple splitting reuses splitSqlTuple.
+const SQL_DML_TARGET = /\b(?:INSERT\s+INTO|UPDATE)\s+"?(\w+)"?\s*\.\s*"?(\w+)"?/i;
+const SQL_DML_COLS = /\bINSERT\s+INTO\s+"?(\w+)"?\s*\.\s*"?(\w+)"?\s*\(([^)]*)\)/i;
+const SQL_SET_KEY_REF = /\b(\w*_key|tooltip|tooltip_title)\s*=\s*'([a-z][a-z0-9_.]*)'/gi;
+const SQL_JSON_KEY_REF = /"(\w*_key|tooltip|tooltip_title)"\s*:\s*"([a-z][a-z0-9_.]*)"/g;
+const I18N_REF_COL = /^(?:\w*_key|tooltip|tooltip_title)$/;
+
+/** Scan db-meta/patches/*.sql for i18n-key references outside the module's allowlist. */
+function checkSqlKeyRefs(repoRoot: string, i18nNamespaces: ReadonlySet<string> | undefined, exemptFiles: ReadonlySet<string>): Violation[] {
+  const out: Violation[] = [];
+  const dir = join(repoRoot, "db-meta", "patches");
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".sql") && !exemptFiles.has(f));
+  } catch {
+    return out; // no db-meta/patches in this repo — rule does not apply
+  }
+  for (const f of files) {
+    const lines = readFileSync(join(dir, f), "utf8").split("\n");
+    let allowed: ReadonlySet<string> | null = null;
+    let refIdxs: number[] = [];
+    // SET…WHERE clause tracking — a WHERE literal is a selection
+    // predicate, not a written reference (the canonical repoint is
+    // `SET x='job.a' WHERE x='system.b'` — flagging the WHERE half would
+    // make corrective patches unwritable). `setOpen` carries the clause
+    // across multi-line statements.
+    let setOpen = false;
+    const report = (line: number, text: string, lit: string, allowedSet: ReadonlySet<string>) => {
+      const ns = lit.split(".")[0]!;
+      if (!allowedSet.has(ns)) {
+        out.push({
+          file: `db-meta/patches/${f}`,
+          line,
+          rule: "i18n-sql-key-ref" as RuleId,
+          text,
+          hint: `i18n reference '${lit}' cites namespace '${ns}' — allowed here: {${[...allowedSet].join(", ")}} (declared i18n_namespaces, else app + the statement target's own)`,
+        });
+      }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (/^\s*--/.test(line)) continue;
+      const ins = line.match(SQL_DML_COLS);
+      const dml = line.match(SQL_DML_TARGET);
+      if (ins) {
+        const table = ins[2]!.toLowerCase();
+        allowed = table === "translations" ? null
+          : i18nNamespaces ?? new Set(["app", sqlKeyNamespace(ins[1]!.toLowerCase())]);
+        refIdxs = allowed
+          ? ins[3]!.split(",")
+              .map((c, idx) => ({ c: c.trim().replace(/"/g, "").toLowerCase(), idx }))
+              .filter(({ c }) => I18N_REF_COL.test(c) && !NON_I18N_KEY_FIELDS.has(c))
+              .map(({ idx }) => idx)
+          : [];
+        setOpen = false;
+      } else if (dml) {
+        const table = dml[2]!.toLowerCase();
+        allowed = table === "translations" ? null
+          : i18nNamespaces ?? new Set(["app", sqlKeyNamespace(dml[1]!.toLowerCase())]);
+        refIdxs = [];
+        setOpen = false;
+      }
+      if (allowed) {
+        let m: RegExpExecArray | null;
+        const setAt = line.search(/\bSET\b/i);
+        const whereAt = line.search(/\bWHERE\b/i);
+        SQL_SET_KEY_REF.lastIndex = 0;
+        while ((m = SQL_SET_KEY_REF.exec(line))) {
+          if (NON_I18N_KEY_FIELDS.has(m[1]!)) continue;
+          const inSetSpan = (setAt !== -1 && m.index > setAt) || (setOpen && (setAt === -1 || m.index > setAt));
+          if (!inSetSpan || (whereAt !== -1 && m.index > whereAt)) continue;
+          report(i + 1, line.trim(), m[2]!, allowed);
+        }
+        if (setAt !== -1 || whereAt !== -1) setOpen = setAt > whereAt;
+        SQL_JSON_KEY_REF.lastIndex = 0;
+        while ((m = SQL_JSON_KEY_REF.exec(line))) {
+          if (NON_I18N_KEY_FIELDS.has(m[1]!)) continue;
+          report(i + 1, line.trim(), m[2]!, allowed);
+        }
+        if (refIdxs.length && line.includes("'")) {
+          // Every top-level `(...)` group after `VALUES` is a candidate
+          // row tuple — same scan as checkTranslationLanguageLiterals.
+          const valuesPos = line.toUpperCase().indexOf("VALUES");
+          const scanFrom = valuesPos >= 0 ? valuesPos : 0;
+          let depth = 0, inQuote = false, tupleStart = -1;
+          for (let p = scanFrom; p < line.length; p++) {
+            const ch = line[p]!;
+            if (inQuote) {
+              if (ch === "'") { if (line[p + 1] === "'") p++; else inQuote = false; }
+              continue;
+            }
+            if (ch === "'") { inQuote = true; continue; }
+            if (ch === "(") { if (depth === 0) tupleStart = p; depth++; }
+            else if (ch === ")") {
+              depth--;
+              if (depth === 0 && tupleStart >= 0) {
+                const cells = splitSqlTuple(line.slice(tupleStart + 1, p));
+                for (const idx of refIdxs) {
+                  const cell = cells[idx]?.match(/^'([a-z][a-z0-9_.]*)'$/);
+                  if (cell && cell[1]!.includes(".")) report(i + 1, line.trim(), cell[1]!, allowed);
+                }
+                tupleStart = -1;
+              }
+            }
+          }
+        }
+      }
+      if (allowed && /;\s*(?:--.*)?$/.test(line)) { allowed = null; refIdxs = []; }
+    }
+  }
+  return out;
+}
+
 // seed-audit-trail — seeds bypass the DAL: a patch that INSERTs into an
 // auditable entity table (isAuditable in db-meta/snapshot-entities.json)
 // must write the <t>_audit rows itself, or carry `-- pb:no-audit-trail`.
@@ -1847,6 +2025,11 @@ violations.push(...checkTranslationSeedPatches(process.cwd(), new Set(cfg.i18n_s
 
 // `i18n_lang_exempt` grandfathers shipped pre-vocabulary patches by filename.
 violations.push(...checkTranslationLanguageLiterals(process.cwd(), new Set(cfg.i18n_lang_exempt ?? [])));
+
+// i18n-sql-key-ref — *_key/tooltip REFERENCES inside DML statements may
+// cite only the repo's declared i18n_namespaces (else {app, target-ns}).
+// `i18n_key_ref_exempt` grandfathers shipped pre-boundary patches.
+violations.push(...checkSqlKeyRefs(process.cwd(), i18nNamespaces, new Set(cfg.i18n_key_ref_exempt ?? [])));
 
 // seed-audit-trail — repo-level scan of db-meta/patches (outside srcDir);
 // always-on when db-meta/snapshot-entities.json declares auditable
