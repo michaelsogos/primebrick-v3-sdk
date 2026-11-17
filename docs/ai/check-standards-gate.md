@@ -46,6 +46,42 @@ CI checkouts track `develop` of sdk+core — a new rule activates
 everywhere at once; repos that violate it are honestly red until fixed
 or baselined.
 
+## i18n namespace rules
+
+Four rules enforce the namespace-segregation contract (canonical:
+`primebrick-be-v3/docs/ai/i18n-namespace-segregation.md`):
+
+| Rule | Surface | Fails when |
+|---|---|---|
+| `i18n-key-ns` | `src/` (+ `fe/src/` under `fe` profile) | an i18n-bearing literal's first segment is outside `i18n_namespaces` |
+| `i18n-key-grammar` | same | any dot-segment is not `snake_case` |
+| `i18n-sql-ns` | `db-meta/patches/*.sql` | an INSERT seeds keys outside `{app, <stmt-schema>}` |
+| `i18n-sql-key-ref` | same | a `*_key` reference (INSERT values, `UPDATE SET`, nested JSON) cites outside `{app, <stmt-schema>}` |
+
+**Scanned code surfaces**: `t(`/`$t(`/`tFn(` calls and `*_key:` /
+`*Key:` / `tooltip:` / `tooltip_title:` fields — literals and template
+static prefixes (a template's namespace is checked only when a `.`
+precedes the first `${`; an opening `${` is unprovable and skipped).
+Both the snake_case and camelCase field families are covered
+(`label_key`, `labelKey`, `messageKey`, `errorScopeKey`, …).
+
+**Deliberately not scanned**: arbitrary `fn('dotted')` calls (NATS
+subjects/getters — guaranteed FP storm); `system_key`/`systemKey` and
+the credential `*Key` family (`apiKey`, `privateKey`, `publicKey`,
+`sshKey`) via `NON_I18N_KEY_FIELDS`; single-segment literals (no dot →
+not a key); display-text fields (`scope:`, `message:` — they carry
+resolved text, not keys).
+
+**Config**:
+
+- `i18n_namespaces` (root): allowlist activating `i18n-key-ns`. US
+  modules declare `["app", "{own-code}"]` — `system`/`custom` in a
+  module's list is a contract violation.
+- `i18n_sql_exempt` / `i18n_key_ref_exempt` / `i18n_lang_exempt`:
+  filename-level grandfathering for immutable shipped patches only.
+- `// standards-exempt:` comments do NOT apply to `i18n-key-ns` — a
+  namespace violation is never "correct by construction".
+
 ## Enforcement
 
 - ❌ NEVER vendor or copy the tool into another repo.

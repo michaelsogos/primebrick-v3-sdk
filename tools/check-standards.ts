@@ -338,9 +338,9 @@ interface StandardsConfig {
   /**
    * Allowed first-segment i18n namespaces for `*_key` literals
    * (`label_key: "job.jobs.nav"` → `job`). Presence activates the
-   * `i18n-key-ns` rule. Per the namespace contract: a module declares
-   * `{own-code, app, system}` — meta may REFERENCE core labels but never
-   * foreign non-core namespaces.
+   * `i18n-key-ns` rule. Per the namespace contract: a US module declares
+   * `["app", "{own-code}"]` — `system`/`custom`/foreign namespaces are
+   * never declarable by module code (see i18n-namespace-segregation).
    */
   i18n_namespaces?: string[];
   /**
