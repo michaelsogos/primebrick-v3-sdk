@@ -1543,32 +1543,43 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
   return out;
 }
 
-// i18n-key-ns — captures `*_key:` string literals (`label_key`, `title_key`,
-// `tooltip_key`, …) whose value is namespaced (`"ns.rest"`). The first
+// i18n-key-ns — captures `*_key:`/`*Key:` string literals (`label_key`,
+// `title_key`, `labelKey`, `messageKey`, `errorScopeKey`, …) whose value is
+// namespaced (`"ns.rest"`). The first
 // segment must be in the repo's configured `i18n_namespaces` allowlist.
 // Single-segment values (`sort_key: "key"` — a field name, not i18n) are
 // skipped by requiring a dot in the literal.
 // i18n-key-grammar — same literal, full capture: every dot-separated
 // segment must be `[a-z0-9_]+` (the ONE grammar, mirrors @primebrick/core
 // TRANSLATION_KEY_GRAMMAR — this tool is zero-dep by design). Also covers
-// `t(`/`$t(` callsite literals via T_CALL_LITERAL below.
+// `t(`/`$t(`/`tFn(` callsite literals via T_CALL_LITERAL below.
 const KEY_GRAMMAR = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
-// Not every `*_key` carries an i18n key — the field name is captured so
-// NON_I18N_KEY_FIELDS can be skipped. `system_key` is the callable-subject
-// field (`system_key: "ai.partition_maintenance"` is a NATS subject, not a
-// translation) — checking it against the i18n allowlist is a false
-// positive by construction.
-const NON_I18N_KEY_FIELDS = new Set(["system_key"]);
-const I18N_KEY_LITERAL = /\b(\w*_key|tooltip|tooltip_title)\s*:\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
-const T_CALL_LITERAL = /\b\$?t\(\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
+// Not every `*_key`/`*Key` carries an i18n key — the field name is captured
+// so NON_I18N_KEY_FIELDS can be skipped. `system_key`/`systemKey` is the
+// callable-subject field (`system_key: "ai.partition_maintenance"` is a
+// NATS subject, not a translation) — checking it against the i18n
+// allowlist is a false positive by construction. The credential family
+// (apiKey & co.) can legitimately hold dotted non-i18n values
+// (`apiKey: "v1.x"`) — denylisted preemptively: a real i18n field never
+// carries one of these names.
+const NON_I18N_KEY_FIELDS = new Set([
+  "system_key",
+  "systemKey",
+  "apiKey",
+  "privateKey",
+  "publicKey",
+  "sshKey",
+]);
+const I18N_KEY_LITERAL = /\b(\w*_key|\w*Key|tooltip|tooltip_title)\s*:\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
+const T_CALL_LITERAL = /\b(?:\$?t|tFn)\(\s*["'`]([a-zA-Z][a-zA-Z0-9_.]*)["'`]/g;
 // Template literals — `t(`ns.rest.${x}`)` / `field_key: `ns.rest.${x}`` —
 // evade the quoted-literal patterns (the `${` breaks the tail). The
 // checkable surface is the STATIC prefix before the first `${`: when it
 // already contains a `.`, the namespace segment is complete and provable.
 // A template that opens with `${` — or breaks inside the first segment —
 // is unprovable and skipped: a static analyzer flags what it can prove.
-const I18N_KEY_TEMPLATE = /\b(\w*_key|tooltip|tooltip_title)\s*:\s*`([^`]*)`/g;
-const T_CALL_TEMPLATE = /\b\$?t\(\s*`([^`]*)`/g;
+const I18N_KEY_TEMPLATE = /\b(\w*_key|\w*Key|tooltip|tooltip_title)\s*:\s*`([^`]*)`/g;
+const T_CALL_TEMPLATE = /\b(?:\$?t|tFn)\(\s*`([^`]*)`/g;
 
 // i18n-sql-ns — db-meta seed boundary: a patch may insert translation keys
 // only inside the namespace owned by the target schema. Canonical rule

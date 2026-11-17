@@ -338,6 +338,81 @@ describe("check-standards — i18n namespace boundary", () => {
     expect(r.out).not.toContain("[i18n-");
   }, T);
 
+  it("camelCase *Key fields flag foreign-ns — labelKey/messageKey/errorScopeKey", () => {
+    const r = runLint(
+      {
+        "x.ts":
+          'export const m = { labelKey: "system.entities.x.title" };\n' +
+          'export const n = { messageKey: "custom.foo.bar" };\n' +
+          'export const o = { errorScopeKey: "other.errors.scope.x" };\n',
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(1);
+    expect(r.out.match(/\[i18n-key-ns\]/g)?.length).toBe(3);
+  }, T);
+
+  it("camelCase *Key fields pass own-ns and app.* citations", () => {
+    const r = runLint(
+      {
+        "x.ts":
+          'export const m = { labelKey: "job.module.name" };\n' +
+          'export const n = { messageKey: "app.common.ok" };\n' +
+          'export const o = { errorScopeKey: "job.errors.scope.x" };\n' +
+          'export const p = { titleKey: `job.entities.x.title` };\n',
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-");
+  }, T);
+
+  it("non-i18n *Key denylist — systemKey/credential family never flag", () => {
+    const r = runLint(
+      {
+        "x.ts":
+          'export const m = { systemKey: "ai.partition_maintenance" };\n' +
+          'export const n = { apiKey: "v1.abc.def" };\n' +
+          'export const o = { publicKey: "rsa.pub" };\n',
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-");
+  }, T);
+
+  it("tFn() alias calls flag foreign-ns literals and template prefixes", () => {
+    const r = runLint(
+      {
+        "x.ts": [
+          "declare const tFn: (k: string) => string;",
+          "declare const s: string;",
+          'export const a = tFn("system.entities.x.title");',
+          "export const b = tFn(`custom.c.${s}`);",
+        ].join("\n") + "\n",
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(1);
+    expect(r.out.match(/\[i18n-key-ns\]/g)?.length).toBe(2);
+  }, T);
+
+  it("tFn() alias stays clean for own-ns and single-segment args", () => {
+    const r = runLint(
+      {
+        "x.ts": [
+          "declare const tFn: (k: string) => string;",
+          'export const a = tFn("job.module.name");',
+          'export const b = tFn("loading");',
+          'export const c = tFn("app.common.ok");',
+        ].join("\n") + "\n",
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-");
+  }, T);
+
   it("i18n-sql-key-ref flags foreign-ns refs in INSERT column cells only", () => {
     const r = runLintRepo({
       "src/x.ts": "export const x = 1;\n",
