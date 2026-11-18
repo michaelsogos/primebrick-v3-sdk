@@ -228,10 +228,14 @@ export function entityEventPayloadSchema(meta?: EntityMeta): Record<string, unkn
     const leaf = columnEventJsonSchema(col);
     snapshot[col.key] = leaf;
     // `delta.<col>.{old,new}` typed by the same leaf — `$.delta.status.new`
-    // resolves the column's format/enum/labels like `$.after.status` does.
+    // resolves the column's format/enum like `$.after.status` does, but the
+    // LABEL is positional (old/new are different roles), never the column's.
     deltaProps[col.key] = {
       type: "object",
-      properties: { old: leaf, new: leaf },
+      properties: {
+        old: { ...leaf, x_label_key: "app.entity_events.entity.delta.old" },
+        new: { ...leaf, x_label_key: "app.entity_events.entity.delta.new" },
+      },
       ...(leaf.x_label_key ? { x_label_key: leaf.x_label_key } : {}),
     };
   }
