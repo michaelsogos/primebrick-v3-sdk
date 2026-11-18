@@ -12,6 +12,7 @@
     "docs-pack",
     "config-tables",
     "migrations",
+    "migration-degraded-drill",
     "translations",
     "currency",
     "nats-client",
