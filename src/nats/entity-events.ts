@@ -104,6 +104,7 @@ export const ENTITY_EVENT_PAYLOAD_SCHEMA: Record<string, unknown> = {
   properties: {
     event: {
       type: "object",
+      x_label_key: "app.entity_events.event",
       required: ["schema", "service", "subject", "emitted_at", "emitted_by", "action", "entity", "uuid"],
       properties: {
         schema: { const: 2 },
