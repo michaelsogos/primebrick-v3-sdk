@@ -199,6 +199,18 @@ export { setProcessInterval } from "./lifecycle/process-registry.js";
 // NATS
 export { NatsClient, msgHeader } from "./nats/nats-client.js";
 export {
+  ENTITY_EVENTS_FILTER,
+  ENTITY_EVENTS_MAX_AGE_SECS,
+  ENTITY_EVENTS_MAX_MSGS_PER_SUBJECT,
+  ENTITY_EVENTS_STREAM,
+  ensureEntityEventsStream,
+  entityEventSubject,
+  makeNatsEntityEventPort,
+  type EntityEvent,
+  type EntityEventDraft,
+  type EntityEventPort,
+} from "./nats/entity-events.js";
+export {
   makeNatsRoutes,
   makeNatsRequestRoute,
   callNats,
