@@ -35,7 +35,7 @@ export interface EntityEventEnvelope {
   schema: 2;
   service: string;
   subject: string;
-  emitted_at: number;
+  emitted_at: string;
   emitted_by: string;
   action: EntityWriteAction;
   entity: string;
@@ -110,7 +110,7 @@ export const ENTITY_EVENT_PAYLOAD_SCHEMA: Record<string, unknown> = {
         schema: { const: 2 },
         service: { type: "string", x_label_key: "app.entity_events.event.service" },
         subject: { type: "string", x_label_key: "app.entity_events.event.subject" },
-        emitted_at: { type: "integer", x_label_key: "app.entity_events.event.emitted_at" },
+        emitted_at: { type: "string", format: "date-time", x_label_key: "app.entity_events.event.emitted_at" },
         emitted_by: { type: "string", format: "actor_token", x_label_key: "app.entity_events.event.emitted_by" },
         action: {
           enum: ["create", "update", "delete", "restore", "purge", "duplicate"],
