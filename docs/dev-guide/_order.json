@@ -16,6 +16,7 @@
     "translations",
     "currency",
     "nats-client",
+    "entity-events",
     "service-registration",
     "sse-standard",
     "presence",
