@@ -81,6 +81,14 @@ describe("emits entity pointer", () => {
     ).toBeNull();
   });
 
+  it("accepts a pointer without table (entity facade, no physical table)", () => {
+    expect(
+      validateEventsDeclaration("svc", {
+        emits: [{ subject: "a.b", entity: { key: "customer", entity: "customer" } }],
+      }),
+    ).toBeNull();
+  });
+
   it("rejects non-object / partial / unknown-key pointers", () => {
     for (const bad of ["customer", { key: "c" }, { key: "c", entity: "e", table: "" }, { key: "c", entity: "e", table: "t", extra: 1 }]) {
       expect(

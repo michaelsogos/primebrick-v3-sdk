@@ -56,10 +56,15 @@ function validateEntityPointer(entity: unknown, subject: string, code: string): 
     return `endpoints.events.emits: entity for "${subject}" must be {key, entity, table} (service "${code}")`;
   }
   const e = entity as Record<string, unknown>;
-  for (const k of ["key", "entity", "table"] as const) {
+  for (const k of ["key", "entity"] as const) {
     if (typeof e[k] !== "string" || !(e[k] as string)) {
       return `endpoints.events.emits: entity.${k} for "${subject}" must be a non-empty string (service "${code}")`;
     }
+  }
+  // `table` is optional — the served entity name does not always resolve to
+  // a physical table (e.g. service facades); the emitted payload carries it.
+  if (e["table"] !== undefined && (typeof e["table"] !== "string" || !e["table"])) {
+    return `endpoints.events.emits: entity.table for "${subject}" must be a non-empty string (service "${code}")`;
   }
   const unknown = Object.keys(e).filter((k) => !["key", "entity", "table"].includes(k));
   if (unknown.length > 0) {

@@ -4117,6 +4117,10 @@
 					},
 					{
 						"type": "literal",
+						"value": "rule_filter"
+					},
+					{
+						"type": "literal",
 						"value": "slug"
 					},
 					{
@@ -21269,7 +21273,9 @@
 									"name": "table",
 									"variant": "declaration",
 									"kind": 1024,
-									"flags": {},
+									"flags": {
+										"isOptional": true
+									},
 									"comment": {
 										"summary": [
 											{
@@ -21290,14 +21296,22 @@
 											},
 											{
 												"kind": "text",
-												"text": "."
+												"text": ".\n Optional: entity-route declarations cannot reach the physical\n table (the event payload already carries it under "
+											},
+											{
+												"kind": "code",
+												"text": "`table`"
+											},
+											{
+												"kind": "text",
+												"text": ")."
 											}
 										]
 									},
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-											"line": 330,
+											"line": 332,
 											"character": 8
 										}
 									],
@@ -21383,7 +21397,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 335,
+							"line": 337,
 							"character": 4
 						}
 					],
@@ -21409,7 +21423,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 333,
+					"line": 335,
 					"character": 12
 				}
 			]
@@ -21482,7 +21496,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 348,
+							"line": 350,
 							"character": 4
 						}
 					],
@@ -21524,7 +21538,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 350,
+							"line": 352,
 							"character": 4
 						}
 					],
@@ -21561,7 +21575,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 352,
+							"line": 354,
 							"character": 4
 						}
 					],
@@ -21594,7 +21608,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 354,
+							"line": 356,
 							"character": 4
 						}
 					],
@@ -21638,7 +21652,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 356,
+							"line": 358,
 							"character": 4
 						}
 					],
@@ -21666,7 +21680,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 358,
+							"line": 360,
 							"character": 4
 						}
 					],
@@ -21692,7 +21706,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 346,
+					"line": 348,
 					"character": 12
 				}
 			]
@@ -21723,7 +21737,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 362,
+							"line": 364,
 							"character": 4
 						}
 					],
@@ -21749,7 +21763,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 360,
+					"line": 362,
 					"character": 12
 				}
 			]
@@ -21823,7 +21837,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 373,
+					"line": 375,
 					"character": 12
 				}
 			],
@@ -21937,7 +21951,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 374,
+															"line": 376,
 															"character": 4
 														}
 													],
@@ -21955,7 +21969,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 375,
+															"line": 377,
 															"character": 4
 														}
 													],
@@ -22114,7 +22128,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 388,
+					"line": 390,
 					"character": 12
 				}
 			],
@@ -22274,7 +22288,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 395,
+					"line": 397,
 					"character": 12
 				}
 			],
@@ -22414,7 +22428,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 403,
+							"line": 405,
 							"character": 4
 						}
 					],
@@ -22434,7 +22448,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 404,
+							"line": 406,
 							"character": 4
 						}
 					],
@@ -22456,7 +22470,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 405,
+							"line": 407,
 							"character": 4
 						}
 					],
@@ -22478,7 +22492,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 406,
+							"line": 408,
 							"character": 4
 						}
 					],
@@ -22504,7 +22518,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 402,
+					"line": 404,
 					"character": 12
 				}
 			],
@@ -22575,7 +22589,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 414,
+							"line": 416,
 							"character": 4
 						}
 					],
@@ -22616,7 +22630,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 415,
+							"line": 417,
 							"character": 4
 						}
 					],
@@ -22636,7 +22650,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 416,
+							"line": 418,
 							"character": 4
 						}
 					],
@@ -22656,7 +22670,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 417,
+							"line": 419,
 							"character": 4
 						}
 					],
@@ -22676,7 +22690,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 418,
+							"line": 420,
 							"character": 4
 						}
 					],
@@ -22696,7 +22710,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 419,
+							"line": 421,
 							"character": 4
 						}
 					],
@@ -22716,7 +22730,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 420,
+							"line": 422,
 							"character": 4
 						}
 					],
@@ -22743,7 +22757,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 413,
+					"line": 415,
 					"character": 12
 				}
 			],
@@ -22870,7 +22884,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 435,
+							"line": 437,
 							"character": 4
 						}
 					],
@@ -22904,7 +22918,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 440,
+							"line": 442,
 							"character": 4
 						}
 					],
@@ -22999,7 +23013,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 442,
+							"line": 444,
 							"character": 4
 						}
 					],
@@ -23021,7 +23035,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-											"line": 443,
+											"line": 445,
 											"character": 8
 										}
 									],
@@ -23100,7 +23114,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-											"line": 444,
+											"line": 446,
 											"character": 8
 										}
 									],
@@ -23143,7 +23157,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 447,
+							"line": 449,
 							"character": 4
 						}
 					],
@@ -23349,7 +23363,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 477,
+							"line": 479,
 							"character": 4
 						}
 					],
@@ -23427,7 +23441,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 490,
+							"line": 492,
 							"character": 4
 						}
 					],
@@ -23531,7 +23545,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 434,
+					"line": 436,
 					"character": 12
 				}
 			]
@@ -23587,7 +23601,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 496,
+					"line": 498,
 					"character": 12
 				}
 			],
@@ -23626,7 +23640,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-											"line": 498,
+											"line": 500,
 											"character": 4
 										}
 									],
@@ -23656,7 +23670,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-											"line": 500,
+											"line": 502,
 											"character": 4
 										}
 									],
@@ -23749,7 +23763,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 510,
+					"line": 512,
 					"character": 12
 				}
 			],
@@ -23780,7 +23794,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-											"line": 511,
+											"line": 513,
 											"character": 4
 										}
 									],
@@ -23818,7 +23832,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 513,
+															"line": 515,
 															"character": 8
 														}
 													],
@@ -23844,7 +23858,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 515,
+															"line": 517,
 															"character": 8
 														}
 													],
@@ -23878,7 +23892,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 516,
+															"line": 518,
 															"character": 8
 														}
 													],
@@ -23898,7 +23912,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 517,
+															"line": 519,
 															"character": 8
 														}
 													],
@@ -23924,7 +23938,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 519,
+															"line": 521,
 															"character": 8
 														}
 													],
@@ -23969,7 +23983,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 521,
+															"line": 523,
 															"character": 8
 														}
 													],
@@ -24043,7 +24057,7 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-															"line": 523,
+															"line": 525,
 															"character": 8
 														}
 													],
@@ -24156,7 +24170,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 532,
+							"line": 534,
 							"character": 4
 						}
 					],
@@ -24230,7 +24244,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-							"line": 534,
+							"line": 536,
 							"character": 4
 						}
 					],
@@ -24292,7 +24306,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 530,
+					"line": 532,
 					"character": 12
 				}
 			]
@@ -24386,7 +24400,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 549,
+					"line": 551,
 					"character": 12
 				}
 			],
@@ -24499,7 +24513,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/page-route.d.ts",
-					"line": 556,
+					"line": 558,
 					"character": 12
 				}
 			],
@@ -28094,7 +28108,9 @@
 													"name": "table",
 													"variant": "declaration",
 													"kind": 1024,
-													"flags": {},
+													"flags": {
+														"isOptional": true
+													},
 													"sources": [
 														{
 															"fileName": "primebrick-v3-core/dist/payload-map.d.ts",
@@ -68790,7 +68806,9 @@
 									"name": "table",
 									"variant": "declaration",
 									"kind": 1024,
-									"flags": {},
+									"flags": {
+										"isOptional": true
+									},
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/docs-gen/collect.ts",
@@ -98317,9 +98335,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 34,
+							"line": 35,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L34"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L35"
 						}
 					],
 					"type": {
@@ -98330,25 +98348,6 @@
 				{
 					"id": 2016,
 					"name": "service",
-					"variant": "declaration",
-					"kind": 1024,
-					"flags": {},
-					"sources": [
-						{
-							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 35,
-							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L35"
-						}
-					],
-					"type": {
-						"type": "intrinsic",
-						"name": "string"
-					}
-				},
-				{
-					"id": 2017,
-					"name": "entity",
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
@@ -98366,8 +98365,8 @@
 					}
 				},
 				{
-					"id": 2018,
-					"name": "table",
+					"id": 2017,
+					"name": "entity",
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
@@ -98385,8 +98384,8 @@
 					}
 				},
 				{
-					"id": 2019,
-					"name": "action",
+					"id": 2018,
+					"name": "table",
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
@@ -98396,6 +98395,25 @@
 							"line": 38,
 							"character": 2,
 							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L38"
+						}
+					],
+					"type": {
+						"type": "intrinsic",
+						"name": "string"
+					}
+				},
+				{
+					"id": 2019,
+					"name": "action",
+					"variant": "declaration",
+					"kind": 1024,
+					"flags": {},
+					"sources": [
+						{
+							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
+							"line": 39,
+							"character": 2,
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L39"
 						}
 					],
 					"type": {
@@ -98418,9 +98436,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 39,
+							"line": 40,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L39"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L40"
 						}
 					],
 					"type": {
@@ -98439,9 +98457,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 40,
+							"line": 41,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L40"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L41"
 						}
 					],
 					"type": {
@@ -98458,9 +98476,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 41,
+							"line": 42,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L41"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L42"
 						}
 					],
 					"type": {
@@ -98477,9 +98495,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 42,
+							"line": 43,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L42"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L43"
 						}
 					],
 					"type": {
@@ -98490,50 +98508,6 @@
 				{
 					"id": 2024,
 					"name": "before",
-					"variant": "declaration",
-					"kind": 1024,
-					"flags": {},
-					"sources": [
-						{
-							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 43,
-							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L43"
-						}
-					],
-					"type": {
-						"type": "union",
-						"types": [
-							{
-								"type": "reference",
-								"target": {
-									"packageName": "typescript",
-									"packagePath": "lib/lib.es5.d.ts",
-									"qualifiedName": "Record"
-								},
-								"typeArguments": [
-									{
-										"type": "intrinsic",
-										"name": "string"
-									},
-									{
-										"type": "intrinsic",
-										"name": "unknown"
-									}
-								],
-								"name": "Record",
-								"package": "typescript"
-							},
-							{
-								"type": "literal",
-								"value": null
-							}
-						]
-					}
-				},
-				{
-					"id": 2025,
-					"name": "after",
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
@@ -98576,8 +98550,8 @@
 					}
 				},
 				{
-					"id": 2026,
-					"name": "delta",
+					"id": 2025,
+					"name": "after",
 					"variant": "declaration",
 					"kind": 1024,
 					"flags": {},
@@ -98587,6 +98561,50 @@
 							"line": 45,
 							"character": 2,
 							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L45"
+						}
+					],
+					"type": {
+						"type": "union",
+						"types": [
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Record"
+								},
+								"typeArguments": [
+									{
+										"type": "intrinsic",
+										"name": "string"
+									},
+									{
+										"type": "intrinsic",
+										"name": "unknown"
+									}
+								],
+								"name": "Record",
+								"package": "typescript"
+							},
+							{
+								"type": "literal",
+								"value": null
+							}
+						]
+					}
+				},
+				{
+					"id": 2026,
+					"name": "delta",
+					"variant": "declaration",
+					"kind": 1024,
+					"flags": {},
+					"sources": [
+						{
+							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
+							"line": 46,
+							"character": 2,
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L46"
 						}
 					],
 					"type": {
@@ -98622,9 +98640,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-															"line": 45,
+															"line": 46,
 															"character": 26,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L45"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L46"
 														}
 													],
 													"type": {
@@ -98641,9 +98659,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-															"line": 45,
+															"line": 46,
 															"character": 40,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L45"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L46"
 														}
 													],
 													"type": {
@@ -98685,9 +98703,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 46,
+							"line": 47,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L46"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L47"
 						}
 					],
 					"type": {
@@ -98719,9 +98737,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 33,
+					"line": 34,
 					"character": 17,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L33"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L34"
 				}
 			]
 		},
@@ -98734,9 +98752,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 48,
+					"line": 49,
 					"character": 12,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L48"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L49"
 				}
 			],
 			"type": {
@@ -98778,9 +98796,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 50,
+							"line": 51,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L50"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L51"
 						}
 					],
 					"signatures": [
@@ -98793,9 +98811,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-									"line": 50,
+									"line": 51,
 									"character": 2,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L50"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L51"
 								}
 							],
 							"parameters": [
@@ -98844,9 +98862,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 49,
+					"line": 50,
 					"character": 17,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L49"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L50"
 				}
 			]
 		},
@@ -98869,9 +98887,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 54,
+					"line": 55,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L54"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L55"
 				}
 			],
 			"type": {
@@ -98899,9 +98917,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 56,
+					"line": 57,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L56"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L57"
 				}
 			],
 			"type": {
@@ -98929,9 +98947,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 58,
+					"line": 59,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L58"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L59"
 				}
 			],
 			"type": {
@@ -98967,9 +98985,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 60,
+					"line": 61,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L60"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L61"
 				}
 			],
 			"type": {
@@ -98987,9 +99005,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 68,
+					"line": 69,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L68"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L69"
 				}
 			],
 			"signatures": [
@@ -99026,9 +99044,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 68,
+							"line": 69,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L68"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L69"
 						}
 					],
 					"parameters": [
@@ -99082,9 +99100,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 77,
+					"line": 78,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L77"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L78"
 				}
 			],
 			"signatures": [
@@ -99129,9 +99147,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 77,
+							"line": 78,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L77"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L78"
 						}
 					],
 					"parameters": [
@@ -99183,9 +99201,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 91,
+					"line": 92,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L91"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L92"
 				}
 			],
 			"type": {
@@ -99219,9 +99237,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 118,
+					"line": 173,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L118"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L173"
 				}
 			],
 			"signatures": [
@@ -99250,9 +99268,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 118,
+							"line": 173,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L118"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L173"
 						}
 					],
 					"type": {
@@ -99283,9 +99301,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 138,
+					"line": 193,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L138"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L193"
 				}
 			],
 			"signatures": [
@@ -99354,9 +99372,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 138,
+							"line": 193,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L138"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L193"
 						}
 					],
 					"parameters": [
@@ -99386,9 +99404,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-													"line": 139,
+													"line": 194,
 													"character": 9,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L139"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L194"
 												}
 											],
 											"type": {
@@ -112470,9 +112488,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/service/events-declaration.ts",
-					"line": 71,
+					"line": 76,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/service/events-declaration.ts#L71"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/service/events-declaration.ts#L76"
 				}
 			],
 			"signatures": [
@@ -112485,9 +112503,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/service/events-declaration.ts",
-							"line": 71,
+							"line": 76,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/service/events-declaration.ts#L71"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/service/events-declaration.ts#L76"
 						}
 					],
 					"parameters": [
