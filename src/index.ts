@@ -205,6 +205,7 @@ export {
   ENTITY_EVENTS_STREAM,
   ENTITY_EVENT_PAYLOAD_SCHEMA,
   ensureEntityEventsStream,
+  entityEventPayloadSchema,
   entityEventSubject,
   makeNatsEntityEventPort,
   wireEntityEventEmission,

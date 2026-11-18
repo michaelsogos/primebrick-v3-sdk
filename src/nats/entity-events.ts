@@ -20,7 +20,7 @@
  * consumers, which the JH durable binding is what makes survivable.
  */
 
-import type { EntityMeta, MetaColumn } from "@primebrick/core";
+import { HONEST_FORMAT_HINTS, type EntityMeta, type MetaColumn } from "@primebrick/core";
 import { NatsClient } from "./nats-client.js";
 
 // The event contract is OWNED by dal-pg (`src/entity/events.ts` — the
@@ -137,7 +137,40 @@ function columnEventJsonSchema(col: MetaColumn): Record<string, unknown> {
       }
   }
   if (enumVals?.length) base.enum = enumVals;
+  const fmt = honestColumnFormat(col, base["type"]);
+  if (fmt) base.format = fmt;
   return base;
+}
+
+/** Repository-managed audit stamps — identical semantics on every auditable
+ *  entity and already carried by the event envelope (`actor`, `changed_at`,
+ *  `action`, `version`). Kept OUT of the typed snapshot so the filter
+ *  composer offers domain vocabulary only — and a `text` actor column never
+ *  claims `uuid` format it cannot keep (`system:<code>` tokens are legal
+ *  actors, so the census name-vs-format gate would be lied to). */
+const DAL_AUDIT_STAMPS = new Set([
+  "created_at", "created_by", "updated_at", "updated_by",
+  "deleted_at", "deleted_by", "cloned_at", "cloned_by",
+]);
+
+/** Honest `format` for the census enrollment gate (name-vs-format honesty):
+ *  only formats the physical type can keep. `ref` columns store the
+ *  referenced row uuid. Name-declared hints apply to text leaves EXCEPT
+ *  the uuid-promising ones (`*_by`, `*uuid*`): a text column named that way
+ *  either stores real uuids (pg_type already says so) or the lie is the
+ *  model's — the gate exists to surface it, not to be bypassed. */
+function honestColumnFormat(col: MetaColumn, leafType: unknown): string | undefined {
+  switch (col.pg_type) {
+    case "uuid": return "uuid";
+    case "timestamptz": case "timestamp with time zone":
+    case "timestamp": case "timestamp without time zone": return "date-time";
+    case "date": return "date";
+  }
+  if (col.type === "ref") return "uuid";
+  if (leafType !== "string") return undefined;
+  const hint = HONEST_FORMAT_HINTS.find((h) => h.re.test(col.key));
+  if (hint && !hint.formats.includes("uuid")) return hint.formats[0];
+  return undefined;
 }
 
 /**
@@ -151,7 +184,7 @@ export function entityEventPayloadSchema(meta?: EntityMeta): Record<string, unkn
   const snapshot: Record<string, unknown> = {};
   const deltaProps: Record<string, unknown> = {};
   for (const col of meta.columns) {
-    if (!col.key) continue;
+    if (!col.key || DAL_AUDIT_STAMPS.has(col.key)) continue;
     snapshot[col.key] = columnEventJsonSchema(col);
     deltaProps[col.key] = { type: "object", properties: { old: {}, new: {} } };
   }

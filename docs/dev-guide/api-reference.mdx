@@ -6130,6 +6130,17 @@ convention used by existing specs) and secured with bearerAuth+apiKey.
 | entity | `string` |  |
 | opts | `{ ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema }` |  |
 
+### `entityEventPayloadSchema(meta): Record<string, unknown>`
+
+Per-entity payload schema — clones the generic contract and types the
+`before`/`after` snapshots + `delta` map from the entity's meta columns.
+Drives the trigger filter composer (real `$.after.<column>` paths and
+closed enum vocabularies) instead of untyped free JSONPath.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| meta | `EntityMeta` |  |
+
 ### `entityEventSubject(serviceCode, entity, uuid): string`
 
 Canonical subject for an entity event — per entity instance:
