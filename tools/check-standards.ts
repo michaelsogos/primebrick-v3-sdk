@@ -182,6 +182,7 @@ type RuleId =
   | "dal-access"
   | "dal-construct"
   | "dal-member-write"
+  | "dal-member-access"
   | "exempt-governance"
   | "layer-repo-import"
   | "i18n-key-ns"
@@ -247,6 +248,13 @@ const LINE_RULES: Rule[] = [
   // services without this.dal — registry/translations/oauth), which never
   // match this pattern anyway.
   { id: "dal-member-write", pattern: /(?:\bthis\._?dal!?|\bdal)\s*(?:\.|\[\s*['"])(?:add|update|delete|restore|hardDelete|truncate|addMany|updateMany|deleteMany|restoreMany|hardDeleteMany)\b/, hint: "entity writes go through this.svc (or the owning DomainService) — raw dal writes skip hooks/actor/audit/marker" },
+  // `this.dal` is PRIVATE on DomainService — any member access on a
+  // this-scoped dal field is off-surface: reads go through
+  // this.svc.list (wire-safe) / this.svc.query (code-authored DSL),
+  // writes through svc.*, cross-entity via this.svcFor. Compile fails on
+  // DomainService subclasses anyway; this rule catches the same access
+  // on self-declared dal fields elsewhere.
+  { id: "dal-member-access", pattern: /\bthis\._?dal!?\s*(?:\.|\[\s*['"])/, hint: "this.dal is private — reads via this.svc.list/this.svc.query, writes via svc.*, cross-entity via this.svcFor" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
   { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
   {
@@ -853,7 +861,7 @@ const SQL_SHAPES =
 const CONSUMER_RULES = new Set<RuleId>([
   "ext-json", "pg-import", "pg-pool", "raw-query", "raw-sql",
   "getPool", "withClient", "upsert", "new-repository", "pool-ping",
-  "dal-construct", "dal-member-write",
+  "dal-construct", "dal-member-write", "dal-member-access",
   "entity-nullable-explicit", "nav-decl-access", "column-flag-defaults",
   "schema-honest-format", "entity-type-declared",
 ]);
@@ -867,7 +875,7 @@ const CONSUMER_RULES = new Set<RuleId>([
  * (`exempt-governance`).
  */
 const NO_EXEMPT_RULES = new Set<RuleId>([
-  "dal-access", "dal-construct", "dal-member-write", "pg-import", "pg-pool",
+  "dal-access", "dal-construct", "dal-member-write", "dal-member-access", "pg-import", "pg-pool",
   "raw-query", "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
 ]);
 const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control"]);

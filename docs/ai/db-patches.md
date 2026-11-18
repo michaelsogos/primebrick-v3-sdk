@@ -67,4 +67,8 @@ Registry transitions happen through the admin surface, never by hand:
 
 The normative rules live here; the full mechanics are in the dal-pg
 dev-guide `migrations.mdx` (engine semantics, provenance, CLI) — link, do
-not duplicate.
+not duplicate. The live degraded-boot rehearsal (pending_review approve +
+failed-patch heartbeat auto-recovery, verified end-to-end 2026-11-18)
+has a repeatable drill procedure in the sdk dev-guide
+`migration-degraded-drill.mdx` — gateway access, ephemeral admin
+minting, verification evidence and cleanup checklist.
