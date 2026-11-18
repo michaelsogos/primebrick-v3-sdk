@@ -215,7 +215,8 @@ type RuleId =
   | "field-stock-chrome"
   | "i18n-entity-fallback"
   | "page-scaffold-ownership"
-  | "icon-no-fallback";
+  | "icon-no-fallback"
+  | "event-bus-ownership";
 
 interface Rule {
   id: RuleId;
@@ -255,6 +256,7 @@ const LINE_RULES: Rule[] = [
   // DomainService subclasses anyway; this rule catches the same access
   // on self-declared dal fields elsewhere.
   { id: "dal-member-access", pattern: /\bthis\._?dal!?(?=\s*(?:\.|\[|;|,|\)|\s|$))/, hint: "this.dal is private — reads via this.svc.list/this.svc.query, writes via svc.*, cross-entity via this.svcFor" },
+  { id: "dal-member-access", pattern: /\bthis\._?dal!?(?=\s*(?:\.|\[|;|,|\)|\s|$))/, hint: "this.dal is private — reads via this.svc.list/this.svc.query, writes via svc.*, cross-entity via this.svcFor" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
   { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
   {
@@ -277,9 +279,16 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-chrome-class",
   "field-stock-chrome",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
+  "event-bus-ownership",
 ]);
 const GATED_LINE_RULES: Rule[] = [
   { id: "dal-access", pattern: /\b(?:initDal|getDal|resetDal)\s*\(|\bimport\s+(?:type\s+)?\{[^}]*\b(?:initDal|getDal|resetDal)\b/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal()/resetDal() only inside the declared allowlist" },
+  // Entity-domain events (`events.<svc>.<entity>.<uuid>`) are consumed
+  // ONLY by job-handler via the durable ENTITY_EVENTS binding — a
+  // service subscribing to another module's event subject IS knowing
+  // another module's vocabulary. Cross-service reactions live as
+  // job_triggers rows (data, JH-dispatched), never as code subscriptions.
+  { id: "event-bus-ownership", pattern: /\b(?:subscribe\w*|filter_?[Ss]ubject)\s*[:(]?\s*["'`]events\./, hint: "entity-domain events are consumed ONLY by job-handler (durable ENTITY_EVENTS) — cross-service reactions are job_triggers rows, never direct subscriptions" },
   { id: "layer-repo-import", pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'][^"']*[-_](?:dal|repo|repository)(?:\.js|\.ts)?["']/, hint: "transport/dispatch layers must call services — never import *-dal/*-repo modules" },
   // Single-line `import { …Switch… } from '@primebrick/ui'` — \b after
   // "Switch" never matches SwitchField. Multi-line import lists are caught
@@ -2000,6 +2009,9 @@ if (profile === "consumer") {
   const defaults: { id: RuleId; allowPaths?: string[]; appliesTo?: string[] }[] = [
     { id: "dal-access", allowPaths: ["db/dal.ts", "db/dal-gateway.ts", "index.ts"] },
     { id: "layer-repo-import", appliesTo: ["controllers/"] },
+    // JH's triggers-engine is the ONLY sanctioned events.* subscriber —
+    // every other service defaults to zero tolerance.
+    { id: "event-bus-ownership" },
   ];
   for (const d of defaults) {
     if (cfgEnabled.has(d.id)) continue;
