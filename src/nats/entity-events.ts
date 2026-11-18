@@ -86,6 +86,31 @@ export function makeNatsEntityEventPort(serviceCode: string): EntityEventPort {
   };
 }
 
+/** JSON Schema declared on auto-census emits — mirror of dal-pg
+ *  `ENTITY_EVENT_SCHEMA` (the wire is the real contract). */
+export const ENTITY_EVENT_PAYLOAD_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  required: [
+    "schema", "service", "entity", "table", "action", "uuid",
+    "actor", "changed_at", "before", "after", "delta",
+  ],
+  properties: {
+    schema: { const: 1 },
+    service: { type: "string" },
+    entity: { type: "string" },
+    table: { type: "string" },
+    action: { enum: ["create", "update", "delete", "restore", "purge", "duplicate"] },
+    uuid: { type: "string", format: "uuid" },
+    version: { type: "integer" },
+    actor: { type: "string" },
+    changed_at: { type: "integer" },
+    before: { type: ["object", "null"] },
+    after: { type: ["object", "null"] },
+    delta: { type: ["object", "null"] },
+    batch: { type: "string" },
+  },
+};
+
 /**
  * Ensure the `ENTITY_EVENTS` stream exists with the retention limits —
  * idempotent, call at service boot (createMicroservice does this).
@@ -96,4 +121,24 @@ export async function ensureEntityEventsStream(): Promise<void> {
     maxMsgsPerSubject: ENTITY_EVENTS_MAX_MSGS_PER_SUBJECT,
     discard: "old",
   });
+}
+
+/**
+ * Composition-root wiring for the dal-pg entity-event emission —
+ * call ONCE per service boot, after `initDal()`:
+ *
+ *   await wireEntityEventEmission(dalInfra(), SERVICE_CODE);
+ *
+ * Ensures the ENTITY_EVENTS stream (idempotent) then binds
+ * `dal.eventPort` — from that point every governed `svc` write emits by
+ * construction (entity `@Entity(..., {events})` flags still gate). The
+ * `dal` parameter is STRUCTURAL (SDK never imports dal-pg): anything
+ * with a settable `eventPort`.
+ */
+export async function wireEntityEventEmission(
+  dal: { eventPort?: EntityEventPort },
+  serviceCode: string,
+): Promise<void> {
+  await ensureEntityEventsStream();
+  dal.eventPort = makeNatsEntityEventPort(serviceCode);
 }

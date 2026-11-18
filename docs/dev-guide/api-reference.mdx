@@ -467,7 +467,7 @@ enabled (`nats -js`).
 | subjects | `string[]` | Subjects bound to the stream (e.g. ["webhook.&#62;"]). For
   scheduled-message streams BOTH the schedule subjects AND the fire
   targets must be covered (ADR-51). |
-| opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean }` |  |
+| opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean; maxAgeSecs: number; maxMsgsPerSubject: number; discard: "old" \| "new" }` |  |
 
 #### `NatsClient.jetstreamPublish(subject, data, hdrs): Promise<bigint>`
 
@@ -1501,6 +1501,26 @@ foreign for merge/conflict purposes. |
 | meta_by_entity | `Record<string, Record<string, unknown>>` | entity → served meta (columns, table options, display, collaboration). |
 | caps_by_entity | `Record<string, EntityCaps>` | entity → capabilities (perms already resolved to strings). |
 
+### `EntityEvent`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| schema | `1` |  |
+| service | `string` |  |
+| entity | `string` |  |
+| table | `string` |  |
+| action | `EntityWriteAction` |  |
+| uuid | `string` |  |
+| version | `number` |  |
+| actor | `string` |  |
+| changed_at | `number` |  |
+| before | `Record<string, unknown> \| null` |  |
+| after | `Record<string, unknown> \| null` |  |
+| delta | `Record<string, { old: unknown; new: unknown }> \| null` |  |
+| batch | `string` |  |
+
+### `EntityEventPort`
+
 ### `EntityExportConfig`
 
 | Field | Type | Description |
@@ -1548,7 +1568,8 @@ keys actually live in that module's `<code>.translations` schema. |
 | title_key | `string` | Optional i18n key overriding the canonical page title.
 When absent, list/create/edit titles are built from the generic
 `system.entities.page_title.{list\|create\|edit}` templates interpolated
-with `system.entities.<translation_key>.{plural\|singular}`.
+with `{entities_ns}.entities.<translation_key>.{plural\|singular}` —
+`entities_ns` defaults to `system` for BE/core-owned entities.
 Set only for custom pages needing a bespoke title — CRUD entity metas
 must not declare it. |
 | uid | `string` | Field key holding the entity primary key (usually `uuid`). |
@@ -2040,7 +2061,7 @@ Route declaration: which action/resource the token must authorize.
 | isBehindScaler | `boolean` | Whether the service is behind a scaler (default false). |
 | serviceVersion | `string` | Service version — if omitted, reads from package.json in CWD. |
 | envSchema | `EnvSchema` | Environment variable schema — validated via requireEnv. |
-| initDal | `() => void` | DAL init callback — called first, before everything else.
+| initDal | `() => void \| Promise<void>` | DAL init callback — called first, before everything else.
 The SDK is DB-agnostic so the consumer provides this.
 Typically reads DATABASE_URL / DB_SCHEMA from env and calls getDal(). |
 | dbBanner | `() => Promise<{ name: string; version: string \| null; url: string }>` | Optional DB startup banner — called right after `initDal`, rendered
@@ -3212,6 +3233,21 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 | protocols | `string[]` | Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. |
 | error_label_key | `string` |  |
 
+### `VisibleKeyPrefs`
+
+Persisted column-visibility intent (storage schema v2): the user's
+deltas from `default_visible` — never the resolved set. Storing intent
+instead of the resolved array is what lets meta evolution (a column
+added later, a flipped `default_visible`) reach profiles that already
+persisted preferences: a key in neither list simply follows its own
+`default_visible`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| v | `2` |  |
+| shown | `string[]` | Served keys the user shows despite `default_visible:false`. |
+| hidden | `string[]` | Served keys the user hides despite `default_visible:true`. |
+
 ## Types & Enums
 
 ### `ActionColor`
@@ -3377,6 +3413,10 @@ Values mirror the `Permission` enum in `@primebrick/sdk`.
 ### `EntityCrudOp`
 
 **Type:** `"meta" \| "list" \| "get" \| "create" \| "update" \| "delete" \| "purge" \| "restore" \| "audit" \| "export" \| "duplicate" \| "bulk_delete" \| "bulk_restore"`
+
+### `EntityEventDraft`
+
+**Type:** `Omit<EntityEvent, "service">`
 
 ### `EntityMetaResponse`
 
@@ -3579,12 +3619,45 @@ display ÷ 100) — the canonical value stays a fraction; NO sibling field.
 `"currency"`: money semantics — `field` names the SIBLING column that
 persists the ISO code per row (mandatory); `source` defaults to
 `"currencies"` (the shared ISO list).
-`"custom"`: any other UoM (kg, ms, items, …) — `field` persists the code,
-`source` drives the selector options, `symbol` overrides the adornment.
-The `field` sibling requirement is verified by `withColumnConstraints`:
-a uom'd numeric without its code column is a construction error.
+Category kinds (`"time"`, `"length"`, `"digital"`, …): Intl-sanctioned
+UoM grouped by UNIT_CATEGORIES — exactly ONE of:
+ - `unit`: a FIXED identifier, sanctioned ∩ category — rendered
+   `style:"unit"` with locale-correct inflection for free.
+ - `field`: a PER-ROW unit persisted on a SIBLING column, constrained
+   to the category — the picker needs NO `source`, the category itself
+   is the option vocabulary.
+`"custom"`: genuinely non-standard UoM only — exactly ONE of:
+ - `field` + `source`: a per-row code from a custom vocabulary (`entity`
+   rows, `api_url`, …); `symbol` overrides the adornment.
+ - `symbol`: a FIXED arbitrary suffix Intl does not sanction
+   ("pz", "items", …) — plain suffix display, never `style:"unit"`.
+`withColumnConstraints` enforces every XOR at meta bind.
 
-**Type:** `{ kind: "percent" } \| { kind: "currency"; field: string; source: "currencies" } \| { kind: "custom"; field: string; source: MetaColumnUomSource; symbol: string }`
+TAXONOMY (the declaration shapes):
+ 1. UOM TYPE + VALUE both static      → `{kind:'<category>', unit}` /
+    `{kind:'custom', symbol}`.
+ 2. UOM TYPE static, VALUE per-row    → `{kind:'currency', field}` /
+    `{kind:'<category>', field}` / `{kind:'custom', field, source}`.
+ 3. UOM TYPE + VALUE both per-row     → RESERVED, not expressible yet:
+    it needs the KIND itself on a persisted field (e.g.
+    `uom:{kind_field:'uom_kind', field:'uom_code'}` or `kind:'dynamic'`)
+    so a row can be currency and the next percent. Zero consumers today;
+    when one appears, extend this union — never shoehorn it into custom.
+Absent `uom` → plain decimal, no unit semantics.
+
+**Type:** `{ kind: "percent" } \| { kind: "currency"; field: string; source: "currencies" } \| { kind: MetaColumnUomKind; unit: string } \| { kind: MetaColumnUomKind; field: string } \| { kind: "custom"; field: string; source: MetaColumnUomSource; symbol: string } \| { kind: "custom"; symbol: string }`
+
+### `MetaColumnUomKind`
+
+UoM macro-categories — the hardcoded CLDR grouping census. ECMA-402
+exposes `Intl.supportedValuesOf("unit")` as a FLAT list with no
+category accessor (the grouping lives in CLDR data, unreachable from
+JS) — this map is the single reusable categorization. Every member
+MUST be an Intl-sanctioned identifier; coverage matches the runtime
+vocabulary (45 units on ICU ≥ 2024-06). `percent` is intentionally
+absent — adimensional, it is a `kind` of its own.
+
+**Type:** `"length" \| "mass" \| "volume" \| "area" \| "time" \| "temperature" \| "digital" \| "angle"`
 
 ### `MetaColumnUomSource`
 
@@ -4210,6 +4283,37 @@ Email — same RFC-5322-simplified regex the config validator and the FE
  refine use (documented shared in `sdk/src/config/config-validator.ts`).
 
 **Type:** `RegExp`
+
+### `ENTITY_EVENT_PAYLOAD_SCHEMA`
+
+JSON Schema declared on auto-census emits — mirror of dal-pg
+ `ENTITY_EVENT_SCHEMA` (the wire is the real contract).
+
+**Type:** `Record<string, unknown>`
+
+### `ENTITY_EVENTS_FILTER`
+
+Subject prefix all entity-domain events publish under.
+
+**Type:** `"events.>"`
+
+### `ENTITY_EVENTS_MAX_AGE_SECS`
+
+Retention: global staleness bound — events older than this purge.
+
+**Type:** `number`
+
+### `ENTITY_EVENTS_MAX_MSGS_PER_SUBJECT`
+
+Retention: per-instance (`...<uuid>` subject) history bound.
+
+**Type:** `100`
+
+### `ENTITY_EVENTS_STREAM`
+
+Stream all entity-domain events land on.
+
+**Type:** `"ENTITY_EVENTS"`
 
 ### `FILTER_OPERATOR_ICON`
 
@@ -5127,6 +5231,17 @@ immutable. Example: `TYPE_CAPABILITIES.string.validation.min === "length"`.
 
 **Type:** `Record<ConfigType, TypeCapabilities>`
 
+### `UNIT_CATEGORIES`
+
+**Type:** `Record<MetaColumnUomKind, typeOperator>`
+
+### `UNIT_TO_CATEGORY`
+
+Reverse lookup — `UNIT_TO_CATEGORY.meter === 'length'`; compound
+ `-per-` units are NOT sanctioned list members → absent here.
+
+**Type:** `Record<string, MetaColumnUomKind>`
+
 ### `UUID_REGEX`
 
 UUID (any version) — matches zod/JSON-Schema `format:"uuid"`.
@@ -5841,6 +5956,19 @@ currently advertises. Rotating a key = bumping the generation on the BE.
 | uaPrefix | `string` |  |
 | generation | `number` |  |
 
+### `deriveVisibleKeyPrefs(visibleKeys, columns): VisibleKeyPrefs`
+
+Derive the persistable intent from the resolved set + served columns:
+ `shown` = visible keys that are not default-visible;
+ `hidden` = served columns absent from the visible set. A legacy v1
+ array migrates losslessly through the same derivation — identical
+ render, unlocked evolution.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| visibleKeys | `string[]` |  |
+| columns | `MetaColumn[]` |  |
+
 ### `deserializeAuthUserFromHeaders(headers, config): AuthUser`
 
 Deserialize an AuthUser from headers (microservice side, GATEWAY-RESOLVED mode).
@@ -5975,6 +6103,11 @@ Same logic as enforceHttpRbac — separated for semantic clarity.
 | requiredPermissions | `typeOperator` |  |
 | mode | `"any" \| "all"` |  |
 
+### `ensureEntityEventsStream(): Promise<void>`
+
+Ensure the `ENTITY_EVENTS` stream exists with the retention limits —
+idempotent, call at service boot (createMicroservice does this).
+
 ### `entityChangedSubject(entityType, entityUuid): string`
 
 Build the NATS subject for entity-changed markers.
@@ -5996,6 +6129,19 @@ convention used by existing specs) and secured with bearerAuth+apiKey.
 |-----------|------|-------------|
 | entity | `string` |  |
 | opts | `{ ops: EntityCrudOp[]; tag: string; label: string; listResponse: JsonSchema }` |  |
+
+### `entityEventSubject(serviceCode, entity, uuid): string`
+
+Canonical subject for an entity event — per entity instance:
+`events.<service_code>.<entity>.<uuid>`. Consumers bind
+`events.<svc>.<entity>.>` for all actions/instances of an entity, or
+the exact subject for a single row.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| serviceCode | `string` |  |
+| entity | `string` |  |
+| uuid | `string` |  |
 
 ### `entityFieldValidator(meta, opts): (body: unknown) => { entity: Record<string, unknown> }`
 
@@ -6854,6 +7000,16 @@ identically — validation of existence is the remote build's job.
 | inner | `MarkerAuditPort` |  |
 | entityType | `string` |  |
 
+### `makeNatsEntityEventPort(serviceCode): EntityEventPort`
+
+The `EntityEventPort` the Dal emits through — stamps `service` onto
+the draft, publishes JetStream-durable to the per-uuid subject.
+Assigned once at boot: `dal.eventPort = makeNatsEntityEventPort(code)`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| serviceCode | `string` |  |
+
 ### `makeNatsRequestRoute(routes, deps): Promise<Subscription[]>`
 
 Register a governed request/reply-style endpoint over pure pub/sub:
@@ -7410,6 +7566,17 @@ single function so the plane stays deterministic.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | specifier | `string` |  |
+
+### `resolveVisibleKeyPrefs(prefs, columns): string[]`
+
+Resolve stored prefs → concrete visible keys:
+ `(defaultVisible ∪ shown) − hidden`, then sanitized (unknown keys
+ dropped, `hideable === false` re-injected, empty → defaults).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| prefs | `Pick<VisibleKeyPrefs, "shown" \| "hidden">` |  |
+| columns | `MetaColumn[]` |  |
 
 ### `restartTelemetry(cfg, serviceName, serviceVersion): Promise<void>`
 
@@ -8094,6 +8261,24 @@ Iterate every property schema a JSON schema declares — nested objects
 |-----------|------|-------------|
 | schema | `Record<string, unknown>` |  |
 | prefix | `string` |  |
+
+### `wireEntityEventEmission(dal, serviceCode): Promise<void>`
+
+Composition-root wiring for the dal-pg entity-event emission —
+call ONCE per service boot, after `initDal()`:
+
+  await wireEntityEventEmission(dalInfra(), SERVICE_CODE);
+
+Ensures the ENTITY_EVENTS stream (idempotent) then binds
+`dal.eventPort` — from that point every governed `svc` write emits by
+construction (entity `@Entity(..., {events})` flags still gate). The
+`dal` parameter is STRUCTURAL (SDK never imports dal-pg): anything
+with a settable `eventPort`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| dal | `{ eventPort: EntityEventPort }` |  |
+| serviceCode | `string` |  |
 
 ### `withCache(repo, port, logger): R`
 

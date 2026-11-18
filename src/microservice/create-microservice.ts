@@ -63,6 +63,7 @@ import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
+import { ENTITY_EVENT_PAYLOAD_SCHEMA } from "../nats/entity-events.js";
 import type { EntityRouteDecl } from "../http/service-routes.js";
 import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
 import { docsPackStale, emitServiceDocs } from "../docs-gen/emit.js";
@@ -154,7 +155,7 @@ export interface MicroserviceOptions {
    * The SDK is DB-agnostic so the consumer provides this.
    * Typically reads DATABASE_URL / DB_SCHEMA from env and calls getDal().
    */
-  initDal: () => void;
+  initDal: () => void | Promise<void>;
 
   /**
    * Optional DB startup banner — called right after `initDal`, rendered
@@ -409,8 +410,10 @@ export async function createMicroservice(
     throw error;
   }
 
-  // 2. DAL init (consumer callback — DB-agnostic)
-  options.initDal();
+  // 2. DAL init (consumer callback — DB-agnostic; may be async when the
+  // service wires dal event emission — `wireEntityEventEmission` awaits
+  // the ENTITY_EVENTS stream ensure).
+  await options.initDal();
   // Warm every declared entity's dal service — `DomainService.svc` is
   // lazy, but the ref-display registry resolves join targets at query
   // time; warming here makes it complete before the first request,
@@ -759,8 +762,22 @@ export async function createMicroservice(
   // Module emitted-event self-declaration — verbatim object riding the same
   // channel as nav: persisted in service_registry.endpoints.events, served
   // on /modules. Domain subject pickers resolve options from the census.
-  if (options.events) {
-    registrarEndpoints.events = options.events;
+  // Entity-domain events AUTO-DECLARE: every served entity emits
+  // `events.<code>.<entity>.>` by construction (dal-pg repo write path +
+  // wireEntityEventEmission) — explicit `options.events.emits` merge on
+  // top; the census offers the subjects to trigger forms without any
+  // hand-maintained vocabulary.
+  {
+    const autoEmits = (branded?.entityDecls ?? []).map((d) => ({
+      subject: `events.${serviceCode}.${d.entityName}.>`,
+      payload_schema: ENTITY_EVENT_PAYLOAD_SCHEMA,
+    }));
+    const declared = (options.events?.emits ?? []) as { subject: string }[];
+    const seen = new Set(declared.map((e) => e.subject));
+    const emits = [...autoEmits.filter((e) => !seen.has(e.subject)), ...declared];
+    if (emits.length || options.events) {
+      registrarEndpoints.events = { ...options.events, emits };
+    }
   }
 
   // Entity self-declaration — the entity names this service owns, derived
