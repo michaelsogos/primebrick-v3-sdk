@@ -31,22 +31,30 @@ import { NatsClient } from "./nats-client.js";
 // shapes in sync — the wire is the real contract.
 type EntityWriteAction =
   | "create" | "update" | "delete" | "restore" | "purge" | "duplicate";
-export interface EntityEvent {
-  schema: 1;
+export interface EntityEventEnvelope {
+  schema: 2;
   service: string;
-  entity: string;
-  table: string;
+  subject: string;
+  emitted_at: number;
+  emitted_by: string;
   action: EntityWriteAction;
+  entity: string;
   uuid: string;
   version?: number;
-  actor: string;
-  changed_at: number;
-  before: Record<string, unknown> | null;
-  after: Record<string, unknown> | null;
-  delta: Record<string, { old: unknown; new: unknown }> | null;
   batch?: string;
 }
-export type EntityEventDraft = Omit<EntityEvent, "service">;
+export interface EntityEvent {
+  event: EntityEventEnvelope;
+  entity: {
+    before: Record<string, unknown> | null;
+    after: Record<string, unknown> | null;
+    delta: Record<string, { old: unknown; new: unknown }> | null;
+  };
+}
+export interface EntityEventDraft {
+  event: Omit<EntityEventEnvelope, "service" | "subject">;
+  entity: EntityEvent["entity"];
+}
 export interface EntityEventPort {
   emit(event: EntityEventDraft): Promise<void>;
 }
@@ -78,11 +86,12 @@ export function entityEventSubject(serviceCode: string, entity: string, uuid: st
 export function makeNatsEntityEventPort(serviceCode: string): EntityEventPort {
   return {
     async emit(draft: EntityEventDraft): Promise<void> {
-      const event: EntityEvent = { ...draft, service: serviceCode };
-      await NatsClient.jetstreamPublish(
-        entityEventSubject(serviceCode, draft.entity, draft.uuid),
-        event,
-      );
+      const subject = entityEventSubject(serviceCode, draft.event.entity, draft.event.uuid);
+      const event: EntityEvent = {
+        ...draft,
+        event: { ...draft.event, service: serviceCode, subject },
+      };
+      await NatsClient.jetstreamPublish(subject, event);
     },
   };
 }
@@ -91,24 +100,42 @@ export function makeNatsEntityEventPort(serviceCode: string): EntityEventPort {
  *  `ENTITY_EVENT_SCHEMA` (the wire is the real contract). */
 export const ENTITY_EVENT_PAYLOAD_SCHEMA: Record<string, unknown> = {
   type: "object",
-  required: [
-    "schema", "service", "entity", "table", "action", "uuid",
-    "actor", "changed_at", "before", "after", "delta",
-  ],
+  required: ["event"],
   properties: {
-    schema: { const: 1 },
-    service: { type: "string" },
-    entity: { type: "string" },
-    table: { type: "string" },
-    action: { enum: ["create", "update", "delete", "restore", "purge", "duplicate"] },
-    uuid: { type: "string", format: "uuid" },
-    version: { type: "integer" },
-    actor: { type: "string" },
-    changed_at: { type: "integer" },
-    before: { type: ["object", "null"] },
-    after: { type: ["object", "null"] },
-    delta: { type: ["object", "null"] },
-    batch: { type: "string" },
+    event: {
+      type: "object",
+      required: ["schema", "service", "subject", "emitted_at", "emitted_by", "action", "entity", "uuid"],
+      properties: {
+        schema: { const: 2 },
+        service: { type: "string", x_label_key: "app.entity_events.event.service" },
+        subject: { type: "string", x_label_key: "app.entity_events.event.subject" },
+        emitted_at: { type: "integer", format: "unix_ms", x_label_key: "app.entity_events.event.emitted_at" },
+        emitted_by: { type: "string", format: "actor_token", x_label_key: "app.entity_events.event.emitted_by" },
+        action: {
+          enum: ["create", "update", "delete", "restore", "purge", "duplicate"],
+          x_label_key: "app.entity_events.event.action",
+        },
+        entity: { type: "string", x_label_key: "app.entity_events.event.entity" },
+        uuid: { type: "string", format: "uuid", x_label_key: "app.entity_events.event.uuid" },
+        version: { type: "integer", x_label_key: "app.entity_events.event.version" },
+        batch: { type: "string", x_label_key: "app.entity_events.event.batch" },
+      },
+    },
+    entity: {
+      type: "object",
+      x_label_key: "app.entity_events.entity",
+      required: ["before", "after", "delta"],
+      properties: {
+        before: { type: ["object", "null"], x_label_key: "app.entity_events.entity.before" },
+        after: { type: ["object", "null"], x_label_key: "app.entity_events.entity.after" },
+        delta: { type: ["object", "null"], x_label_key: "app.entity_events.entity.delta" },
+      },
+    },
+    uuids: {
+      type: "array",
+      items: { type: "string", format: "uuid" },
+      x_label_key: "app.entity_events.uuids",
+    },
   },
 };
 
@@ -207,13 +234,19 @@ export function entityEventPayloadSchema(meta?: EntityMeta): Record<string, unkn
       ...(leaf.x_label_key ? { x_label_key: leaf.x_label_key } : {}),
     };
   }
+  const baseEntity = (ENTITY_EVENT_PAYLOAD_SCHEMA.properties as Record<string, any>).entity;
   return {
     ...ENTITY_EVENT_PAYLOAD_SCHEMA,
     properties: {
       ...(ENTITY_EVENT_PAYLOAD_SCHEMA.properties as Record<string, unknown>),
-      before: { type: ["object", "null"], properties: snapshot },
-      after: { type: ["object", "null"], properties: snapshot },
-      delta: { type: ["object", "null"], properties: deltaProps },
+      entity: {
+        ...baseEntity,
+        properties: {
+          before: { type: ["object", "null"], properties: snapshot, x_label_key: "app.entity_events.entity.before" },
+          after: { type: ["object", "null"], properties: snapshot, x_label_key: "app.entity_events.entity.after" },
+          delta: { type: ["object", "null"], properties: deltaProps, x_label_key: "app.entity_events.entity.delta" },
+        },
+      },
     },
   };
 }

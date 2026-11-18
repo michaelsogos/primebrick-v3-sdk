@@ -1505,19 +1505,15 @@ foreign for merge/conflict purposes. |
 
 | Field | Type | Description |
 |-------|------|-------------|
-| schema | `1` |  |
-| service | `string` |  |
-| entity | `string` |  |
-| table | `string` |  |
-| action | `EntityWriteAction` |  |
-| uuid | `string` |  |
-| version | `number` |  |
-| actor | `string` |  |
-| changed_at | `number` |  |
-| before | `Record<string, unknown> \| null` |  |
-| after | `Record<string, unknown> \| null` |  |
-| delta | `Record<string, { old: unknown; new: unknown }> \| null` |  |
-| batch | `string` |  |
+| event | `EntityEventEnvelope` |  |
+| entity | `{ before: Record<string, unknown> \| null; after: Record<string, unknown> \| null; delta: Record<string, { old: unknown; new: unknown }> \| null }` |  |
+
+### `EntityEventDraft`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| event | `Omit<EntityEventEnvelope, "service" \| "subject">` |  |
+| entity | `{ before: Record<string, unknown> \| null; after: Record<string, unknown> \| null; delta: Record<string, { old: unknown; new: unknown }> \| null }` |  |
 
 ### `EntityEventPort`
 
@@ -3413,10 +3409,6 @@ Values mirror the `Permission` enum in `@primebrick/sdk`.
 ### `EntityCrudOp`
 
 **Type:** `"meta" \| "list" \| "get" \| "create" \| "update" \| "delete" \| "purge" \| "restore" \| "audit" \| "export" \| "duplicate" \| "bulk_delete" \| "bulk_restore"`
-
-### `EntityEventDraft`
-
-**Type:** `Omit<EntityEvent, "service">`
 
 ### `EntityMetaResponse`
 
