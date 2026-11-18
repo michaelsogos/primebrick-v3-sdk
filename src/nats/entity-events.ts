@@ -20,6 +20,7 @@
  * consumers, which the JH durable binding is what makes survivable.
  */
 
+import type { EntityMeta, MetaColumn } from "@primebrick/core";
 import { NatsClient } from "./nats-client.js";
 
 // The event contract is OWNED by dal-pg (`src/entity/events.ts` — the
@@ -110,6 +111,60 @@ export const ENTITY_EVENT_PAYLOAD_SCHEMA: Record<string, unknown> = {
     batch: { type: "string" },
   },
 };
+
+/**
+ * Column → JSON-schema leaf for the typed event snapshot. `pg_type`
+ * (physical truth) wins; the UI `type` is the fallback. `badge.values`
+ * keys become an `enum` so pickers can offer the closed vocabulary.
+ */
+function columnEventJsonSchema(col: MetaColumn): Record<string, unknown> {
+  const enumVals = col.badge?.values ? Object.keys(col.badge.values) : null;
+  const base: Record<string, unknown> = {};
+  switch (col.pg_type) {
+    case "boolean": case "bool":
+      base.type = "boolean"; break;
+    case "smallint": case "integer": case "bigint": case "serial": case "bigserial":
+      base.type = "integer"; break;
+    case "numeric": case "decimal": case "real": case "double precision": case "money":
+      base.type = "number"; break;
+    case "json": case "jsonb":
+      break; // any shape — no type constraint
+    default:
+      switch (col.type) {
+        case "boolean": base.type = "boolean"; break;
+        case "number": case "ref_count": base.type = "number"; break;
+        default: base.type = "string"; break;
+      }
+  }
+  if (enumVals?.length) base.enum = enumVals;
+  return base;
+}
+
+/**
+ * Per-entity payload schema — clones the generic contract and types the
+ * `before`/`after` snapshots + `delta` map from the entity's meta columns.
+ * Drives the trigger filter composer (real `$.after.<column>` paths and
+ * closed enum vocabularies) instead of untyped free JSONPath.
+ */
+export function entityEventPayloadSchema(meta?: EntityMeta): Record<string, unknown> {
+  if (!meta?.columns?.length) return ENTITY_EVENT_PAYLOAD_SCHEMA;
+  const snapshot: Record<string, unknown> = {};
+  const deltaProps: Record<string, unknown> = {};
+  for (const col of meta.columns) {
+    if (!col.key) continue;
+    snapshot[col.key] = columnEventJsonSchema(col);
+    deltaProps[col.key] = { type: "object", properties: { old: {}, new: {} } };
+  }
+  return {
+    ...ENTITY_EVENT_PAYLOAD_SCHEMA,
+    properties: {
+      ...(ENTITY_EVENT_PAYLOAD_SCHEMA.properties as Record<string, unknown>),
+      before: { type: ["object", "null"], properties: snapshot },
+      after: { type: ["object", "null"], properties: snapshot },
+      delta: { type: ["object", "null"], properties: deltaProps },
+    },
+  };
+}
 
 /**
  * Ensure the `ENTITY_EVENTS` stream exists with the retention limits —

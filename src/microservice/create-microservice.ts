@@ -63,7 +63,7 @@ import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
-import { ENTITY_EVENT_PAYLOAD_SCHEMA } from "../nats/entity-events.js";
+import { entityEventPayloadSchema } from "../nats/entity-events.js";
 import type { EntityRouteDecl } from "../http/service-routes.js";
 import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
 import { docsPackStale, emitServiceDocs } from "../docs-gen/emit.js";
@@ -770,7 +770,13 @@ export async function createMicroservice(
   {
     const autoEmits = (branded?.entityDecls ?? []).map((d) => ({
       subject: `events.${serviceCode}.${d.entityName}.>`,
-      payload_schema: ENTITY_EVENT_PAYLOAD_SCHEMA,
+      // Humanized pickers by construction: the label reuses the entity's
+      // OWN `.singular` key (e.g. "Cliente"), the schema types the
+      // before/after/delta snapshots from meta columns, and `entity`
+      // marks where the snapshot lives in the payload.
+      label_key: `${d.meta?.entities_ns ?? "system"}.entities.${d.meta?.translation_key ?? d.entityName}.singular`,
+      payload_schema: entityEventPayloadSchema(d.meta),
+      entity: { key: "after", entity: d.entityName },
     }));
     const declared = (options.events?.emits ?? []) as { subject: string }[];
     const seen = new Set(declared.map((e) => e.subject));

@@ -244,7 +244,7 @@ export interface CensusOption {
   kind?: string;
   permissions?: readonly string[];
   payload_schema?: Record<string, unknown>;
-  entity?: { key: string; entity: string; table: string };
+  entity?: { key: string; entity: string; table?: string };
 }
 
 /**
