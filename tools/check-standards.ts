@@ -254,7 +254,7 @@ const LINE_RULES: Rule[] = [
   // writes through svc.*, cross-entity via this.svcFor. Compile fails on
   // DomainService subclasses anyway; this rule catches the same access
   // on self-declared dal fields elsewhere.
-  { id: "dal-member-access", pattern: /\bthis\._?dal!?\s*(?:\.|\[\s*['"])/, hint: "this.dal is private — reads via this.svc.list/this.svc.query, writes via svc.*, cross-entity via this.svcFor" },
+  { id: "dal-member-access", pattern: /\bthis\._?dal!?(?=\s*(?:\.|\[|;|,|\)|\s|$))/, hint: "this.dal is private — reads via this.svc.list/this.svc.query, writes via svc.*, cross-entity via this.svcFor" },
   { id: "pool-ping", pattern: /\b(?:client|pool|conn)\.ping\s*\(/, hint: "raw driver ping — use dal.serverVersion()" },
   { id: "column-flag-defaults", pattern: /\.(?:default_visible|sortable|filterable|searchable)\s*(?:!==|===)\s*false\b/, hint: "column flags are opt-out — read them via isColumnVisible/isColumnSortable/isColumnFilterable/isColumnSearchable (@primebrick/core)" },
   {
