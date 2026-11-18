@@ -139,6 +139,18 @@ function columnEventJsonSchema(col: MetaColumn): Record<string, unknown> {
   if (enumVals?.length) base.enum = enumVals;
   const fmt = honestColumnFormat(col, base["type"]);
   if (fmt) base.format = fmt;
+  // Presentation hints for schema-driven pickers (filter composer,
+  // payload-map navigator): the column's label key + per-enum-value
+  // labels ride the schema so consumers translate, never guess.
+  if (col.label_key) base.x_label_key = col.label_key;
+  if (col.badge?.values) {
+    const labels = Object.fromEntries(
+      Object.entries(col.badge.values)
+        .filter(([, v]) => typeof v.label_key === "string" && v.label_key)
+        .map(([k, v]) => [k, v.label_key]),
+    );
+    if (Object.keys(labels).length > 0) base.x_enum_labels = labels;
+  }
   return base;
 }
 
@@ -185,8 +197,15 @@ export function entityEventPayloadSchema(meta?: EntityMeta): Record<string, unkn
   const deltaProps: Record<string, unknown> = {};
   for (const col of meta.columns) {
     if (!col.key || DAL_AUDIT_STAMPS.has(col.key)) continue;
-    snapshot[col.key] = columnEventJsonSchema(col);
-    deltaProps[col.key] = { type: "object", properties: { old: {}, new: {} } };
+    const leaf = columnEventJsonSchema(col);
+    snapshot[col.key] = leaf;
+    // `delta.<col>.{old,new}` typed by the same leaf — `$.delta.status.new`
+    // resolves the column's format/enum/labels like `$.after.status` does.
+    deltaProps[col.key] = {
+      type: "object",
+      properties: { old: leaf, new: leaf },
+      ...(leaf.x_label_key ? { x_label_key: leaf.x_label_key } : {}),
+    };
   }
   return {
     ...ENTITY_EVENT_PAYLOAD_SCHEMA,

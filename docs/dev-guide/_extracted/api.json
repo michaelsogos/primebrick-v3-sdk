@@ -99237,9 +99237,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 182,
+					"line": 194,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L182"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L194"
 				}
 			],
 			"signatures": [
@@ -99292,9 +99292,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 182,
+							"line": 194,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L182"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L194"
 						}
 					],
 					"parameters": [
@@ -99346,9 +99346,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 206,
+					"line": 225,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L206"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L225"
 				}
 			],
 			"signatures": [
@@ -99377,9 +99377,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 206,
+							"line": 225,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L206"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L225"
 						}
 					],
 					"type": {
@@ -99410,9 +99410,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 226,
+					"line": 245,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L226"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L245"
 				}
 			],
 			"signatures": [
@@ -99481,9 +99481,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 226,
+							"line": 245,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L226"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L245"
 						}
 					],
 					"parameters": [
@@ -99513,9 +99513,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-													"line": 227,
+													"line": 246,
 													"character": 9,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L227"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L246"
 												}
 											],
 											"type": {
