@@ -23,7 +23,7 @@ events.<service_code>.<topic>                — domain event not tied to an ent
 
 | Shape | Example | Meaning |
 |-------|---------|---------|
-| `events.<svc>.<entity>.<uuid>` | `events.crm.customer.019ae31f-…` | A governed write touched that row. The action (`create`, `update`, `delete`, `restore`, `purge`, `duplicate`) is in the **payload** — never in the subject. |
+| `events.<svc>.<entity>.<uuid>` | `events.crm.customer.019ae31f-…` | A governed write touched that row. The action is in the **payload** — never in the subject — and single vs bulk are disjoint vocabularies: `create`/`update`/`delete`/`restore`/`purge`/`duplicate` for single-row writes, `bulk_create`/`bulk_update`/`bulk_delete`/`bulk_restore`/`bulk_purge` for the TEMP-TABLE bulk paths. |
 | `events.<svc>.<entity>.on.<name>` | `events.crm.customer.on.high_value` | A semantic/domain event *about* an entity. The `.on.` marker keeps semantic names out of the uuid slot, so the two shapes can never collide. |
 | `events.<svc>.<topic>` | `events.crm.pipeline_stage_changed` | A domain event not anchored to one entity row. |
 
@@ -34,7 +34,7 @@ subscription. The `.>` wildcard is intentional over `*` because it binds the
 subtree, so deeper shapes cannot silently escape the binding.
 
 Trigger filters discriminate inside the subtree via the payload:
-`{field: "action", op: "eq", value: "update"}` for lifecycle kinds, or a
+`{field: "event.action", op: "eq", value: "update"}` for lifecycle kinds, or a
 path into the semantic event's own payload schema.
 
 ## What is NOT a domain event
@@ -75,21 +75,37 @@ never block on a full subject (verified on NATS 2.14.3).
 
 ```ts
 {
-  schema: 1,
-  service: "crm", entity: "customer", table: "customers",
-  action: "update",
-  uuid: "019ae31f-…", version: 7, actor: "…",
-  changed_at: 1763489…,
-  before: { … } | null,   // old row — auditable entities only
-  after:  { … } | null,   // RETURNING row
-  delta:  { status: { old: "A", new: "B" } } | null,
-  batch?: "…"             // shared id correlating a bulk op's per-row events
+  event: {                            // the STANDARD envelope — no op data
+    schema: 2,
+    service: "crm",
+    subject: "events.crm.customer.019ae31f-…",
+    emitted_at: "…",                  // ISO timestamp of the write
+    emitted_by: "…",                  // actor uuid or system:<code>
+    action: "update",                 // or a bulk_* action — never both
+    entity: "customer",
+    uuid: "019ae31f-…",
+    version: 7,                       // auditable entities only
+  },
+  entity: {                           // row state — the single-row specialization
+    before: { … } | null,             // old row (optimistic-lock); null on create/bulk
+    after:  { … } | null,             // RETURNING row; null on bulk
+    delta:  { status: { old: "A", new: "B" } } | null,
+  },
+  entities?: {                        // grouped-operation outcome — bulk ops
+    batch: "…",                       // and deferred-tx commits only
+    uuids: ["019ae31f-…", "…"],       // every row uuid the op touched
+  },
 }
 ```
 
 Bulk writes emit **one thin event per affected uuid** — `before`/`after`/
-`delta` are `null` by contract (bulk ops return no rows) — correlated by the
-shared `batch` id. A consumer that needs row state re-reads via `svc.get`.
+`delta` are `null` by contract (bulk ops return no rows) — under a
+`bulk_*` action. `entities.batch` correlates the sibling events and
+`entities.uuids` carries the op's full outcome, so each member event is
+self-contained. Deferred-tx (`beginTransaction`) commits drain the same
+`entities` container but keep the PLAIN action vocabulary — they are N
+individual writes atomically committed, not a bulk op. A consumer that
+needs row state re-reads via `svc.get`.
 
 ## API
 

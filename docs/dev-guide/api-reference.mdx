@@ -1507,6 +1507,10 @@ foreign for merge/conflict purposes. |
 |-------|------|-------------|
 | event | `EntityEventEnvelope` |  |
 | entity | `{ before: Record<string, unknown> \| null; after: Record<string, unknown> \| null; delta: Record<string, { old: unknown; new: unknown }> \| null }` |  |
+| entities | `{ batch: string; uuids: string[] }` | Grouped-operation section — present on bulk-op members and
+ deferred-tx commit drains: `batch` correlates the sibling events,
+ `uuids` is the operation's full row outcome (each member event is
+ self-contained). Absent on plain single writes. |
 
 ### `EntityEventDraft`
 
@@ -1514,6 +1518,7 @@ foreign for merge/conflict purposes. |
 |-------|------|-------------|
 | event | `Omit<EntityEventEnvelope, "service" \| "subject">` |  |
 | entity | `{ before: Record<string, unknown> \| null; after: Record<string, unknown> \| null; delta: Record<string, { old: unknown; new: unknown }> \| null }` |  |
+| entities | `{ batch: string; uuids: string[] }` |  |
 
 ### `EntityEventPort`
 
