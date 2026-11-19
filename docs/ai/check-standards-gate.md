@@ -24,9 +24,10 @@ violations:
 - **Declared** violations are suppressed; **new** violations fail the
   gate (exit ≠ 0); **stale** baseline entries warn (the debt was fixed —
   regenerate).
-- `bun tools/check-standards.ts src --write-baseline` regenerates the
-  file. Never hand-edit it to hide a new violation — that is the exact
-  failure mode the gate exists to prevent.
+- `--write-baseline` was **removed** (exit 2): debt can never be minted —
+  the only legal doors are code fixes, `allowPaths` config entries, or a
+  shrunken baseline after fixing declared debt (delete the stale rows by
+  hand; stale entries warn, never fail).
 
 For debt that is *correct by construction* (e.g. the one sanctioned
 `getPool()` seam, `JSON.stringify` inside the zero-dep leaf package),
@@ -45,6 +46,23 @@ baseline row.
 CI checkouts track `develop` of sdk+core — a new rule activates
 everywhere at once; repos that violate it are honestly red until fixed
 or baselined.
+
+## Suppression hygiene — `suppress-no-reason`
+
+Always-on meta rule, every profile, every scanned file: linter/compiler
+suppression tags MUST justify themselves.
+
+| Tag family | Reason forms accepted |
+|---|---|
+| `eslint-disable`, `eslint-disable-next-line` | ` -- <reason>` tail on the same line, or an adjacent explanatory comment |
+| `svelte-ignore` | adjacent explanatory comment (`//` or `<!-- -->`, multi-line comments count) or ` -- <reason>` tail |
+| `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck` | same |
+
+A bare suppression is a `suppress-no-reason` violation — non-exemptible:
+there is never a legal reason to suppress silently. The intent is that
+suppressions are **reviewable**: when the codebase has a sanctioned idiom
+(`untrack()` for `state_referenced_locally`, `<SafeHtml>` for `{@html}`),
+the reason field is where the reviewer sees why the idiom did not apply.
 
 ## i18n namespace rules
 
@@ -88,5 +106,5 @@ resolved text, not keys).
 - ❌ NEVER add a baseline entry for a violation introduced in the same
   changeset — fix it or exempt it with a reason.
 - ❌ NEVER weaken a rule's config to pass the gate.
-- ✅ When fixing declared debt, re-run `--write-baseline` and commit the
-  shrunken file in the same changeset.
+- ✅ When fixing declared debt, delete the stale baseline rows by hand and
+  commit the shrunken file in the same changeset.
