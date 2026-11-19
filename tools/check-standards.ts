@@ -113,6 +113,13 @@
  *   // standards-exempt-file: <rule-id>[,<rule-id>…] — <reason (required)>
  * A missing/short reason is itself a violation.
  *
+ * suppress-no-reason (always-on, every profile) — linter/compiler
+ * suppression tags (`eslint-disable`, `svelte-ignore`, `@ts-ignore`,
+ * `@ts-expect-error`, `@ts-nocheck`) MUST carry an explicit reason: a
+ * ` -- <reason>` tail on the same line or an adjacent explanatory
+ * comment. A bare suppression is a `suppress-no-reason` violation —
+ * non-exemptible, there is never a legal reason to suppress silently.
+ *
  *   dal-member-write (consumer profile, always-on)
  *                   `this.dal.<add|update|delete|restore|hardDelete|truncate|
  *                   *Many>` — DomainService members never write raw: writes go
@@ -895,7 +902,7 @@ const FE_RULES = new Set<RuleId>([]);
 interface Violation {
   file: string;
   line: number;
-  rule: RuleId | "exempt-no-reason";
+  rule: RuleId | "exempt-no-reason" | "suppress-no-reason";
   text: string;
   hint: string;
 }
@@ -945,6 +952,29 @@ function parseExempt(line: string, fileLevel = false): { rules: Set<string>; has
   }
   const rules = new Set(m[1].split(",").map((s) => s.trim()));
   return { rules, hasReason: m[2].trim().length >= 8 };
+}
+
+// suppress-no-reason — always-on meta hygiene for every profile: a
+// linter/compiler suppression with no reason is a hidden drift vector (a
+// bare `{@html}` disable once masked a missing DOMPurify step; bare
+// state_referenced_locally ignores hid snapshot intent that untrack() now
+// expresses). The main rule loop skips comment-only lines, but suppression
+// TAGS live inside comments — this pass scans every line.
+const SUPPRESS_TAG = /eslint-disable|svelte-ignore|@ts-ignore|@ts-expect-error|@ts-nocheck/;
+// ` -- ` (space-dash-dash-space) + non-space AFTER the tag — eslint's own
+// rule/comment separator. The `-->` of an HTML-comment close cannot match
+// (no whitespace after the dashes); the `<!--` opener cannot either (it
+// precedes the tag — the lazy `.*?` only consumes forward).
+const SUPPRESS_TAIL = /(?:eslint-disable|svelte-ignore|@ts-ignore|@ts-expect-error|@ts-nocheck).*?\s--\s+\S/;
+
+/** Adjacent non-suppression comment line = the documented prose form.
+ *  `commentMask` (not a line-prefix test) identifies comment lines — a
+ *  multi-line HTML/block explanation ENDS the line above the tag, so its
+ *  last line never starts with a comment marker. */
+function suppressExplained(lines: string[], i: number, commentMask: boolean[]): boolean {
+  const isCommentLine = (idx: number) =>
+    idx >= 0 && idx < lines.length && commentMask[idx] && !SUPPRESS_TAG.test(lines[idx]);
+  return isCommentLine(i - 1) || isCommentLine(i + 1);
 }
 
 function* walk(dir: string): Generator<string> {
@@ -1555,6 +1585,26 @@ function checkFile(file: string, srcDir: string, rules: Set<RuleId>, i18nNamespa
           hint: "nav declaration must set module-level `access:` (accessNamespace(code, part_of)) — declared nav is exposed surface; ungated modules are not allowed",
         });
       }
+    }
+  }
+
+  // suppress-no-reason — reason forms: ` -- <reason>` on the same line, or
+  // a non-suppression comment line directly adjacent. Prose mentions of a
+  // tag inside doc blocks pass via the adjacent clause (they read as
+  // explained — quality of the reason is for review, presence is what the
+  // rule enforces).
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!SUPPRESS_TAG.test(line)) continue;
+    if (SUPPRESS_TAIL.test(line)) continue;
+    if (!suppressExplained(lines, i, commentMask)) {
+      out.push({
+        file: rel,
+        line: i + 1,
+        rule: "suppress-no-reason",
+        text: line.trim(),
+        hint: "linter/compiler suppression needs an explicit reason — ` -- <reason>' inline or an adjacent explanatory comment",
+      });
     }
   }
   return out;
