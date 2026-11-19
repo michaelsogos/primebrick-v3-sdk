@@ -351,23 +351,31 @@ function runValidator<T>(fn: (input: never) => T, input: unknown): T {
 
 function parseBulkItems(body: unknown): Array<{ uuid: string; version: number }> {
   const items = (body as { items?: unknown })?.items;
+  // extJsonParse forces every integer token to native bigint — `version`
+  // arrives as bigint on the wire, so accept bigint OR plain integer and
+  // normalize to the service's `number` contract (version cols are int4).
+  const asVersion = (v: unknown): number | null => {
+    if (typeof v === "bigint") return v >= 0n ? Number(v) : null;
+    return Number.isInteger(v) && (v as number) >= 0 ? (v as number) : null;
+  };
+  const parsed = Array.isArray(items)
+    ? items.map((i) => ({
+        uuid: (i as { uuid?: unknown })?.uuid,
+        version: asVersion((i as { version?: unknown })?.version),
+      }))
+    : [];
   if (
-    !Array.isArray(items) ||
-    items.length < 1 ||
-    items.length > 100 ||
-    !items.every(
-      (i) =>
-        i &&
-        typeof i === "object" &&
-        UUID_PARAM_RE.test((i as { uuid?: string }).uuid ?? "") &&
-        Number.isInteger((i as { version?: number }).version),
+    parsed.length < 1 ||
+    parsed.length > 100 ||
+    !parsed.every(
+      (i) => typeof i.uuid === "string" && UUID_PARAM_RE.test(i.uuid) && i.version !== null,
     )
   ) {
     throw new ValidationError(
       "Body must be { items: [{ uuid, version }] } — 1..100 items",
     );
   }
-  return items as Array<{ uuid: string; version: number }>;
+  return parsed as Array<{ uuid: string; version: number }>;
 }
 
 function defaultDuplicateBody(body: unknown): { uuids: string[] } {
