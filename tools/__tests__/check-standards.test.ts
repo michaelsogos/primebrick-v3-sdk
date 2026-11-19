@@ -23,7 +23,7 @@ const T = 30_000; // bun cold-start per spawn
 interface LintResult { code: number | null; out: string }
 
 /** Build a fixture repo, run the tool inside it, return exit code + output. */
-function runLint(files: Record<string, string>, config?: Record<string, unknown>): LintResult {
+function runLint(files: Record<string, string>, config?: Record<string, unknown>, profile = "consumer"): LintResult {
   const repo = mkdtempSync(join(tmpdir(), "cs-e2e-"));
   try {
     for (const [rel, src] of Object.entries(files)) {
@@ -35,7 +35,7 @@ function runLint(files: Record<string, string>, config?: Record<string, unknown>
       mkdirSync(join(repo, ".devin"), { recursive: true });
       writeFileSync(join(repo, ".devin", "check-standards.json"), JSON.stringify(config));
     }
-    const r = spawnSync("bun", [TOOL, "src"], { cwd: repo, encoding: "utf8" });
+    const r = spawnSync("bun", [TOOL, "src", `--profile=${profile}`], { cwd: repo, encoding: "utf8" });
     return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
   } finally {
     rmSync(repo, { recursive: true, force: true });
@@ -498,5 +498,81 @@ describe("check-standards — i18n namespace boundary", () => {
     );
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("[i18n-sql-key-ref]");
+  }, T);
+});
+
+describe("check-standards — no-native-dialog", () => {
+  const FE = "fe";
+
+  it("flags bare confirm()/alert()/prompt() expression calls", () => {
+    const r = runLint({
+      "src/a.svelte": "const x = confirm(t(key));\nconst y = alert('msg');\nconst z = !prompt('?');\n",
+    }, undefined, FE);
+    expect(r.code).toBe(1);
+    expect((r.out.match(/no-native-dialog/g) ?? []).length).toBe(3);
+  }, T);
+
+  it("flags window. / globalThis.-prefixed natives", () => {
+    const r = runLint({
+      "src/a.ts": "window.confirm('x');\nglobalThis.alert('y');\n",
+    }, undefined, FE);
+    expect(r.code).toBe(1);
+    expect((r.out.match(/no-native-dialog/g) ?? []).length).toBe(2);
+  }, T);
+
+  it("method calls and identifier suffixes are NOT native calls", () => {
+    const r = runLint({
+      "src/a.ts": [
+        "dialog.confirm(row);",
+        "host.confirm(x);",
+        "const ok = confirmDelete(row);",
+        "const p = promptForName(x);",
+        "alertBox.show();",
+      ].join("\n"),
+    }, undefined, FE);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+
+  it("local function declarations + no-arg calls don't fire", () => {
+    const r = runLint({
+      "src/a.svelte": "function confirm() { return true; }\nconst ok = confirm();\n",
+    }, undefined, FE);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+
+  it("comment bodies never fire", () => {
+    const r = runLint({
+      "src/a.ts": "// guard calls confirm() natively — migrated\nconst x = 1;\n",
+    }, undefined, FE);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+
+  it("standards-exempt CANNOT suppress it — the tag itself is flagged", () => {
+    const r = runLint({
+      "src/a.svelte": "// standards-exempt: no-native-dialog — legacy gate\nconst x = confirm(t(key));\n",
+    }, undefined, FE);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("exempt-governance");
+    expect(r.out).toContain("no-native-dialog");
+  }, T);
+
+  it("fe/src remote surfaces inside consumer repos inherit the rule", () => {
+    const r = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "fe/src/lib/Page.svelte": "const y = confirm('del?');\n",
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("no-native-dialog");
+    expect(r.out).toContain("Page.svelte");
+  }, T);
+
+  it("consumer profile does NOT scan server src for natives (browser rule)", () => {
+    const r = runLint({
+      "src/a.ts": "const x = confirm(t);\n",
+    });
+    expect(r.out).not.toContain("no-native-dialog");
   }, T);
 });

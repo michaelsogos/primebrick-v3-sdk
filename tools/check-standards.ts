@@ -212,6 +212,7 @@ type RuleId =
   | "panel-toolbar-tools"
   | "panel-chrome-class"
   | "native-control"
+  | "no-native-dialog"
   | "field-stock-chrome"
   | "i18n-entity-fallback"
   | "page-scaffold-ownership"
@@ -264,6 +265,19 @@ const LINE_RULES: Rule[] = [
     pattern: /<(input|select|textarea)\b/,
     hint: "raw HTML control — use the canonical wrappers (components/input/, ComboSelect, Textarea…)",
     allowPaths: /^lib\/components\/(input|input-group|textarea)\//,
+  },
+  // no-native-dialog — browser confirm()/alert()/prompt() are anatomy
+  // violations: entity confirms go through the governed op invoker +
+  // DeleteDialog-family, notices through pushNotification. The `[^)]`
+  // after `(` requires an argument char — declarations `confirm() {}`
+  // and local no-arg helper calls don't match; `foo.confirm(`, method
+  // calls and identifier suffixes (confirmDelete) can't match via the
+  // `(?<![\w$.])` lookbehind. `window.`/`globalThis.` prefixes caught
+  // by the second alternative. NO_EXEMPT — fix the surface, don't hide it.
+  {
+    id: "no-native-dialog",
+    pattern: /(?<![\w$.])(?<!function\s)(?:confirm|alert|prompt)\s*\([^)]|(?:\bwindow\.|\bglobalThis\.)(?:confirm|alert|prompt)\s*\([^)]/,
+    hint: "native dialog call — entity confirms use the governed invoker (DeleteDialog/BulkDeleteDialog anatomy), notices use pushNotification; never window.confirm/alert/prompt",
   },
 ];
 
@@ -886,11 +900,14 @@ const CONSUMER_RULES = new Set<RuleId>([
 const NO_EXEMPT_RULES = new Set<RuleId>([
   "dal-access", "dal-construct", "dal-member-write", "dal-member-access", "pg-import", "pg-pool",
   "raw-query", "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
+  "no-native-dialog",
 ]);
-const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control"]);
-// `fe` — browser SPA: no base line rules (server-side contracts don't
-// apply); the gated rules above activate via .devin/check-standards.json.
-const FE_RULES = new Set<RuleId>([]);
+const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control", "no-native-dialog"]);
+// `fe` — browser SPA: no server-side contracts apply; `no-native-dialog`
+// is the one always-on base rule (native confirm/alert/prompt are anatomy
+// violations in browser code); the gated rules above activate via
+// .devin/check-standards.json.
+const FE_RULES = new Set<RuleId>(["no-native-dialog"]);
 
 interface Violation {
   file: string;
