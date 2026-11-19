@@ -30,7 +30,8 @@ import { NatsClient } from "./nats-client.js";
 // `dal.eventPort = makeNatsEntityEventPort(code)` assignment. Keep the
 // shapes in sync — the wire is the real contract.
 type EntityWriteAction =
-  | "create" | "update" | "delete" | "restore" | "purge" | "duplicate";
+  | "create" | "update" | "delete" | "restore" | "purge" | "duplicate"
+  | "bulk_create" | "bulk_update" | "bulk_delete" | "bulk_restore" | "bulk_purge";
 export interface EntityEventEnvelope {
   schema: 2;
   service: string;
@@ -41,7 +42,6 @@ export interface EntityEventEnvelope {
   entity: string;
   uuid: string;
   version?: number;
-  batch?: string;
 }
 export interface EntityEvent {
   event: EntityEventEnvelope;
@@ -50,10 +50,19 @@ export interface EntityEvent {
     after: Record<string, unknown> | null;
     delta: Record<string, { old: unknown; new: unknown }> | null;
   };
+  /** Grouped-operation section — present on bulk-op members and
+   *  deferred-tx commit drains: `batch` correlates the sibling events,
+   *  `uuids` is the operation's full row outcome (each member event is
+   *  self-contained). Absent on plain single writes. */
+  entities?: {
+    batch: string;
+    uuids: string[];
+  };
 }
 export interface EntityEventDraft {
   event: Omit<EntityEventEnvelope, "service" | "subject">;
   entity: EntityEvent["entity"];
+  entities?: EntityEvent["entities"];
 }
 export interface EntityEventPort {
   emit(event: EntityEventDraft): Promise<void>;
@@ -113,13 +122,15 @@ export const ENTITY_EVENT_PAYLOAD_SCHEMA: Record<string, unknown> = {
         emitted_at: { type: "string", format: "date-time", x_label_key: "app.entity_events.event.emitted_at" },
         emitted_by: { type: "string", format: "actor_token", x_label_key: "app.entity_events.event.emitted_by" },
         action: {
-          enum: ["create", "update", "delete", "restore", "purge", "duplicate"],
+          enum: [
+            "create", "update", "delete", "restore", "purge", "duplicate",
+            "bulk_create", "bulk_update", "bulk_delete", "bulk_restore", "bulk_purge",
+          ],
           x_label_key: "app.entity_events.event.action",
         },
         entity: { type: "string", x_label_key: "app.entity_events.event.entity" },
         uuid: { type: "string", format: "uuid", x_label_key: "app.entity_events.event.uuid" },
         version: { type: "integer", x_label_key: "app.entity_events.event.version" },
-        batch: { type: "string", x_label_key: "app.entity_events.event.batch" },
       },
     },
     entity: {
@@ -132,10 +143,18 @@ export const ENTITY_EVENT_PAYLOAD_SCHEMA: Record<string, unknown> = {
         delta: { type: ["object", "null"], x_label_key: "app.entity_events.entity.delta" },
       },
     },
-    uuids: {
-      type: "array",
-      items: { type: "string", format: "uuid" },
-      x_label_key: "app.entity_events.uuids",
+    entities: {
+      type: "object",
+      x_label_key: "app.entity_events.entities",
+      required: ["batch", "uuids"],
+      properties: {
+        batch: { type: "string", format: "uuid", x_label_key: "app.entity_events.entities.batch" },
+        uuids: {
+          type: "array",
+          items: { type: "string", format: "uuid" },
+          x_label_key: "app.entity_events.entities.uuids",
+        },
+      },
     },
   },
 };
