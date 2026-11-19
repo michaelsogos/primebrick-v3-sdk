@@ -73,6 +73,7 @@ describe("entityFieldValidator", () => {
 describe("makeEntityRouter meta-derived default", () => {
   let server: Server;
   let base: string;
+  let bulkItems: Array<{ uuid: string; version: number }> | null = null;
 
   const service = {
     list: async () => [],
@@ -83,7 +84,10 @@ describe("makeEntityRouter meta-derived default", () => {
     restore: async () => ({}),
     purge: async () => ({}),
     duplicate: async () => ({}),
-    bulkDelete: async () => ({}),
+    bulkDelete: async (items: Array<{ uuid: string; version: number }>) => {
+      bulkItems = items;
+      return { deleted: items.length };
+    },
     bulkRestore: async () => ({}),
     audit: async () => ({}),
     stream: (async function* () {}) as never,
@@ -96,6 +100,7 @@ describe("makeEntityRouter meta-derived default", () => {
     permissions: {
       create: ["_authenticated_user"],
       update: ["_authenticated_user"],
+      bulkDelete: ["_authenticated_user"],
     },
     duplicate: false,
   });
@@ -150,6 +155,22 @@ describe("makeEntityRouter meta-derived default", () => {
   it("accepts a conforming entity", async () => {
     const res = await post({ entity: { name: "ok", contact: "a@b.c", quota: 5 } });
     expect(res.status).toBe(201);
+  });
+
+  it("bulk-delete normalizes the ext-json bigint version back to number", async () => {
+    // readJsonBody→extJsonParse forces EVERY integer token to native bigint —
+    // the wire `version: 1` arrives as 1n. The service contract is `number`,
+    // so parseBulkItems must coerce (regression: Number.isInteger(1n)===false
+    // used to 400 every real client).
+    const uuid = "3f4b6b84-2c1d-4c8a-9a5f-9d2c1f7e8a9b";
+    const res = await fetch(`${base}/api/v1/entities/widget/bulk-delete`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ items: [{ uuid, version: 1 }] }),
+    });
+    expect(res.status, await res.text()).toBe(200);
+    expect(bulkItems).toEqual([{ uuid, version: 1 }]);
+    expect(typeof bulkItems![0]!.version).toBe("number");
   });
 
   it("update is partial — absent required keys pass, present invalid fails", async () => {

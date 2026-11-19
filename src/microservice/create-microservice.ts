@@ -57,12 +57,13 @@
 import { logger } from "../lifecycle/logger.js";
 import { ClientShieldRegistry } from "../service/client-shield-registry.js";
 import { setNatsShieldRegistry } from "../nats/service-shield.js";
-import { SecretProvider, startSecretProvider } from "../secrets/rotating-secret.js";
-import { CLIENT_SHIELD_SECRET_REF, getClientShieldSecretSlot } from "../auth/client-shield-secret.js";
+import { SecretProvider, startSecretProvider, refreshSecretWithRetry } from "../secrets/rotating-secret.js";
+import { CLIENT_SHIELD_SECRET_REF } from "../auth/client-shield-secret.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
+import { entityEventPayloadSchema } from "../nats/entity-events.js";
 import type { EntityRouteDecl } from "../http/service-routes.js";
 import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
 import { docsPackStale, emitServiceDocs } from "../docs-gen/emit.js";
@@ -154,7 +155,7 @@ export interface MicroserviceOptions {
    * The SDK is DB-agnostic so the consumer provides this.
    * Typically reads DATABASE_URL / DB_SCHEMA from env and calls getDal().
    */
-  initDal: () => void;
+  initDal: () => void | Promise<void>;
 
   /**
    * Optional DB startup banner — called right after `initDal`, rendered
@@ -409,8 +410,10 @@ export async function createMicroservice(
     throw error;
   }
 
-  // 2. DAL init (consumer callback — DB-agnostic)
-  options.initDal();
+  // 2. DAL init (consumer callback — DB-agnostic; may be async when the
+  // service wires dal event emission — `wireEntityEventEmission` awaits
+  // the ENTITY_EVENTS stream ensure).
+  await options.initDal();
   // Warm every declared entity's dal service — `DomainService.svc` is
   // lazy, but the ref-display registry resolves join targets at query
   // time; warming here makes it complete before the first request,
@@ -663,24 +666,9 @@ export async function createMicroservice(
     });
     // Self-heal: without the rotating secret every shield-verified inbound
     // call is rejected — a boot-time miss must not become a permanent wall.
-    // Retry in the background until the slot lands (bounded; the
-    // secret.rotated broadcast may also heal it earlier).
-    void (async () => {
-      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      for (let attempt = 1; attempt <= 30 && !getClientShieldSecretSlot(); attempt++) {
-        await sleep(10_000);
-        try {
-          await secretProvider.get(CLIENT_SHIELD_SECRET_REF);
-          logger.info("Client-shield secret provisioned on background retry", { tags: ["core"] });
-          break;
-        } catch {
-          // engine still unreachable — keep waiting
-        }
-      }
-      if (!getClientShieldSecretSlot()) {
-        logger.error("Client-shield secret still missing after background retries — every shielded call will be rejected until rotation or restart", { tags: ["core"] });
-      }
-    })();
+    // Same unbounded retry the secret.rotated consumer path uses (deduped:
+    // a broadcast landing mid-retry coalesces into this loop).
+    void refreshSecretWithRetry(secretProvider, CLIENT_SHIELD_SECRET_REF);
   }
 
   try {
@@ -774,8 +762,28 @@ export async function createMicroservice(
   // Module emitted-event self-declaration — verbatim object riding the same
   // channel as nav: persisted in service_registry.endpoints.events, served
   // on /modules. Domain subject pickers resolve options from the census.
-  if (options.events) {
-    registrarEndpoints.events = options.events;
+  // Entity-domain events AUTO-DECLARE: every served entity emits
+  // `events.<code>.<entity>.>` by construction (dal-pg repo write path +
+  // wireEntityEventEmission) — explicit `options.events.emits` merge on
+  // top; the census offers the subjects to trigger forms without any
+  // hand-maintained vocabulary.
+  {
+    const autoEmits = (branded?.entityDecls ?? []).map((d) => ({
+      subject: `events.${serviceCode}.${d.entityName}.>`,
+      // Humanized pickers by construction: the label reuses the entity's
+      // OWN `.singular` key (e.g. "Cliente"), the schema types the
+      // before/after/delta snapshots from meta columns, and `entity`
+      // marks where the snapshot lives in the payload.
+      label_key: `${d.meta?.entities_ns ?? "system"}.entities.${d.meta?.translation_key ?? d.entityName}.singular`,
+      payload_schema: entityEventPayloadSchema(d.meta),
+      entity: { key: "after", entity: d.entityName },
+    }));
+    const declared = (options.events?.emits ?? []) as { subject: string }[];
+    const seen = new Set(declared.map((e) => e.subject));
+    const emits = [...autoEmits.filter((e) => !seen.has(e.subject)), ...declared];
+    if (emits.length || options.events) {
+      registrarEndpoints.events = { ...options.events, emits };
+    }
   }
 
   // Entity self-declaration — the entity names this service owns, derived

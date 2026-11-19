@@ -191,6 +191,41 @@ export class SecretProvider {
 }
 
 /**
+ * Shared consumer-side resilience — mirrors the client_shield_registry
+ * `reloadUntilOk` loop: a secret-miss is a total inbound outage, so the
+ * refetch NEVER gives up (unbounded, 5s cadence, warn per attempt).
+ * Deduped per ref: back-to-back broadcasts (or boot-retry + broadcast)
+ * coalesce into a single loop. Detached by callers — never awaited inside
+ * a subscription handler, a rejection is what made the refresh die once.
+ */
+const refreshing = new Set<string>();
+export async function refreshSecretWithRetry(provider: SecretProvider, ref: RotatingSecretRef): Promise<void> {
+  const k = `${ref.scope}/${ref.name}`;
+  if (refreshing.has(k)) return;
+  refreshing.add(k);
+  try {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const slot = await provider.get(ref);
+        logger.info(
+          `The service client-shield secret was rotated upstream — local copy refreshed (rotated at ${new Date(slot.rotated_at).toISOString()}).`,
+          { tags: ["secret-provider"], ...(attempt > 1 ? { attempts: attempt } : {}) },
+        );
+        return;
+      } catch (error) {
+        logger.warn(`client-shield secret refresh attempt ${attempt} failed — retrying in 5s`, {
+          tags: ["secret-provider"],
+          error,
+        });
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
+  } finally {
+    refreshing.delete(k);
+  }
+}
+
+/**
  * Wire the consumer: subscribe to `secret.rotated` (shielded broadcast),
  * refetch and re-cache. Call once per service after NATS + shield registry
  * are up, then `provider.get(ref)` for each consumed secret.
@@ -199,10 +234,6 @@ export async function startSecretProvider(provider: SecretProvider): Promise<voi
   await subscribeShielded(SECRET_SUBJECTS.ROTATED, async (payload) => {
     const { scope, name } = payload as RotatingSecretRef;
     provider.invalidate(scope, name);
-    const slot = await provider.get({ scope, name });
-    logger.info(
-      `The service client-shield secret was rotated upstream — local copy refreshed (rotated at ${new Date(slot.rotated_at).toISOString()}).`,
-      { tags: ["secret-provider"] },
-    );
+    void refreshSecretWithRetry(provider, { scope, name });
   });
 }

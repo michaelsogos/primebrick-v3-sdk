@@ -22,7 +22,7 @@ import { extJsonParse } from "../json/ext-json.js";
  * passes it to the FE, which translates it using the current locale.
  */
 export class ConfigValidationError extends Error {
-  /** i18n translation key for the error message (e.g. "app.common.validation.invalidBigint"). */
+  /** i18n translation key for the error message (e.g. "app.common.validation.invalid_bigint"). */
   readonly error_label_key: string;
   /** Which rule failed (min, max, url, email, regex, required, type). */
   readonly rule: string;
@@ -203,8 +203,8 @@ export function validateConfigValue(
 
   // 9. Regex validation — applies to string-derived types
   //    Invalid regex pattern is a configuration error: throw in both FE and BE.
-  //    Invalid pattern errors ALWAYS use invalidRegexPattern (not the custom rule key).
-  //    Mismatch errors use the custom rule key, falling back to regexMismatch.
+  //    Invalid pattern errors ALWAYS use invalid_regex_pattern (not the custom rule key).
+  //    Mismatch errors use the custom rule key, falling back to regex_mismatch.
   if (rules.regex && isStringDerived) {
     let regex: RegExp;
     try {
@@ -213,14 +213,14 @@ export function validateConfigValue(
       // Invalid regex pattern in config — configuration error, must fail consistently.
       // Always use the invalid-pattern key, even if a custom regex error key is configured.
       throw new ConfigValidationError(
-        "app.common.validation.invalidRegexPattern",
+        "app.common.validation.invalid_regex_pattern",
         "regex",
         config_key,
       );
     }
     if (!regex.test(value)) {
       throw new ConfigValidationError(
-        rules.regex.error_label_key ?? "app.common.validation.regexMismatch",
+        rules.regex.error_label_key ?? "app.common.validation.regex_mismatch",
         "regex",
         config_key,
       );
@@ -244,17 +244,17 @@ function validateType(
   switch (type) {
     case "boolean":
       if (value !== "true" && value !== "false") {
-        throw new ConfigValidationError("app.common.validation.invalidBoolean", "type", config_key);
+        throw new ConfigValidationError("app.common.validation.invalid_boolean", "type", config_key);
       }
       break;
     case "bigint":
       if (unsigned) {
         if (!/^\d+$/.test(value)) {
-          throw new ConfigValidationError("app.common.validation.invalidBigintUnsigned", "type", config_key);
+          throw new ConfigValidationError("app.common.validation.invalid_bigint_unsigned", "type", config_key);
         }
       } else {
         if (!/^-?\d+$/.test(value)) {
-          throw new ConfigValidationError("app.common.validation.invalidBigint", "type", config_key);
+          throw new ConfigValidationError("app.common.validation.invalid_bigint", "type", config_key);
         }
       }
       break;
@@ -265,7 +265,7 @@ function validateType(
       const numRegex = unsigned ? /^\d*\.?\d+$/ : /^-?\d*\.?\d+$/;
       if (!numRegex.test(value)) {
         throw new ConfigValidationError(
-          unsigned ? "app.common.validation.invalidNumberUnsigned" : "app.common.validation.invalidNumber",
+          unsigned ? "app.common.validation.invalid_number_unsigned" : "app.common.validation.invalid_number",
           "type",
           config_key,
         );
@@ -281,18 +281,18 @@ function validateType(
         if (allowedProtocols && allowedProtocols.length > 0) {
           const protocol = url.protocol.replace(/:$/, "");
           if (!allowedProtocols.includes(protocol)) {
-            throw new ConfigValidationError("app.common.validation.invalidUrlProtocol", "type", config_key);
+            throw new ConfigValidationError("app.common.validation.invalid_url_protocol", "type", config_key);
           }
         }
       } catch (e) {
         if (e instanceof ConfigValidationError) throw e;
-        throw new ConfigValidationError("app.common.validation.invalidUrl", "type", config_key);
+        throw new ConfigValidationError("app.common.validation.invalid_url", "type", config_key);
       }
       break;
     }
     case "email":
       if (value && !EMAIL_REGEX.test(value)) {
-        throw new ConfigValidationError("app.common.validation.invalidEmail", "type", config_key);
+        throw new ConfigValidationError("app.common.validation.invalid_email", "type", config_key);
       }
       break;
     case "phone": {
@@ -307,11 +307,11 @@ function validateType(
           ? parsePhoneNumber(value, country as any)
           : parsePhoneNumber(value);
         if (!phoneNumber || !phoneNumber.isValid()) {
-          throw new ConfigValidationError("app.common.validation.invalidPhone", "type", config_key);
+          throw new ConfigValidationError("app.common.validation.invalid_phone", "type", config_key);
         }
       } catch (e) {
         if (e instanceof ConfigValidationError) throw e;
-        throw new ConfigValidationError("app.common.validation.invalidPhone", "type", config_key);
+        throw new ConfigValidationError("app.common.validation.invalid_phone", "type", config_key);
       }
       break;
     }
@@ -319,7 +319,7 @@ function validateType(
       try {
         extJsonParse(value);
       } catch {
-        throw new ConfigValidationError("app.common.validation.invalidJson", "type", config_key);
+        throw new ConfigValidationError("app.common.validation.invalid_json", "type", config_key);
       }
       break;
     // string, text, secret, badge, single_select, multi_select, date, datetime, time: no base type check

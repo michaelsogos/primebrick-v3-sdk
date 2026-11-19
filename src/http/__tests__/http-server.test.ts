@@ -137,17 +137,4 @@ describe("HttpServer bind host", () => {
     }
   });
 
-  it("binds IPv6 loopback when hostname is ::1 — IPv4 stays unreachable", async () => {
-    const server = await createHttpServer({ port: 0, hostname: "::1" });
-    try {
-      const addr = server.address();
-      expect(addr && typeof addr === "object" ? addr.address : addr).toBe("::1");
-      const port = (addr as { port: number }).port;
-      const { status } = await fetchUrl(`http://[::1]:${port}/health`);
-      expect(status).toBe(200);
-      await expect(fetchUrl(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
 });

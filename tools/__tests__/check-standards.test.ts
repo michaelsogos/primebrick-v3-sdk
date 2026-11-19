@@ -23,11 +23,33 @@ const T = 30_000; // bun cold-start per spawn
 interface LintResult { code: number | null; out: string }
 
 /** Build a fixture repo, run the tool inside it, return exit code + output. */
-function runLint(files: Record<string, string>, config?: { rules?: Record<string, unknown> }): LintResult {
+function runLint(files: Record<string, string>, config?: Record<string, unknown>): LintResult {
   const repo = mkdtempSync(join(tmpdir(), "cs-e2e-"));
   try {
     for (const [rel, src] of Object.entries(files)) {
       const p = join(repo, "src", rel);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, src);
+    }
+    if (config) {
+      mkdirSync(join(repo, ".devin"), { recursive: true });
+      writeFileSync(join(repo, ".devin", "check-standards.json"), JSON.stringify(config));
+    }
+    const r = spawnSync("bun", [TOOL, "src"], { cwd: repo, encoding: "utf8" });
+    return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+}
+
+/** Like runLint but paths are repo-ROOT relative — db-meta/patches and
+ *  other out-of-src surfaces the repo-level rules scan. A `src/` stub is
+ *  required (the line-rule walk needs it to exist). */
+function runLintRepo(files: Record<string, string>, config?: Record<string, unknown>): LintResult {
+  const repo = mkdtempSync(join(tmpdir(), "cs-e2e-"));
+  try {
+    for (const [rel, src] of Object.entries(files)) {
+      const p = join(repo, rel);
       mkdirSync(dirname(p), { recursive: true });
       writeFileSync(p, src);
     }
@@ -258,5 +280,223 @@ describe("check-standards — dal-access hardening", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  }, T);
+});
+
+// ─── i18n namespace boundary ──────────────────────────────────────────────
+// Regression specs for the strict-segregation contract: a module cites only
+// {app, own-schema} namespaces — in code literals (i18n-key-ns, template
+// literals included) and in db-meta reference columns (i18n-sql-key-ref).
+const KEYCFG = { i18n_namespaces: ["app", "job"] };
+
+describe("check-standards — i18n namespace boundary", () => {
+  it("system_key is NOT an i18n field — callable subjects never flag", () => {
+    const r = runLint(
+      { "x.ts": 'export const m = { system_key: "ai.partition_maintenance" };\n' },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-key-ns]");
+  }, T);
+
+  it("foreign-ns *_key literals flag i18n-key-ns", () => {
+    const r = runLint(
+      { "x.ts": 'export const m = { label_key: "system.entities.x.title" };\n' },
+      KEYCFG,
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[i18n-key-ns]");
+  }, T);
+
+  it("t() template literals flag when the static prefix carries a foreign ns", () => {
+    const r = runLint(
+      { "x.ts": 'declare const t: (k: string) => string;\ndeclare const s: string;\nexport const a = t(`system.entities.ai_model.sort_${s}`);\n' },
+      KEYCFG,
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[i18n-key-ns]");
+  }, T);
+
+  it("t()/field templates stay clean for own-ns, static bodies, and unprovable prefixes", () => {
+    const r = runLint(
+      {
+        "x.ts": [
+          'declare const t: (k: string) => string;',
+          'declare const s: string;',
+          'declare const K: string;',
+          'export const a = t(`job.entities.x.sort_${s}`);',     // own ns
+          'export const b = t(`${K}.desc.y`);',                  // dynamic ns — unprovable
+          'export const c = t(`jo${s}.y`);',                     // ns segment breaks — unprovable
+          'export const d = t(`job.entities.x.title`);',         // fully static template
+          'export const m = { desc_key: `${K}.desc.z` };',       // dynamic field — unprovable
+          'export const n = { label_key: "app.common.ok" };',    // app.* always legal
+        ].join("\n") + "\n",
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-");
+  }, T);
+
+  it("camelCase *Key fields flag foreign-ns — labelKey/messageKey/errorScopeKey", () => {
+    const r = runLint(
+      {
+        "x.ts":
+          'export const m = { labelKey: "system.entities.x.title" };\n' +
+          'export const n = { messageKey: "custom.foo.bar" };\n' +
+          'export const o = { errorScopeKey: "other.errors.scope.x" };\n',
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(1);
+    expect(r.out.match(/\[i18n-key-ns\]/g)?.length).toBe(3);
+  }, T);
+
+  it("camelCase *Key fields pass own-ns and app.* citations", () => {
+    const r = runLint(
+      {
+        "x.ts":
+          'export const m = { labelKey: "job.module.name" };\n' +
+          'export const n = { messageKey: "app.common.ok" };\n' +
+          'export const o = { errorScopeKey: "job.errors.scope.x" };\n' +
+          'export const p = { titleKey: `job.entities.x.title` };\n',
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-");
+  }, T);
+
+  it("non-i18n *Key denylist — systemKey/credential family never flag", () => {
+    const r = runLint(
+      {
+        "x.ts":
+          'export const m = { systemKey: "ai.partition_maintenance" };\n' +
+          'export const n = { apiKey: "v1.abc.def" };\n' +
+          'export const o = { publicKey: "rsa.pub" };\n',
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-");
+  }, T);
+
+  it("tFn() alias calls flag foreign-ns literals and template prefixes", () => {
+    const r = runLint(
+      {
+        "x.ts": [
+          "declare const tFn: (k: string) => string;",
+          "declare const s: string;",
+          'export const a = tFn("system.entities.x.title");',
+          "export const b = tFn(`custom.c.${s}`);",
+        ].join("\n") + "\n",
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(1);
+    expect(r.out.match(/\[i18n-key-ns\]/g)?.length).toBe(2);
+  }, T);
+
+  it("tFn() alias stays clean for own-ns and single-segment args", () => {
+    const r = runLint(
+      {
+        "x.ts": [
+          "declare const tFn: (k: string) => string;",
+          'export const a = tFn("job.module.name");',
+          'export const b = tFn("loading");',
+          'export const c = tFn("app.common.ok");',
+        ].join("\n") + "\n",
+      },
+      KEYCFG,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-");
+  }, T);
+
+  it("i18n-sql-key-ref flags foreign-ns refs in INSERT column cells only", () => {
+    const r = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "db-meta/patches/0001_seed.sql":
+        "INSERT INTO job.config_entries (key, label_key, description_key) VALUES " +
+        "('svc', 'system.settings.config.svc.label', 'job.settings.config.svc.desc');\n",
+    });
+    expect(r.code).toBe(1);
+    // system.* flagged once; job.* and the plain `key` data cell stay clean.
+    expect(r.out.match(/\[i18n-sql-key-ref\]/g)?.length).toBe(1);
+    expect(r.out).toContain("system.settings.config.svc.label");
+  }, T);
+
+  it("i18n-sql-key-ref honors declared i18n_namespaces over the target fallback", () => {
+    const r = runLintRepo(
+      {
+        "src/x.ts": "export const x = 1;\n",
+        "db-meta/patches/0001_seed.sql":
+          "INSERT INTO public.config_entries (key, label_key) VALUES ('oidc', 'system.settings.config.oidc.label');\n",
+      },
+      { i18n_namespaces: ["app", "system", "custom"] },
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-sql-key-ref]");
+  }, T);
+
+  it("translations targets are skipped — the seeded key column is i18n-sql-ns domain", () => {
+    const r = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "db-meta/patches/0001_seed.sql":
+        "INSERT INTO job.translations (key, language, value) VALUES ('job.a.b', 'en-GB', 'x');\n",
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-sql-key-ref]");
+  }, T);
+
+  it("UPDATE SET flags foreign-ns refs — WHERE literals are predicates, not refs", () => {
+    const bad = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "db-meta/patches/0001_fix.sql":
+        "UPDATE job.config_entries SET label_key = 'system.settings.config.x' WHERE key = 'svc';\n",
+    });
+    expect(bad.code).toBe(1);
+    expect(bad.out).toContain("[i18n-sql-key-ref]");
+    // The canonical repoint: writes job.*, selects system.* — must be clean.
+    const good = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "db-meta/patches/0001_fix.sql":
+        "UPDATE job.config_entries SET label_key = 'job.settings.config.svc.label' WHERE label_key = 'system.settings.config.svc.label';\n",
+    });
+    expect(good.code).toBe(0);
+    expect(good.out).not.toContain("[i18n-sql-key-ref]");
+  }, T);
+
+  it("nested JSON *_key refs inside type_config literals flag", () => {
+    const r = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "db-meta/patches/0001_seed.sql":
+        `INSERT INTO job.config_entries (key, type_config) VALUES ('svc', '{"values":{"a":{"label_key":"system.b.c"}}}');\n`,
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[i18n-sql-key-ref]");
+  }, T);
+
+  it("system_key columns are not i18n refs (callable subjects)", () => {
+    const r = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "db-meta/patches/0001_seed.sql":
+        "INSERT INTO job.triggers (name, system_key) VALUES ('x', 'ai.partition_maintenance');\n",
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-sql-key-ref]");
+  }, T);
+
+  it("i18n_key_ref_exempt grandfathers shipped patches by filename", () => {
+    const r = runLintRepo(
+      {
+        "src/x.ts": "export const x = 1;\n",
+        "db-meta/patches/0002_seed.sql":
+          "INSERT INTO job.config_entries (key, label_key) VALUES ('svc', 'system.settings.config.svc.label');\n",
+      },
+      { i18n_key_ref_exempt: ["0002_seed.sql"] },
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("[i18n-sql-key-ref]");
   }, T);
 });

@@ -6,7 +6,7 @@ describe("validateConfigValue", () => {
 
   it("rejects non-boolean for boolean type", () => {
     expect(() => validateConfigValue("boolean", null, "yes", "test_key")).toThrow(ConfigValidationError);
-    expect(() => validateConfigValue("boolean", null, "yes", "test_key")).toThrow(/invalidBoolean/);
+    expect(() => validateConfigValue("boolean", null, "yes", "test_key")).toThrow(/invalid_boolean/);
   });
 
   it("accepts 'true' and 'false' for boolean type", () => {
@@ -15,8 +15,8 @@ describe("validateConfigValue", () => {
   });
 
   it("rejects non-bigint for bigint type", () => {
-    expect(() => validateConfigValue("bigint", null, "abc", "test_key")).toThrow(/invalidBigint/);
-    expect(() => validateConfigValue("bigint", null, "1.5", "test_key")).toThrow(/invalidBigint/);
+    expect(() => validateConfigValue("bigint", null, "abc", "test_key")).toThrow(/invalid_bigint/);
+    expect(() => validateConfigValue("bigint", null, "1.5", "test_key")).toThrow(/invalid_bigint/);
   });
 
   it("accepts valid bigints", () => {
@@ -25,7 +25,7 @@ describe("validateConfigValue", () => {
   });
 
   it("rejects non-number for money type", () => {
-    expect(() => validateConfigValue("money", null, "abc", "test_key")).toThrow(/invalidNumber/);
+    expect(() => validateConfigValue("money", null, "abc", "test_key")).toThrow(/invalid_number/);
   });
 
   it("accepts valid money amounts", () => {
@@ -34,15 +34,15 @@ describe("validateConfigValue", () => {
   });
 
   it("rejects non-number for number type", () => {
-    expect(() => validateConfigValue("number", null, "abc", "test_key")).toThrow(/invalidNumber/);
+    expect(() => validateConfigValue("number", null, "abc", "test_key")).toThrow(/invalid_number/);
   });
 
   it("rejects invalid URL for url type", () => {
-    expect(() => validateConfigValue("url", null, "not-a-url", "test_key")).toThrow(/invalidUrl/);
+    expect(() => validateConfigValue("url", null, "not-a-url", "test_key")).toThrow(/invalid_url/);
   });
 
   it("rejects invalid JSON for json type", () => {
-    expect(() => validateConfigValue("json", null, "{invalid", "test_key")).toThrow(/invalidJson/);
+    expect(() => validateConfigValue("json", null, "{invalid", "test_key")).toThrow(/invalid_json/);
   });
 
   it("accepts valid JSON", () => {
@@ -143,7 +143,7 @@ describe("validateConfigValue", () => {
       },
     });
     // Base type validation runs first and throws validation.invalidUrl
-    expect(() => validateConfigValue("url", tc, "not-a-url", "test_key")).toThrow(/invalidUrl/);
+    expect(() => validateConfigValue("url", tc, "not-a-url", "test_key")).toThrow(/invalid_url/);
   });
 
   // ─── Email validation (TYPE "email", not rules.email on string) ─────────
@@ -163,8 +163,8 @@ describe("validateConfigValue", () => {
   it("validates email format via base type (no rules needed)", () => {
     const tc = JSON.stringify({ validation: { required: true } });
     expect(() => validateConfigValue("email", tc, "admin@example.com", "test_key")).not.toThrow();
-    expect(() => validateConfigValue("email", tc, "not-an-email", "test_key")).toThrow(/invalidEmail/);
-    expect(() => validateConfigValue("email", tc, "missing@domain", "test_key")).toThrow(/invalidEmail/);
+    expect(() => validateConfigValue("email", tc, "not-an-email", "test_key")).toThrow(/invalid_email/);
+    expect(() => validateConfigValue("email", tc, "missing@domain", "test_key")).toThrow(/invalid_email/);
   });
 
   // ─── Regex validation ───────────────────────────────────────────────────
@@ -325,13 +325,13 @@ describe("validateConfigValue", () => {
   it("validates phone with country via libphonenumber-js", () => {
     const tc = JSON.stringify({ country: "IT", validation: { required: true } });
     expect(() => validateConfigValue("phone", tc, "+393331234567", "test_key")).not.toThrow();
-    expect(() => validateConfigValue("phone", tc, "+39123", "test_key")).toThrow(/invalidPhone/);
+    expect(() => validateConfigValue("phone", tc, "+39123", "test_key")).toThrow(/invalid_phone/);
   });
 
   it("validates phone without country (E.164 auto-detect)", () => {
     const tc = JSON.stringify({ validation: { required: true } });
     expect(() => validateConfigValue("phone", tc, "+393331234567", "test_key")).not.toThrow();
-    expect(() => validateConfigValue("phone", tc, "+123", "test_key")).toThrow(/invalidPhone/);
+    expect(() => validateConfigValue("phone", tc, "+123", "test_key")).toThrow(/invalid_phone/);
   });
 
   it("rejects empty phone when required", () => {
@@ -353,7 +353,7 @@ describe("validateConfigValue", () => {
     });
     expect(() => validateConfigValue("url", tc, "https://example.com", "test_key")).not.toThrow();
     expect(() => validateConfigValue("url", tc, "redis://localhost:6379", "test_key")).not.toThrow();
-    expect(() => validateConfigValue("url", tc, "http://example.com", "test_key")).toThrow(/invalidUrlProtocol/);
+    expect(() => validateConfigValue("url", tc, "http://example.com", "test_key")).toThrow(/invalid_url_protocol/);
   });
 
   it("accepts any protocol when allowed_protocols is absent", () => {
@@ -412,19 +412,19 @@ describe("validateConfigValue", () => {
         rules: { regex: { pattern: "[invalid", error_label_key: "err.regex" } },
       },
     });
-    // Invalid pattern errors ALWAYS use invalidRegexPattern, even if a custom regex error key is configured.
-    expect(() => validateConfigValue("string", tc, "any value", "test_key")).toThrow(/invalidRegexPattern/);
+    // Invalid pattern errors ALWAYS use invalid_regex_pattern, even if a custom regex error key is configured.
+    expect(() => validateConfigValue("string", tc, "any value", "test_key")).toThrow(/invalid_regex_pattern/);
     expect(() => validateConfigValue("string", tc, "any value", "test_key")).not.toThrow(/err\.regex/);
   });
 
-  it("uses regexMismatch fallback for mismatch when no custom error key is provided", () => {
+  it("uses regex_mismatch fallback for mismatch when no custom error key is provided", () => {
     const tc = JSON.stringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "^[a-z]+$" } },
       },
     });
-    expect(() => validateConfigValue("string", tc, "ABC", "test_key")).toThrow(/regexMismatch/);
+    expect(() => validateConfigValue("string", tc, "ABC", "test_key")).toThrow(/regex_mismatch/);
   });
 
   it("uses custom error key for mismatch (not for invalid pattern)", () => {
@@ -467,17 +467,17 @@ describe("validateConfigValue", () => {
 
   it("rejects '1e5' for number type (regex, not Number())", () => {
     const tc = JSON.stringify({ validation: { required: true } });
-    expect(() => validateConfigValue("number", tc, "1e5", "test_key")).toThrow(/invalidNumber/);
+    expect(() => validateConfigValue("number", tc, "1e5", "test_key")).toThrow(/invalid_number/);
   });
 
   it("rejects 'Infinity' for number type (regex, not Number())", () => {
     const tc = JSON.stringify({ validation: { required: true } });
-    expect(() => validateConfigValue("number", tc, "Infinity", "test_key")).toThrow(/invalidNumber/);
+    expect(() => validateConfigValue("number", tc, "Infinity", "test_key")).toThrow(/invalid_number/);
   });
 
   it("rejects spaces in number value (regex, not Number())", () => {
     const tc = JSON.stringify({ validation: { required: true } });
-    expect(() => validateConfigValue("number", tc, "  5  ", "test_key")).toThrow(/invalidNumber/);
+    expect(() => validateConfigValue("number", tc, "  5  ", "test_key")).toThrow(/invalid_number/);
   });
 
   it("accepts decimal number with regex", () => {
@@ -496,7 +496,7 @@ describe("validateConfigValue", () => {
       expect.fail("Should have thrown");
     } catch (e) {
       const err = e as ConfigValidationError;
-      expect(err.error_label_key).toBe("app.common.validation.invalidBigint");
+      expect(err.error_label_key).toBe("app.common.validation.invalid_bigint");
     }
   });
 });

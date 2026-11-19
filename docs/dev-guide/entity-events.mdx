@@ -1,0 +1,120 @@
+---
+title: Entity Events
+description: Domain event subjects, the ENTITY_EVENTS stream, and the subject vocabulary convention — what services publish, and what trigger authors may subscribe to.
+---
+
+# Entity Events
+
+Governed writes emit domain events by construction: the dal-pg write path
+publishes one `EntityEvent` per affected row onto the durable `ENTITY_EVENTS`
+JetStream stream, and the Job Handler is the ONLY sanctioned consumer —
+cross-service reactions are declared as `job_triggers` rows, never as direct
+subscriptions in service code.
+
+## Subject grammar
+
+All domain events live under the `events.` prefix:
+
+```
+events.<service_code>.<entity>.<uuid>        — lifecycle event on one row
+events.<service_code>.<entity>.on.<name>     — semantic event about an entity
+events.<service_code>.<topic>                — domain event not tied to an entity
+```
+
+| Shape | Example | Meaning |
+|-------|---------|---------|
+| `events.<svc>.<entity>.<uuid>` | `events.crm.customer.019ae31f-…` | A governed write touched that row. The action is in the **payload** — never in the subject — and single vs bulk are disjoint vocabularies: `create`/`update`/`delete`/`restore`/`purge`/`duplicate` for single-row writes, `bulk_create`/`bulk_update`/`bulk_delete`/`bulk_restore`/`bulk_purge` for the TEMP-TABLE bulk paths. |
+| `events.<svc>.<entity>.on.<name>` | `events.crm.customer.on.high_value` | A semantic/domain event *about* an entity. The `.on.` marker keeps semantic names out of the uuid slot, so the two shapes can never collide. |
+| `events.<svc>.<topic>` | `events.crm.pipeline_stage_changed` | A domain event not anchored to one entity row. |
+
+A trigger bound to `events.crm.customer.>` receives the whole subtree —
+lifecycle events on every row **and** the semantic `.on.*` events. That is a
+property, not an accident: "everything that happens to a customer" is one
+subscription. The `.>` wildcard is intentional over `*` because it binds the
+subtree, so deeper shapes cannot silently escape the binding.
+
+Trigger filters discriminate inside the subtree via the payload:
+`{field: "event.action", op: "eq", value: "update"}` for lifecycle kinds, or a
+path into the semantic event's own payload schema.
+
+## What is NOT a domain event
+
+These subjects ride the same broker but are **transport-plane** vocabulary —
+they are declared as emits only when triggerable by design:
+
+| Prefix | Purpose |
+|--------|---------|
+| `jobs.ctl.*` | Control-plane broadcasts (trigger reload, config reload) |
+| `jobs.due.*` | Work-lane trampolines — JH internal routing |
+| `jobs.result.*` | Run result reporting back to lanes |
+| `webhook.*.received` | Inbound webhook capture |
+| `emailsender.response.*` | Provider response callbacks |
+| `entity.*.*.changed` | Legacy BE presence markers (collaboration) |
+
+Do not introduce new top-level prefixes for domain events — everything a
+trigger may legitimately react to belongs under `events.`.
+
+## Auto-declaration
+
+`createMicroservice` derives the census emits from the same `entityDecls`
+that produce the CRUD routes — every served entity declares
+`events.<code>.<entity>.>` with a `payload_schema` typed from the entity's
+meta columns (real `after`/`before`/`delta` leaves), a `label_key` pointing
+at the entity's `.singular` translation, and an `entity` pointer marking
+where the snapshot lives in the payload (`after`). Hand-declared semantic
+emits merge on top via `options.events.emits`.
+
+## Retention
+
+`ENTITY_EVENTS` bounds staleness two ways: `max_age` = 72h globally,
+`max_msgs_per_subject` = 100 per per-uuid subject — a hot row can never
+evict another row's history. `discard: "old"` = FIFO eviction: publishers
+never block on a full subject (verified on NATS 2.14.3).
+
+## Payload contract
+
+```ts
+{
+  event: {                            // the STANDARD envelope — no op data
+    schema: 2,
+    service: "crm",
+    subject: "events.crm.customer.019ae31f-…",
+    emitted_at: "…",                  // ISO timestamp of the write
+    emitted_by: "…",                  // actor uuid or system:<code>
+    action: "update",                 // or a bulk_* action — never both
+    entity: "customer",
+    uuid: "019ae31f-…",
+    version: 7,                       // auditable entities only
+  },
+  entity: {                           // row state — the single-row specialization
+    before: { … } | null,             // old row (optimistic-lock); null on create/bulk
+    after:  { … } | null,             // RETURNING row; null on bulk
+    delta:  { status: { old: "A", new: "B" } } | null,
+  },
+  entities?: {                        // grouped-operation outcome — bulk ops
+    batch: "…",                       // and deferred-tx commits only
+    uuids: ["019ae31f-…", "…"],       // every row uuid the op touched
+  },
+}
+```
+
+Bulk writes emit **one thin event per affected uuid** — `before`/`after`/
+`delta` are `null` by contract (bulk ops return no rows) — under a
+`bulk_*` action. `entities.batch` correlates the sibling events and
+`entities.uuids` carries the op's full outcome, so each member event is
+self-contained. Deferred-tx (`beginTransaction`) commits drain the same
+`entities` container but keep the PLAIN action vocabulary — they are N
+individual writes atomically committed, not a bulk op. A consumer that
+needs row state re-reads via `svc.get`.
+
+## API
+
+- `wireEntityEventEmission(dal, code)` — composition-root call, once per
+  boot: ensures the stream and binds `dal.eventPort`.
+- `entityEventSubject(code, entity, uuid)` — canonical subject builder.
+- `entityEventPayloadSchema(meta)` — per-entity typed schema.
+- `ENTITY_EVENT_PAYLOAD_SCHEMA` — the generic wire contract.
+
+Entities opt out with `@Entity(name, { events: false })` or silence single
+actions with `{ events: { except: ["delete", "purge"] } }` — absent means
+emitting (the default by design).

@@ -1,0 +1,167 @@
+---
+title: Degraded-Boot Rehearsal Drill
+description: "Manual live drill that exercises degraded boot, admin remediation and heartbeat auto-recovery on a real microservice — procedure, verification evidence and cleanup checklist."
+---
+
+# Degraded-boot rehearsal drill
+
+Unit tests cover the migration engine's mechanics, but three things are
+only observable live: the real 503 domain gate on a running process, the
+admin route round-trip through the gateway, and heartbeat-timed
+auto-recovery (~30 s). This page is the repeatable procedure for staging
+that rehearsal — it was executed and verified end-to-end on job-handler
+(`:3006`) on 2026-11-18.
+
+Read [Database migrations](./migrations) first — this drill exercises the
+degraded-mode contract documented there.
+
+## Prerequisites
+
+- Full dev stack running (BE `:3001`, target service, Postgres, NATS,
+  Casdoor) — the drill drives real boot + auth.
+- Dev signing key at `primebrick-workspace/temp/dev-micha-*.key` and the
+  matching key id registered in the service's `db-meta/keys.json`.
+- `bun` for the `primebrick-db` signing CLI and the actor-mint script
+  (imports `pg` + e2e helpers — run it from `primebrick-fe-v3`).
+
+## The one non-obvious fact: call via the gateway
+
+Every microservice enforces client-shield identity **before** any route:
+direct calls to the service port fail with `403 UNKNOWN_CLIENT`
+(`User-Agent is not in the client registry allowlist`) or
+`401 UNIDENTIFIED_CLIENT`. Admin routes are reached through the BE
+gateway, which injects the service identity for you:
+
+```
+POST http://localhost:3001/svc/<service_code>/api/v1/system/db-migration/approve
+```
+
+Authenticated via the normal session cookie from
+`POST /api/v1/auth/login` (see "Minting an admin" below).
+
+## Path A — `pending_review` + admin approve
+
+Proves: degraded boot on a parked patch, live 503 gate, admin route
+unlatching the service, deferred `onReady` running after remediation.
+
+1. **Write the patch** in `<service>/db-meta/patches/` with the review
+   pragma in the first 40 lines and zero-impact SQL:
+
+   ```sql
+   -- pb:requires-review
+   COMMENT ON SCHEMA job IS 'rehearsal A verified';
+   ```
+
+2. **Sign the manifest** (run from `primebrick-dal-v3`):
+
+   ```bash
+   bun src/cli/primebrick-db.ts sign \
+     --db-meta ../primebrick-us-v3/job-handler/db-meta \
+     --key @../primebrick-workspace/temp/dev-micha-3.key \
+     --key-id dev-micha-3
+   ```
+
+3. **Restart the service** and expect, in its log:
+
+   ```
+   db-migration: <patch>.sql requires review — schema incomplete,
+     service degraded until an admin approves
+   [db-migration] Service '<code>' booted DEGRADED — domain routes 503,
+     init deferred.
+   ```
+
+4. **Verify the gate** (session cookie required — mint the admin first):
+
+   ```bash
+   curl -b jar "http://localhost:3001/svc/job/api/v1/system/db-migration/status"
+   # → {"degraded":true,"boot_result":{"pendingReview":["<patch>"], ...}}
+   curl -b jar "http://localhost:3001/svc/job/api/v1/entities/<entity>/items"
+   # → 502/503 — domain traffic gated
+   ```
+
+5. **Approve**:
+
+   ```bash
+   curl -b jar -X POST \
+     "http://localhost:3001/svc/job/api/v1/system/db-migration/approve" \
+     -H "Content-Type: application/json" \
+     -d '{"patch_name":"<patch_name_without_ext>","note":"rehearsal"}'
+   ```
+
+6. **Verify recovery**: `status` shows `degraded:false` and
+   `applied:["<patch>"]`; the service log shows the deferred boot
+   completing — subscriptions bound, schedules armed, callable census —
+   followed by the next heartbeat flipping the registry row back to
+   `online`. Domain traffic serves immediately (no restart).
+
+## Path B — failed patch + heartbeat auto-recovery
+
+Proves: failed patch latches degraded, `retryFailedPatches` resets it,
+and a fixed + re-signed patch applies on the next heartbeat tick with
+**zero manual calls**.
+
+1. **Write a patch that fails at execution** (valid SQL, broken target):
+
+   ```sql
+   ALTER TABLE job.table_that_does_not_exist ADD COLUMN x int;
+   ```
+
+2. **Sign + restart** → log shows
+   `CRITICAL patch failure — service boots degraded` and
+   `auto-remediation reset 1 failed patch(es) to pending`.
+
+3. **Fix the file in place** (replace with a harmless statement) and
+   **re-sign**. Do not call any admin route.
+
+4. **Wait one heartbeat (~30 s)** → log shows:
+
+   ```
+   db-migration: applied <patch>.sql (N ms)
+   [db-migration] auto-remediation cleared degraded state —
+     completing boot init
+   ```
+
+   `status` flips to `degraded:false`, the deferred init runs, domain
+   traffic reopens.
+
+## Minting an ephemeral admin
+
+The e2e harness mints a disposable Casdoor admin + `user_profiles` row —
+reuse it instead of touching a real account. From `primebrick-fe-v3`:
+
+```ts
+// temp script — run: bun temp-mint.ts
+import { createE2eAdminActor } from "./src/e2e/helpers/test-users";
+console.log(await createE2eAdminActor()); // → { username, password }
+```
+
+Then authenticate and keep the cookie jar:
+
+```bash
+curl -c jar -X POST http://localhost:3001/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"<actor>","password":"<password>"}'
+```
+
+Destroy the actor afterwards (`destroyE2eAdminActor()`).
+
+## Cleanup checklist — leave nothing behind
+
+- Delete the rehearsal patch file(s).
+- Restore `MANIFEST.json` to the pre-drill signature — if the patch list
+  is identical to HEAD, `git checkout -- db-meta/MANIFEST.json` is enough
+  (the original signature covers the same content); otherwise re-sign.
+- Delete the rehearsal rows:
+  `DELETE FROM <schema>.primebrick_database_patches WHERE patch_name LIKE '...rehearsal%'`.
+- Destroy the ephemeral actor; delete temp scripts and cookie jars.
+- Confirm `status` = `degraded:false` and the service log is clean.
+
+## Evidence reference — verified 2026-11-18 on job-handler :3006
+
+| Observation | Evidence |
+|---|---|
+| `pending_review` parks boot degraded | log `requires review — service degraded until an admin approves` |
+| Domain gate live | `GET /svc/job/entities/...` → 502 via gateway while degraded |
+| Approve unlatches | status `degraded:false`, `applied:[patch]`, deferred init in log |
+| Heartbeat auto-recovery | fix + re-sign → `applied` + `cleared degraded state` ~30 s later |
+| No artifacts | manifest restored, registry rows deleted, actor destroyed |

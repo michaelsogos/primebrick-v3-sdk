@@ -62,6 +62,11 @@ process:
   by the callable census re-registration — the full "reboot without
   shutdown".
 
+All of the above was rehearsed live on a real service — the repeatable
+drill procedure (both degraded paths, gateway access, ephemeral admin,
+cleanup) is documented in
+[Degraded-boot rehearsal drill](./migration-degraded-drill).
+
 ## The reload invariant
 
 **The migration engine is the only component allowed to read DB state

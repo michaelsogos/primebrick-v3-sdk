@@ -46,8 +46,11 @@ await buildDocsPack({
 - `manifest.json` records a sha256 per file — the AI's hash-diff ingestion
   re-embeds only what changed.
 
-The standard wiring is one `scripts/build-docs-pack.ts` (~15 lines) per
-service, exposed as `pnpm generate:docs` and invoked in the build chain.
+The standard wiring for microservices is `"generate:docs": "bun
+src/index.ts --emit-docs"` — `createMicroservice` drives the emission
+(pack dir, committed docs, page-docs and `routeHandler.spec`), invoked in
+the build chain via `prebuild`. The BE uses `buildDocsPack` directly via
+its own `generate:docs` pre-step (reference-doc generators above).
 
 ## Serving — `docsPackRouteHandler`
 
