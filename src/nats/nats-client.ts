@@ -11,6 +11,7 @@ import { msgHeader } from "./msg-headers.js";
 import {
   JOB_RUN_ID_HEADER,
   JOB_SCHEDULE_SUBJECT_HEADER,
+  JOB_TRIGGER_ID_HEADER,
   jobResultSubject,
   type JobResultMessage,
 } from "./job-contract.js";
@@ -79,12 +80,14 @@ export async function publishJobResultMessage(
   const run_id = msgHeader(headers, JOB_RUN_ID_HEADER) ?? undefined;
   const schedule_subject =
     msgHeader(headers, JOB_SCHEDULE_SUBJECT_HEADER) ?? fallback?.schedule_subject;
+  const trigger_uuid = msgHeader(headers, JOB_TRIGGER_ID_HEADER) ?? undefined;
   if (run_id === undefined && schedule_subject === undefined) return;
   try {
     await NatsClient.jetstreamPublish(jobResultSubject(subject), {
       ...result,
       run_id,
       schedule_subject,
+      trigger_uuid,
       target: subject,
     } satisfies JobResultMessage);
   } catch (error) {

@@ -23,6 +23,12 @@ export const JOB_RUN_ID_HEADER = "x-job-run-id";
 /** Correlation header — the `jobs.schedule.*` declaration that fired it. */
 export const JOB_SCHEDULE_SUBJECT_HEADER = "x-job-schedule-subject";
 
+/** Correlation header — the `job_triggers` row whose dispatch produced the
+ *  work. Stamped by the due-forwarder on the republished callable message so
+ *  result reports carry trigger lineage even after the schedule mirror is
+ *  hard-deleted. */
+export const JOB_TRIGGER_ID_HEADER = "x-job-trigger-id";
+
 /** Outcome message published on `jobs.result.<…>` after a correlated handler. */
 export interface JobResultMessage {
   /**
@@ -33,6 +39,9 @@ export interface JobResultMessage {
   status: "succeeded" | "failed";
   run_id?: string;
   schedule_subject?: string;
+  /** `x-job-trigger-id` propagated from the consumed message — the owning
+   *  `job_triggers` row (trigger lineage survives mirror hard-deletes). */
+  trigger_uuid?: string;
   /**
    * Stream sequence of the consumed fire (JetStream consumers only).
    * WIRE REALITY: ext-json decodes every JSON integer as `bigint` —

@@ -248,6 +248,7 @@ export {
 export {
   JOB_RUN_ID_HEADER,
   JOB_SCHEDULE_SUBJECT_HEADER,
+  JOB_TRIGGER_ID_HEADER,
   jobResultSubject,
   type JobResultMessage,
 } from "./nats/job-contract.js";

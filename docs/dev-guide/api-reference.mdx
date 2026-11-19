@@ -1922,6 +1922,8 @@ Outcome message published on `jobs.result.<…>` after a correlated handler.
 recorder folds this value verbatim, no mapping layer. |
 | run_id | `string` |  |
 | schedule_subject | `string` |  |
+| trigger_uuid | `string` | `x-job-trigger-id` propagated from the consumed message — the owning
+ `job_triggers` row (trigger lineage survives mirror hard-deletes). |
 | fire_seq | `number \| bigint` | Stream sequence of the consumed fire (JetStream consumers only).
 WIRE REALITY: ext-json decodes every JSON integer as `bigint` —
 publishers assign `number`, consumers MUST accept `bigint`. |
@@ -4449,6 +4451,15 @@ Correlation header — the `jobs.schedule.*` declaration that fired it.
 Canonical JOBS stream capture set — schedule/due/result/cancel lanes only.
 
 **Type:** `typeOperator`
+
+### `JOB_TRIGGER_ID_HEADER`
+
+Correlation header — the `job_triggers` row whose dispatch produced the
+ work. Stamped by the due-forwarder on the republished callable message so
+ result reports carry trigger lineage even after the schedule mirror is
+ hard-deleted.
+
+**Type:** `"x-job-trigger-id"`
 
 ### `JOB_TRIGGER_RUN_AS_VOCAB`
 
