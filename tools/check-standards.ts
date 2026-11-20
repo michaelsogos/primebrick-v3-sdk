@@ -219,6 +219,7 @@ type RuleId =
   | "panel-toolbar-tools"
   | "panel-chrome-class"
   | "native-control"
+  | "no-native-dialog"
   | "field-stock-chrome"
   | "i18n-entity-fallback"
   | "page-scaffold-ownership"
@@ -233,10 +234,12 @@ interface Rule {
   allowPaths?: RegExp;
   /** srcDir-relative path prefixes the rule is restricted to (absent = all). */
   appliesTo?: RegExp;
+  /** scan test files too, even without `--tests` (wire contracts hold in tests). */
+  alsoTests?: boolean;
 }
 
 const LINE_RULES: Rule[] = [
-  { id: "ext-json", pattern: /\bJSON\.(?:stringify|parse)\b/, hint: "use extJsonStringify/extJsonParse" },
+  { id: "ext-json", pattern: /\bJSON\.(?:stringify|parse)\b|\.json\s*\(\s*\)/, hint: "use extJsonStringify/extJsonParse (or apiFetchExt) — argument-less .json() is a wire read", alsoTests: true },
   // Serialized content in `detail`/`message`/`extra` fields is a contract
   // violation: `detail` carries human text, structured payloads live in
   // `extra` as NATIVE objects (the body serializer owns the only encode).
@@ -271,6 +274,19 @@ const LINE_RULES: Rule[] = [
     pattern: /<(input|select|textarea)\b/,
     hint: "raw HTML control — use the canonical wrappers (components/input/, ComboSelect, Textarea…)",
     allowPaths: /^lib\/components\/(input|input-group|textarea)\//,
+  },
+  // no-native-dialog — browser confirm()/alert()/prompt() are anatomy
+  // violations: entity confirms go through the governed op invoker +
+  // DeleteDialog-family, notices through pushNotification. The `[^)]`
+  // after `(` requires an argument char — declarations `confirm() {}`
+  // and local no-arg helper calls don't match; `foo.confirm(`, method
+  // calls and identifier suffixes (confirmDelete) can't match via the
+  // `(?<![\w$.])` lookbehind. `window.`/`globalThis.` prefixes caught
+  // by the second alternative. NO_EXEMPT — fix the surface, don't hide it.
+  {
+    id: "no-native-dialog",
+    pattern: /(?<![\w$.])(?<!function\s)(?:confirm|alert|prompt)\s*\([^)]|(?:\bwindow\.|\bglobalThis\.)(?:confirm|alert|prompt)\s*\([^)]/,
+    hint: "native dialog call — entity confirms use the governed invoker (DeleteDialog/BulkDeleteDialog anatomy), notices use pushNotification; never window.confirm/alert/prompt",
   },
 ];
 
@@ -893,11 +909,18 @@ const CONSUMER_RULES = new Set<RuleId>([
 const NO_EXEMPT_RULES = new Set<RuleId>([
   "dal-access", "dal-construct", "dal-member-write", "dal-member-access", "pg-import", "pg-pool",
   "raw-query", "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
+  "no-native-dialog", "ext-json",
 ]);
-const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control"]);
-// `fe` — browser SPA: no base line rules (server-side contracts don't
-// apply); the gated rules above activate via .devin/check-standards.json.
-const FE_RULES = new Set<RuleId>([]);
+const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control", "no-native-dialog"]);
+// `fe` — browser SPA: no server-side contracts apply; `no-native-dialog`
+// is the one always-on base rule (native confirm/alert/prompt are anatomy
+// violations in browser code); `ext-json` is always-on too (extJson* is the
+// only sanctioned codec — raw JSON.* and argument-less .json() reads are
+// wire corruption / bigint-loss vectors). Other gated rules activate via
+// .devin/check-standards.json.
+const FE_RULES = new Set<RuleId>(["no-native-dialog", "ext-json"]);
+/** Rules that scan test files even without --tests (alsoTests flag). */
+const ALSO_TESTS_RULES = new Set<RuleId>(LINE_RULES.filter((r) => r.alsoTests).map((r) => r.id));
 
 interface Violation {
   file: string;
@@ -2079,7 +2102,11 @@ const violations: Violation[] = [];
 const i18nNamespaces = cfg.i18n_namespaces?.length ? new Set(cfg.i18n_namespaces) : undefined;
 
 for (const file of walk(dir)) {
-  if (!includeTests && isTestFile(file)) continue;
+  if (!includeTests && isTestFile(file)) {
+    const testRules = new Set([...rules].filter((id) => ALSO_TESTS_RULES.has(id)));
+    if (testRules.size) violations.push(...checkFile(file, dir, testRules, i18nNamespaces, cfgRuleScopes));
+    continue;
+  }
   violations.push(...checkFile(file, dir, rules, i18nNamespaces, cfgRuleScopes));
 }
 
@@ -2094,7 +2121,11 @@ const dirNorm = dir.replace(/\\/g, "/").replace(/\/+$/, "");
 if (dirNorm !== "fe/src" && existsSync(feDir)) {
   const feRules = new Set<RuleId>([...FE_RULES, ...cfgEnabled]);
   for (const file of walk(feDir)) {
-    if (!includeTests && isTestFile(file)) continue;
+    if (!includeTests && isTestFile(file)) {
+      const testRules = new Set([...feRules].filter((id) => ALSO_TESTS_RULES.has(id)));
+      if (testRules.size) violations.push(...checkFile(file, process.cwd(), testRules, i18nNamespaces, cfgRuleScopes));
+      continue;
+    }
     violations.push(...checkFile(file, process.cwd(), feRules, i18nNamespaces, cfgRuleScopes));
   }
 }
