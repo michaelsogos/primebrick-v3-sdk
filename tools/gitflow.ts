@@ -33,9 +33,14 @@
  * Usage:
  *   bun tools/gitflow.ts audit
  *   bun tools/gitflow.ts finish            # closes the open feature/release/hotfix
+ *   bun tools/gitflow.ts install-hooks     # wires core.hooksPath → the shared
+ *                                          # governed hooks (pre-commit blocks
+ *                                          # direct commits on main/develop)
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 const git = (args: string[]): { code: number; out: string } => {
   const r = spawnSync("git", args, { encoding: "utf8" });
@@ -118,8 +123,32 @@ function audit(): number {
     if (behind > 0) console.log(`  ! ${b} is ${behind} commit(s) behind origin — sync needed`);
   }
   if (git(["status", "--porcelain"]).out.trim()) console.log("  ! uncommitted changes present");
+  // The merge-only rule is enforced by the shared pre-commit hook — if it
+  // is not wired, nothing physically stops a base commit (docs alone
+  // never stopped anyone). Missing hook wiring is itself a violation.
+  const hooksPath = git(["config", "core.hooksPath"]).out.trim();
+  if (hooksPath !== "../primebrick-v3-sdk/tools/githooks") {
+    bad++;
+    console.log(
+      `  ✗ core.hooksPath is "${hooksPath || "(unset)"}" — expected "../primebrick-v3-sdk/tools/githooks". ` +
+        `Run: bun ../primebrick-v3-sdk/tools/gitflow.ts install-hooks`,
+    );
+  }
   if (bad === 0) console.log("  ✓ clean — develop + main (+ at most one open work branch)");
   return bad ? 1 : 0;
+}
+
+function installHooks(): number {
+  // Relative to the worktree root (where hooks run): the canonical shared
+  // hooks dir inside the sibling sdk repo — ONE copy, every repo wired.
+  const HOOKS = "../primebrick-v3-sdk/tools/githooks";
+  const top = git(["rev-parse", "--show-toplevel"]).out.trim();
+  if (!top) die("cannot resolve worktree root");
+  if (!existsSync(resolve(top, HOOKS, "pre-commit")))
+    die(`hook file not found at ${resolve(top, HOOKS, "pre-commit")} — is the sdk repo checked out at ../primebrick-v3-sdk?`);
+  if (git(["config", "core.hooksPath", HOOKS]).code !== 0) die("cannot set core.hooksPath");
+  console.log(`gitflow: core.hooksPath → ${HOOKS} — direct commits on main/develop now blocked by the governed pre-commit`);
+  return 0;
 }
 
 function finish(name?: string): number {
@@ -171,4 +200,5 @@ function finish(name?: string): number {
 const cmd = process.argv[2];
 if (cmd === "audit") process.exit(audit());
 if (cmd === "finish") process.exit(finish(process.argv[3]));
-die("usage: gitflow audit | gitflow finish [branch]");
+if (cmd === "install-hooks") process.exit(installHooks());
+die("usage: gitflow audit | gitflow finish [branch] | gitflow install-hooks");
