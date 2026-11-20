@@ -7,12 +7,14 @@
  *   merges --no-ff into the base → pushes the base → deletes the branch
  *   locally AND on origin → audits the final state.
  *
- * NOTE on `git flow` (nvie 0.4.2, bundled with Git for Windows): its
- * `feature finish` fast-forwards when the merge is linear — no merge
- * commit, which violates our --no-ff convention (the bubble is what marks
- * "a feature landed"). Verified empirically 2026-11-20. So `git flow`
- * stays usable for start/publish/track helpers, but closing is NEVER
- * delegated to it — the --no-ff merge lives here.
+ * NOTE on `git flow` binaries (verified empirically 2026-11-20):
+ * upstream nvie 0.4.2 fast-forwards linear feature merges; the AVH
+ * edition 1.12.3 (installed in ~/bin) defaults to --no-ff except for
+ * single-commit features — fixed via repo config
+ * `gitflow.feature.finish.no-ff=true`. `git flow` stays usable for
+ * start/publish/track helpers, but closing is NEVER delegated to it:
+ * native finish neither pushes the base, nor deletes the remote branch,
+ * nor audits the end state — the governed close lives here.
  *
  * Invariants (enforced by `audit`, exit 1 on violation):
  *   - at most ONE open branch across feature/*, release/*, hotfix/*
