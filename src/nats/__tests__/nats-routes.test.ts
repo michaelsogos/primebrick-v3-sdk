@@ -4,7 +4,7 @@ import { makeNatsRoutes, makeNatsRequestRoute, callNats } from "../nats-routes.j
 import { initAuthConfig, loadAuthConfig } from "../../auth/auth-config-cache.js";
 import { buildNatsAuthHeaders } from "../../auth/verify-nats.js";
 import { AuthMode, type AuthConfig, type AuthUser } from "../../auth/types.js";
-import { extJsonStringify } from "../../json/ext-json.js";
+import { extJsonStringify, extJsonParse } from '../../json/ext-json.js';
 
 const CFG: AuthConfig = {
   mode: AuthMode.GATEWAY,
@@ -122,7 +122,7 @@ describe("makeNatsRequestRoute (correlation reply)", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(msg._responses).toHaveLength(1);
-    expect(JSON.parse(new TextDecoder().decode(msg._responses[0]))).toEqual({ pong: { q: "ping" } });
+    expect(extJsonParse<any>(new TextDecoder().decode(msg._responses[0]))).toEqual({ pong: { q: "ping" } });
   });
 
   it("replies with an error envelope on RBAC denial", async () => {
@@ -133,7 +133,7 @@ describe("makeNatsRequestRoute (correlation reply)", () => {
       { serviceCode: "svc", connection: conn },
     );
     await new Promise((r) => setTimeout(r, 20));
-    const res = JSON.parse(new TextDecoder().decode(msg._responses[0]));
+    const res = extJsonParse<any>(new TextDecoder().decode(msg._responses[0]));
     expect(res.error.code).toBe("RBAC_PERMISSION_DENIED");
   });
 });
@@ -165,7 +165,7 @@ describe("payload_schema contract ({schema, parse})", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(spy).not.toHaveBeenCalled();
-    const res = JSON.parse(new TextDecoder().decode(msg._responses[0]));
+    const res = extJsonParse<any>(new TextDecoder().decode(msg._responses[0]));
     expect(res.error.code).toBe("VALIDATION_ERROR");
   });
 

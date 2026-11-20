@@ -4,6 +4,7 @@ import { makeServiceRoutes } from "../service-routes.js";
 import { isFactoryRouteHandler, type RpcRoute } from "../rpc-router.js";
 import type { EntityServiceLike } from "../entity-router.js";
 
+import { extJsonParse } from '../../json/ext-json.js';
 function stubRes(chunks?: string[], status?: { code: number }): ServerResponse {
   return {
     writeHead: (code: number) => { if (status) status.code = code; return stubRes(chunks, status); },
@@ -45,7 +46,7 @@ async function servedSpec(h: ReturnType<typeof makeServiceRoutes>): Promise<Reco
     new URL("http://x/api/v1/openapi.json"),
   );
   expect(handled).toBe(true);
-  return JSON.parse(chunks[0]!);
+  return extJsonParse<any>(chunks[0]!);
 }
 
 describe("makeServiceRoutes", () => {
@@ -266,6 +267,6 @@ describe("makeServiceRoutes", () => {
       new URL("http://x/api/v1/ping"),
     );
     expect(handled).toBe(true);
-    expect(JSON.parse(chunks[0]!)).toEqual({ pong: true });
+    expect(extJsonParse<any>(chunks[0]!)).toEqual({ pong: true });
   });
 });

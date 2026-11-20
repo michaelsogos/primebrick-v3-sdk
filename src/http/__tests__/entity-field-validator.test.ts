@@ -8,6 +8,7 @@ import { initAuthConfig, loadAuthConfig } from "../../auth/auth-config-cache.js"
 import { serializeAuthUserToHeaders } from "../../auth/auth-user-serializer.js";
 import { AuthMode, type AuthConfig, type AuthUser } from "../../auth/types.js";
 
+import { extJsonStringify, extJsonParse } from '../../json/ext-json.js';
 const CFG: AuthConfig = {
   mode: AuthMode.GATEWAY,
   roles_path: "roles",
@@ -142,14 +143,14 @@ describe("makeEntityRouter meta-derived default", () => {
     fetch(`${base}/api/v1/entities/widget`, {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify(body),
+      body: extJsonStringify(body),
     });
 
   it("rejects a field the meta forbids — same rule as the form", async () => {
     const res = await post({ entity: { name: "ok", contact: "not-an-email" } });
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.detail ?? JSON.stringify(body)).toMatch(/contact/);
+    const body = await res.text().then((t) => extJsonParse<any>(t));
+    expect(body.detail ?? extJsonStringify(body)).toMatch(/contact/);
   });
 
   it("accepts a conforming entity", async () => {
@@ -166,7 +167,7 @@ describe("makeEntityRouter meta-derived default", () => {
     const res = await fetch(`${base}/api/v1/entities/widget/bulk-delete`, {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ items: [{ uuid, version: 1 }] }),
+      body: extJsonStringify({ items: [{ uuid, version: 1 }] }),
     });
     expect(res.status, await res.text()).toBe(200);
     expect(bulkItems).toEqual([{ uuid, version: 1 }]);
@@ -178,13 +179,13 @@ describe("makeEntityRouter meta-derived default", () => {
     const bad = await fetch(`${base}/api/v1/entities/widget/${uuid}`, {
       method: "PUT",
       headers: headers(),
-      body: JSON.stringify({ entity: { contact: "bad" } }),
+      body: extJsonStringify({ entity: { contact: "bad" } }),
     });
     expect(bad.status).toBe(400);
     const ok = await fetch(`${base}/api/v1/entities/widget/${uuid}`, {
       method: "PUT",
       headers: headers(),
-      body: JSON.stringify({ entity: { contact: "a@b.c" } }),
+      body: extJsonStringify({ entity: { contact: "a@b.c" } }),
     });
     expect(ok.status).toBe(200);
   });

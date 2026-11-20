@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { validateConfigValue, ConfigValidationError } from "../config-validator.js";
 
+import { extJsonStringify } from '../../json/ext-json.js';
 describe("validateConfigValue", () => {
   // ─── Base type validation ───────────────────────────────────────────────
 
@@ -52,24 +53,24 @@ describe("validateConfigValue", () => {
   // ─── Required rule ──────────────────────────────────────────────────────
 
   it("rejects empty string when required=true", () => {
-    const tc = JSON.stringify({ validation: { required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { required: true, rules: {} } });
     expect(() => validateConfigValue("string", tc, "", "test_key")).toThrow(/validation\.required/);
   });
 
   it("allows empty string when required=false", () => {
-    const tc = JSON.stringify({ validation: { required: false, rules: {} } });
+    const tc = extJsonStringify({ validation: { required: false, rules: {} } });
     expect(() => validateConfigValue("string", tc, "", "test_key")).not.toThrow();
   });
 
   it("skips required check for secrets with empty value (leave unchanged)", () => {
-    const tc = JSON.stringify({ validation: { required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { required: true, rules: {} } });
     expect(() => validateConfigValue("secret", tc, "", "test_key")).not.toThrow();
   });
 
   // ─── min/max rules ──────────────────────────────────────────────────────
 
   it("validates min for bigint (numeric value)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { required: true, rules: { min: { value: 1, error_label_key: "err.min" } } },
     });
     expect(() => validateConfigValue("bigint", tc, "0", "test_key")).toThrow(/err\.min/);
@@ -78,7 +79,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates max for bigint (numeric value)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { required: true, rules: { max: { value: 90, error_label_key: "err.max" } } },
     });
     expect(() => validateConfigValue("bigint", tc, "91", "test_key")).toThrow(/err\.max/);
@@ -86,7 +87,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates min for money (numeric value)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { required: true, rules: { min: { value: 0, error_label_key: "err.min" } } },
     });
     expect(() => validateConfigValue("money", tc, "-1", "test_key")).toThrow(/err\.min/);
@@ -94,7 +95,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates min for string (length)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { required: true, rules: { min: { value: 6, error_label_key: "err.min" } } },
     });
     expect(() => validateConfigValue("string", tc, "abc", "test_key")).toThrow(/err\.min/);
@@ -102,7 +103,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates max for string (length)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { required: true, rules: { max: { value: 100, error_label_key: "err.max" } } },
     });
     expect(() => validateConfigValue("string", tc, "a".repeat(101), "test_key")).toThrow(/err\.max/);
@@ -110,7 +111,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates min for secret (length)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { required: true, rules: { min: { value: 32, error_label_key: "err.min" } } },
     });
     expect(() => validateConfigValue("secret", tc, "short", "test_key")).toThrow(/err\.min/);
@@ -120,7 +121,7 @@ describe("validateConfigValue", () => {
   // ─── URL protocol validation ────────────────────────────────────────────
 
   it("validates URL protocols", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: {
@@ -134,7 +135,7 @@ describe("validateConfigValue", () => {
   });
 
   it("rejects malformed URL in protocol validation (base type catches first)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: {
@@ -149,7 +150,7 @@ describe("validateConfigValue", () => {
   // ─── Email validation (TYPE "email", not rules.email on string) ─────────
 
   it("validates email format via TYPE email", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { email: { error_label_key: "err.email" } },
@@ -161,7 +162,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates email format via base type (no rules needed)", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     expect(() => validateConfigValue("email", tc, "admin@example.com", "test_key")).not.toThrow();
     expect(() => validateConfigValue("email", tc, "not-an-email", "test_key")).toThrow(/invalid_email/);
     expect(() => validateConfigValue("email", tc, "missing@domain", "test_key")).toThrow(/invalid_email/);
@@ -170,7 +171,7 @@ describe("validateConfigValue", () => {
   // ─── Regex validation ───────────────────────────────────────────────────
 
   it("validates regex pattern", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "^[a-zA-Z0-9._-]+$", error_label_key: "err.regex" } },
@@ -183,7 +184,7 @@ describe("validateConfigValue", () => {
   // ─── Combined rules ─────────────────────────────────────────────────────
 
   it("validates combined min + max for bigint", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: {
@@ -198,7 +199,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates combined min + max + url for url type", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: {
@@ -216,23 +217,23 @@ describe("validateConfigValue", () => {
   // ─── unsigned flag ──────────────────────────────────────────────────────
 
   it("unsigned bigint rejects negative sign", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     expect(() => validateConfigValue("bigint", tc, "-5", "test_key")).toThrow();
     expect(() => validateConfigValue("bigint", tc, "5", "test_key")).not.toThrow();
   });
 
   it("unsigned bigint rejects plus sign", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     expect(() => validateConfigValue("bigint", tc, "+5", "test_key")).toThrow();
   });
 
   it("unsigned bigint accepts zero", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     expect(() => validateConfigValue("bigint", tc, "0", "test_key")).not.toThrow();
   });
 
   it("unsigned bigint defaults min to 0 when no explicit min rule", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     // Negative values are already rejected by the regex, but the default-min=0
     // also guards against edge cases where the value passes the regex but is < 0.
     expect(() => validateConfigValue("bigint", tc, "0", "test_key")).not.toThrow();
@@ -240,7 +241,7 @@ describe("validateConfigValue", () => {
   });
 
   it("unsigned bigint respects explicit min rule over default 0", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { unsigned: true, required: true, rules: { min: { value: 10, error_label_key: "err.min" } } },
     });
     expect(() => validateConfigValue("bigint", tc, "5", "test_key")).toThrow(/err\.min/);
@@ -248,41 +249,41 @@ describe("validateConfigValue", () => {
   });
 
   it("unsigned number rejects negative sign", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     expect(() => validateConfigValue("number", tc, "-3.14", "test_key")).toThrow();
     expect(() => validateConfigValue("number", tc, "3.14", "test_key")).not.toThrow();
   });
 
   it("unsigned number rejects plus sign", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     expect(() => validateConfigValue("number", tc, "+3.14", "test_key")).toThrow();
   });
 
   it("unsigned money rejects negative sign", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     expect(() => validateConfigValue("money", tc, "-99.99", "test_key")).toThrow();
     expect(() => validateConfigValue("money", tc, "99.99", "test_key")).not.toThrow();
   });
 
   it("unsigned money defaults min to 0 when no explicit min rule", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     expect(() => validateConfigValue("money", tc, "0", "test_key")).not.toThrow();
     expect(() => validateConfigValue("money", tc, "0.01", "test_key")).not.toThrow();
   });
 
   it("unsigned: false is the same as absent (signed, default)", () => {
-    const tc = JSON.stringify({ validation: { unsigned: false, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: false, required: true, rules: {} } });
     expect(() => validateConfigValue("bigint", tc, "-5", "test_key")).not.toThrow();
   });
 
   it("unsigned flag absent is signed (default, backward compatible)", () => {
-    const tc = JSON.stringify({ validation: { required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { required: true, rules: {} } });
     expect(() => validateConfigValue("bigint", tc, "-5", "test_key")).not.toThrow();
     expect(() => validateConfigValue("number", tc, "-3.14", "test_key")).not.toThrow();
   });
 
   it("unsigned flag only affects numeric types (not string)", () => {
-    const tc = JSON.stringify({ validation: { unsigned: true, required: true, rules: {} } });
+    const tc = extJsonStringify({ validation: { unsigned: true, required: true, rules: {} } });
     // String values are not affected by unsigned — it's a no-op for non-numeric types
     expect(() => validateConfigValue("string", tc, "-hello-", "test_key")).not.toThrow();
   });
@@ -290,7 +291,7 @@ describe("validateConfigValue", () => {
   // ─── No validation rules ────────────────────────────────────────────────
 
   it("passes when type_config has no validation key", () => {
-    const tc = JSON.stringify({ values: { a: { label_key: "lbl" } } });
+    const tc = extJsonStringify({ values: { a: { label_key: "lbl" } } });
     expect(() => validateConfigValue("badge", tc, "a", "test_key")).not.toThrow();
   });
 
@@ -305,7 +306,7 @@ describe("validateConfigValue", () => {
   // ─── Error properties ───────────────────────────────────────────────────
 
   it("ConfigValidationError has correct properties", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: { required: true, rules: { min: { value: 6, error_label_key: "custom.error.key" } } },
     });
     try {
@@ -323,31 +324,31 @@ describe("validateConfigValue", () => {
   // ─── Phone validation (TYPE "phone" via libphonenumber-js) ───────────────
 
   it("validates phone with country via libphonenumber-js", () => {
-    const tc = JSON.stringify({ country: "IT", validation: { required: true } });
+    const tc = extJsonStringify({ country: "IT", validation: { required: true } });
     expect(() => validateConfigValue("phone", tc, "+393331234567", "test_key")).not.toThrow();
     expect(() => validateConfigValue("phone", tc, "+39123", "test_key")).toThrow(/invalid_phone/);
   });
 
   it("validates phone without country (E.164 auto-detect)", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     expect(() => validateConfigValue("phone", tc, "+393331234567", "test_key")).not.toThrow();
     expect(() => validateConfigValue("phone", tc, "+123", "test_key")).toThrow(/invalid_phone/);
   });
 
   it("rejects empty phone when required", () => {
-    const tc = JSON.stringify({ country: "IT", validation: { required: true } });
+    const tc = extJsonStringify({ country: "IT", validation: { required: true } });
     expect(() => validateConfigValue("phone", tc, "", "test_key")).toThrow(/required/);
   });
 
   it("allows empty phone when not required", () => {
-    const tc = JSON.stringify({ country: "IT", validation: { required: false } });
+    const tc = extJsonStringify({ country: "IT", validation: { required: false } });
     expect(() => validateConfigValue("phone", tc, "", "test_key")).not.toThrow();
   });
 
   // ─── URL allowed_protocols via type_config ───────────────────────────────
 
   it("validates URL allowed_protocols from type_config", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       allowed_protocols: ["https", "redis"],
       validation: { required: true },
     });
@@ -357,7 +358,7 @@ describe("validateConfigValue", () => {
   });
 
   it("accepts any protocol when allowed_protocols is absent", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     expect(() => validateConfigValue("url", tc, "ftp://ftp.example.com", "test_key")).not.toThrow();
     expect(() => validateConfigValue("url", tc, "redis://localhost:6379", "test_key")).not.toThrow();
   });
@@ -365,7 +366,7 @@ describe("validateConfigValue", () => {
   // ─── Email/Phone min/max (string length) ─────────────────────────────────
 
   it("validates min/max for email (string length)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: {
@@ -379,7 +380,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates min/max for phone (string length)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       country: "IT",
       validation: {
         required: true,
@@ -395,7 +396,7 @@ describe("validateConfigValue", () => {
   // ─── Regex validation on new types ───────────────────────────────────────
 
   it("validates regex on email type", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "@example\\.com$", error_label_key: "err.regex" } },
@@ -406,7 +407,7 @@ describe("validateConfigValue", () => {
   });
 
   it("throws on invalid regex pattern (configuration error)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "[invalid", error_label_key: "err.regex" } },
@@ -418,7 +419,7 @@ describe("validateConfigValue", () => {
   });
 
   it("uses regex_mismatch fallback for mismatch when no custom error key is provided", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "^[a-z]+$" } },
@@ -428,7 +429,7 @@ describe("validateConfigValue", () => {
   });
 
   it("uses custom error key for mismatch (not for invalid pattern)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "^[a-z]+$", error_label_key: "err.regex" } },
@@ -439,7 +440,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates regex with flags (case-insensitive)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "^[a-z]+$", flags: "i", error_label_key: "err.regex" } },
@@ -453,7 +454,7 @@ describe("validateConfigValue", () => {
   });
 
   it("validates regex with flags (multiline)", () => {
-    const tc = JSON.stringify({
+    const tc = extJsonStringify({
       validation: {
         required: true,
         rules: { regex: { pattern: "^[a-z]+$", flags: "m", error_label_key: "err.regex" } },
@@ -466,22 +467,22 @@ describe("validateConfigValue", () => {
   // ─── Number regex congruence (FE and SDK use same regex) ─────────────────
 
   it("rejects '1e5' for number type (regex, not Number())", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     expect(() => validateConfigValue("number", tc, "1e5", "test_key")).toThrow(/invalid_number/);
   });
 
   it("rejects 'Infinity' for number type (regex, not Number())", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     expect(() => validateConfigValue("number", tc, "Infinity", "test_key")).toThrow(/invalid_number/);
   });
 
   it("rejects spaces in number value (regex, not Number())", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     expect(() => validateConfigValue("number", tc, "  5  ", "test_key")).toThrow(/invalid_number/);
   });
 
   it("accepts decimal number with regex", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     expect(() => validateConfigValue("number", tc, "3.14", "test_key")).not.toThrow();
     expect(() => validateConfigValue("number", tc, "-3.14", "test_key")).not.toThrow();
     expect(() => validateConfigValue("number", tc, ".5", "test_key")).not.toThrow();
@@ -490,7 +491,7 @@ describe("validateConfigValue", () => {
   // ─── Error key alignment (app.common.validation.*) ───────────────────────
 
   it("uses app.common.validation.* error keys", () => {
-    const tc = JSON.stringify({ validation: { required: true } });
+    const tc = extJsonStringify({ validation: { required: true } });
     try {
       validateConfigValue("bigint", tc, "not-a-number", "test_key");
       expect.fail("Should have thrown");

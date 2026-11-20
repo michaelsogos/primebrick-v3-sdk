@@ -24,6 +24,7 @@ import {
 } from "jose";
 import type { OidcConfig } from "./types.js";
 import type { JwtClaims } from "./token-normalizer.js";
+import { extJsonParse } from "../json/ext-json.js";
 
 interface DiscoveryDocument {
   issuer: string;
@@ -49,7 +50,7 @@ async function getRuntime(oidc: OidcConfig): Promise<OidcRuntime> {
     if (!res.ok) {
       throw new Error(`[auth] OIDC discovery failed: GET ${discoveryUrl} → HTTP ${res.status}`);
     }
-    const discovery = (await res.json()) as DiscoveryDocument;
+    const discovery = extJsonParse<DiscoveryDocument>(await res.text());
     if (!discovery.jwks_uri) {
       throw new Error("[auth] OIDC discovery document missing 'jwks_uri'");
     }

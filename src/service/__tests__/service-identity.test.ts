@@ -14,6 +14,7 @@ import {
   CLIENT_SHIELD_KEY_HEADER,
 } from "../service-identity.js";
 
+import { extJsonStringify } from '../../json/ext-json.js';
 function headersReq(h: Record<string, string>) {
   return { headers: { get: (n: string) => h[n.toLowerCase()] ?? null } };
 }
@@ -21,7 +22,7 @@ function headersReq(h: Record<string, string>) {
 describe("detectPackageIdentity", () => {
   it("reads name/version from package.json", () => {
     const dir = mkdtempSync(join(tmpdir(), "pkg-"));
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "primebrick-emailsender", version: "1.4.0" }));
+    writeFileSync(join(dir, "package.json"), extJsonStringify({ name: "primebrick-emailsender", version: "1.4.0" }));
     expect(detectPackageIdentity(dir)).toEqual({ name: "primebrick-emailsender", version: "1.4.0" });
   });
 

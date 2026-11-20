@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateEventsDeclaration } from "../events-declaration.js";
 
+import { extJsonStringify } from '../../json/ext-json.js';
 describe("validateEventsDeclaration", () => {
   it("accepts undefined/null — optional axis", () => {
     expect(validateEventsDeclaration("svc", undefined)).toBeNull();
@@ -93,7 +94,7 @@ describe("emits entity pointer", () => {
     for (const bad of ["customer", { key: "c" }, { key: "c", entity: "e", table: "" }, { key: "c", entity: "e", table: "t", extra: 1 }]) {
       expect(
         validateEventsDeclaration("svc", { emits: [{ subject: "a.b", entity: bad }] }),
-        JSON.stringify(bad),
+        extJsonStringify(bad),
       ).toMatch(/entity/);
     }
   });

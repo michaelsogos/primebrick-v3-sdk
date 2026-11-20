@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { formatLine, setLogOptions, argsToMsgAndMeta } from "../logger.js";
 
+import { extJsonParse } from '../../json/ext-json.js';
 describe("logger tags", () => {
   it("renders [tag1] [tag2] before the message in pretty format", () => {
     const line = formatLine("info", "Loaded docs", { tags: ["embedding-pipeline", "docs"] });
@@ -20,9 +21,9 @@ describe("logger tags", () => {
   it("keeps tags as a structured field in json format", () => {
     setLogOptions({ format: "json" });
     const line = formatLine("info", "Loaded docs", { tags: ["a", "b"], extra: 1 });
-    const rec = JSON.parse(line);
+    const rec = extJsonParse<any>(line);
     expect(rec.tags).toEqual(["a", "b"]);
-    expect(rec.extra).toBe(1);
+    expect(rec.extra).toBe(1n);
     expect(rec.msg).toBe("Loaded docs");
     setLogOptions({ format: "pretty" });
   });

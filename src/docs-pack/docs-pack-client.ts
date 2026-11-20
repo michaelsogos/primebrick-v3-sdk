@@ -11,6 +11,7 @@
  */
 
 import { internalFetch } from "../http/internal-client.js";
+import { extJsonParse } from "../json/ext-json.js";
 import { currentClientShieldSecret } from "../auth/client-shield-secret.js";
 import { DOCS_PACK_ROUTE } from "./serve-docs-pack.js";
 import { parseDocsPackPayload, type DocsPackPayload } from "./manifest.js";
@@ -27,5 +28,5 @@ export async function fetchDocsPack(serviceBaseUrl: string): Promise<DocsPackPay
   if (!res.ok) {
     throw new Error(`docs pack fetch failed: ${res.status} ${res.statusText} (${url})`);
   }
-  return parseDocsPackPayload(await res.json());
+  return parseDocsPackPayload(extJsonParse(await res.text()));
 }

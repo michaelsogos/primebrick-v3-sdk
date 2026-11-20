@@ -3,6 +3,7 @@ import { buildOpenApiSpec, entityCrudSpec, rpcSpec, makeOpenApiHandler, operatio
 import type { RpcRoute } from "../rpc-router.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { extJsonParse } from '../../json/ext-json.js';
 describe("operationIdFor", () => {
   it("derives snake_case ids from method+path", () => {
     expect(operationIdFor("GET", "/api/v1/entities/provider/list")).toBe("get_provider_list");
@@ -107,7 +108,7 @@ describe("buildOpenApiSpec + makeOpenApiHandler", () => {
       new URL("http://x/api/v1/openapi.json"),
     );
     expect(handled).toBe(true);
-    expect(JSON.parse(chunks[0]!).openapi).toBe("3.1.0");
+    expect(extJsonParse<any>(chunks[0]!).openapi).toBe("3.1.0");
 
     const miss = await handler({ method: "GET" } as IncomingMessage, res, new URL("http://x/other"));
     expect(miss).toBe(false);

@@ -33,6 +33,7 @@ import { makeServiceRoutes } from "../service-routes.js";
 import type { RpcRoute } from "../rpc-router.js";
 import type { EntityServiceLike } from "../entity-router.js";
 
+import { extJsonParse } from '../../json/ext-json.js';
 function stubRes(chunks?: string[], status?: { code: number }): ServerResponse {
   return {
     writeHead: (code: number) => { if (status) status.code = code; return stubRes(chunks, status); },
@@ -63,7 +64,7 @@ async function servedMeta(
   );
   expect(handled).toBe(true);
   expect(status.code === 0 || status.code === 200).toBe(true);
-  return JSON.parse(chunks[0]!);
+  return extJsonParse<any>(chunks[0]!);
 }
 
 const entityDecl = () => ({
