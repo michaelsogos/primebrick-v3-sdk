@@ -19,6 +19,11 @@
  * Invariants (enforced by `audit`, exit 1 on violation):
  *   - at most ONE open branch across feature/*, release/*, hotfix/*
  *     (zero is clean — /develop + /main only)
+ *   - main/develop are MERGE-ONLY — nobody commits on them, ever; all
+ *     work lands through a work branch. Consequently an open work branch
+ *     must CONTAIN every commit of its base: a base that moved while a
+ *     work branch is open is PROOF of a violation (direct base commit or
+ *     an illicit close), not drift to tolerate
  *   - an open feature/release/hotfix fully merged into its base is an
  *     ORPHAN — it should have been closed; reported, never silently fixed
  *   - remote carries at most main + develop + the one open branch
@@ -85,6 +90,18 @@ function audit(): number {
       bad++;
       console.log(`  ✗ ORPHAN: ${b} is fully merged into ${BASE[kind]} — it should have been closed via gitflow finish. STOP and report.`);
     }
+    // STALE BASE — main/develop are merge-only, so while a work branch is
+    // open its base can only move through the governed close of THAT
+    // branch. Base commits missing from the work branch are proof of a
+    // violation: a direct commit on the base, or an illicit close.
+    const stale = exists(BASE[kind]) ? aheadOf(b, BASE[kind]) : 0;
+    if (stale > 0) {
+      bad++;
+      console.log(
+        `  ✗ STALE BASE: ${BASE[kind]} has ${stale} commit(s) not in ${b} — bases are merge-only, ` +
+          `so it can only have advanced through a direct ${BASE[kind]} commit or an illicit close. STOP and report.`,
+      );
+    }
   }
   const remoteOpen = remotes.filter((b) => WIP.test(b));
   if (remoteOpen.length > 1 || (remoteOpen.length === 1 && !open.includes(remoteOpen[0]))) {
@@ -94,7 +111,10 @@ function audit(): number {
   for (const b of ["main", "develop", ...open]) {
     if (!exists(b)) continue;
     const [behind, ahead] = (git(["rev-list", "--left-right", "--count", `origin/${b}...${b}`]).out.trim() || "0\t0").split(/\s+/).map(Number);
-    if (ahead > 0) console.log(`  ! ${b} is ${ahead} commit(s) AHEAD of origin — push required (commit ⇒ push)`);
+    if (ahead > 0) {
+      bad++;
+      console.log(`  ✗ ${b} is ${ahead} commit(s) AHEAD of origin — unpushed work (commit ⇒ push — origin must stay aligned)`);
+    }
     if (behind > 0) console.log(`  ! ${b} is ${behind} commit(s) behind origin — sync needed`);
   }
   if (git(["status", "--porcelain"]).out.trim()) console.log("  ! uncommitted changes present");
