@@ -52,7 +52,6 @@ export function docsPackRouteHandler(packDir: string): RouteHandler {
         }
         // parseDocsPackPayload strict-checks schema/bytes as numbers —
         // extJsonParse bigint-ifies them and would reject a valid pack.
-        // standards-exempt: ext-json — pack manifest is a schema-validated wire payload, must stay plain JSON
         const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
         // docs/ may be absent on openapi-only packs (dev-only services
         // ship no user docs) — the manifest already reports files: [].

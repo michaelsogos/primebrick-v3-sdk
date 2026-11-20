@@ -5,9 +5,14 @@ description: BigInt-safe JSON serialization and deserialization for Primebrick s
 
 # Ext-JSON
 
-Ext-JSON is the standard JSON serialization layer for Primebrick backend
-services. It uses `json-bigint` with `useNativeBigInt: true` to preserve
-`bigint` values across the JSON wire format.
+Ext-JSON is the standard JSON serialization layer for Primebrick — the
+**only sanctioned codec** across BE, microservices, DAL, SDK, UI and FE.
+The canonical implementation lives in `@primebrick/core` (`src/ext-json.ts`)
+and the SDK re-exports it, so there is exactly one codec in the workspace.
+Raw `JSON.stringify` / `JSON.parse` and argument-less `response.json()`
+reads are banned by the `ext-json` check-standards rule (`NO_EXEMPT` —
+legitimate plain-JSON boundaries, e.g. external REST specs or signed
+artifacts, declare themselves via `.devin/check-standards.json` `allowPaths`).
 
 ## Why Ext-JSON exists
 
@@ -36,23 +41,21 @@ The rule is simple: **every integer is `bigint`, every float is `number`**.
 No `number | bigint` ambiguity — the type is determined by whether the value
 has a decimal point, not by its magnitude.
 
-## The reviver
+## The strict codec
 
-`extJsonParse` uses a reviver that forces every integer to `bigint`:
+`extJsonParse` is a strict three-stage parse, not a plain `JSON.parse`:
 
-```ts
-extJsonParse(text, (_key, value) => {
-  if (typeof value === "number" && Number.isInteger(value)) {
-    return BigInt(value);
-  }
-  return value;
-});
-```
+1. **Validate** — a scanner enforces the grammar strictly and rejects what
+   native parse silently accepts: duplicate keys (never last-wins), trailing
+   commas, malformed input.
+2. **Materialize** — native `JSON.parse` builds the object graph.
+3. **Restore** — a source-order flag walk converts every integer-valued
+   number to `bigint`, exactly — including values above 2^53 that plain
+   `JSON.parse` would corrupt and `BigNumber`-based codecs used to degrade
+   to imprecise `number` at 21+ digits.
 
-`json-bigint`'s `alwaysParseAsBig` option would do this, but it is broken for
-floats in v1.0.0 — so the SDK uses a reviver instead. The reviver is the
-reason `42` (a small integer that `json-bigint` returns as `number`) becomes
-`bigint` on the receiving end, matching the `42n` the sender wrote.
+`extJsonStringify` emits `bigint` values as JSON numbers (via `JSON.rawJSON`
+where supported, with a `json-bigint` fallback on older engines).
 
 ## Usage
 
@@ -132,11 +135,13 @@ If you need only the JSON functions without pulling in NATS™/auth code paths:
 import { extJsonStringify, extJsonParse, extJsonMiddleware, extJsonBodyParser } from "@primebrick/sdk/json";
 ```
 
-## Not for the frontend
+## The frontend
 
-The frontend has its own standalone wrapper (`src/lib/api-ext.ts`) that installs
-`json-bigint` directly. The FE does not depend on `@primebrick/sdk`. Ext-JSON
-is for BE and microservices only.
+The FE uses the **same canonical codec** — `@primebrick/ui` re-exports
+`@primebrick/core`'s `extJsonParse` / `extJsonStringify`, and
+`src/lib/api-ext.ts` wraps `apiFetch` with `apiFetchExt` for wire reads.
+One codec, everywhere: wire bodies, storage payloads, editors, previews,
+smart inputs, fixtures and tests all use Ext-JSON.
 
 ## Next steps
 

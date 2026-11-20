@@ -937,7 +937,6 @@ export async function createMicroservice(
       }
       res.writeHead(503, { "content-type": "application/problem+json" });
       res.end(
-        // standards-exempt: ext-json — RFC7807 problem+json is plain JSON by spec
         JSON.stringify({
           type: "https://primebrick.io/errors/db_migration_failed",
           title: "Service Unavailable",

@@ -1,13 +1,28 @@
 {
   "rules": {
     "dal-access": {
-      "allowPaths": ["microservice/create-microservice.ts"]
+      "allowPaths": [
+        "microservice/create-microservice.ts"
+      ]
     },
     "raw-query": {
-      "allowPaths": ["translations/translations-service.ts"]
+      "allowPaths": [
+        "translations/translations-service.ts"
+      ]
     },
     "raw-sql": {
-      "allowPaths": ["translations/translations-service.ts", "docs-gen/service-docs.ts"]
+      "allowPaths": [
+        "translations/translations-service.ts",
+        "docs-gen/service-docs.ts"
+      ]
+    },
+    "ext-json": {
+      "allowPaths": [
+        "lifecycle/logger.ts",
+        "docs-pack/build-docs-pack.ts",
+        "docs-pack/serve-docs-pack.ts",
+        "microservice/create-microservice.ts"
+      ]
     }
   }
 }
