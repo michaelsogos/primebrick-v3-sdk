@@ -51,14 +51,11 @@ export interface MigrationEngineOptsLike {
  * otherwise reject the dal signatures, and the concrete types cannot be
  * named here anyway (SDK must not import dal-pg).
  */
+/* eslint-disable @typescript-eslint/no-explicit-any -- port boundary: dal-pg pool/registry/diff types cannot be named in SDK, and `any` bivariance is required under strictFunctionTypes */
 export interface DbMigrationEnginePort {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   runMigrations(opts: MigrationEngineOptsLike): Promise<MigrationRunResultLike>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   registryStatus(pool: any, schema: string): Promise<unknown[]>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   retryFailedPatches(pool: any, schema: string, actor?: string): Promise<number>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   approvePendingReview(
     pool: any,
     schema: string,
@@ -66,7 +63,6 @@ export interface DbMigrationEnginePort {
     actor: string,
     note?: string,
   ): Promise<boolean>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resolveManually(
     pool: any,
     schema: string,
@@ -74,13 +70,12 @@ export interface DbMigrationEnginePort {
     actor: string,
     note: string,
   ): Promise<boolean>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   checkDrift(registry: readonly any[], db: any): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   isDriftClean(diff: any): boolean;
   /** Boot schema-domain guard — dal-pg `assertEntitySchemaDomain`. Throws on violations. */
   assertEntitySchemaDomain?(entities: readonly unknown[], schemas: readonly string[]): void;
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export interface DbMigrationBootOptions {
   /** dal-pg migrations surface — `import * as m from "@primebrick/dal-pg"` satisfies this. */

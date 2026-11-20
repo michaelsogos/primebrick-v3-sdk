@@ -500,3 +500,72 @@ describe("check-standards — i18n namespace boundary", () => {
     expect(r.out).not.toContain("[i18n-sql-key-ref]");
   }, T);
 });
+
+describe("check-standards — suppress-no-reason", () => {
+  it("bare eslint-disable tags flag", () => {
+    const r = runLint({
+      "x.ts": "// eslint-disable-next-line @typescript-eslint/no-explicit-any\nconst a: any = 1;\nexport { a };\n",
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[suppress-no-reason]");
+  }, T);
+
+  it("` -- <reason>` tail satisfies the rule", () => {
+    const r = runLint({
+      "x.ts": "// eslint-disable-next-line @typescript-eslint/no-explicit-any -- port boundary: dal-pg types cannot be named here\nconst a: any = 1;\nexport { a };\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+
+  it("svelte-ignore with an adjacent explanatory comment passes; alone it flags", () => {
+    const explained = runLint({
+      "C.svelte": "<script>\n  let { v } = $props();\n  // svelte-ignore state_referenced_locally\n  // local draft — snapshots once, remounts re-read\n  let d = $state(v);\n</script>\n",
+    });
+    expect(explained.out).not.toContain("[suppress-no-reason]");
+    const bare = runLint({
+      "C.svelte": "<script>\n  let { v } = $props();\n\n  // svelte-ignore state_referenced_locally\n\n  let d = $state(v);\n</script>\n",
+    });
+    expect(bare.out).toContain("[suppress-no-reason]");
+  }, T);
+
+  it("@ts-ignore/@ts-expect-error need reasons too", () => {
+    const r = runLint({
+      "x.ts": "// @ts-ignore\nconst a = 1;\nexport { a };\n",
+    });
+    expect(r.out).toContain("[suppress-no-reason]");
+    const ok = runLint({
+      "x.ts": "// @ts-expect-error -- upstream lib ships wrong overload\nconst a = 1;\nexport { a };\n",
+    });
+    expect(ok.out).not.toContain("[suppress-no-reason]");
+  }, T);
+
+  it("an HTML-comment close `-->` does NOT count as a reason", () => {
+    const r = runLint({
+      "C.svelte": "<p>x</p>\n\n<!-- eslint-disable-next-line svelte/no-at-html-tags -->\n{@html h}\n",
+    });
+    expect(r.out).toContain("[suppress-no-reason]");
+  }, T);
+
+  it("block-form disable with reason + enable passes", () => {
+    const r = runLint({
+      "x.ts": "/* eslint-disable @typescript-eslint/no-explicit-any -- port boundary */\nconst a: any = 1;\nexport { a };\n/* eslint-enable @typescript-eslint/no-explicit-any */\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+});
+
+describe("check-standards — suppress-no-reason multi-line explanations", () => {
+  it("a multi-line HTML comment ending just above the tag counts as explained", () => {
+    const r = runLint({
+      "C.svelte": "<!-- listbox pattern: the column owns the tab stop and arrow\n     stepping — options are not individually focusable. -->\n<!-- svelte-ignore a11y_click_events_have_key_events -->\n<div onclick={() => {}} role=\"option\"></div>\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+
+  it("a multi-line block comment above a ts tag counts as explained", () => {
+    const r = runLint({
+      "x.ts": "/* the registry is heterogeneous —\n   each entry declares its own props. */\n// eslint-disable-next-line @typescript-eslint/no-explicit-any\nconst a: any = 1;\nexport { a };\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+});
