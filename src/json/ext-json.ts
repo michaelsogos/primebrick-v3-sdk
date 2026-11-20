@@ -1,13 +1,15 @@
 /**
  * Ext-JSON — extended JSON serialization/deserialization for Primebrick.
  *
- * Uses `json-bigint` with `useNativeBigInt: true` to preserve bigint values
- * across the JSON wire format. A reviver forces ALL integers to native `bigint`
- * (not just large ones), making types predictable: every integer is always
- * `bigint`, every float is always `number`. No `number | bigint` ambiguity.
+ * The canonical codec lives in `@primebrick/core` (environment-neutral,
+ * strict three-stage parse: grammar + duplicate-key validation, native
+ * materialization, flag-applied bigint walk). This module RE-EXPORTS it so
+ * the SDK's public `json` surface and middleware keep working — there is
+ * exactly one codec implementation in the workspace.
  *
- * The wire format is standard JSON — bigint values are serialized as JSON
- * numbers (not strings), and parsed back to native bigint on the receiving end.
+ * Wire contract: standard JSON — bigint values are JSON numbers; ALL
+ * integer-valued numbers parse back to native `bigint`, floats stay
+ * `number`. No `number | bigint` ambiguity.
  *
  * Usage:
  * - BE: Express middleware via `extJsonMiddleware()`
@@ -15,69 +17,14 @@
  *   (the NatsClient methods use these functions internally — US code never
  *   calls extJsonStringify/extJsonParse directly)
  *
- * NOT for FE — the FE has its own standalone wrapper (src/lib/api-ext.ts).
- * The FE installs `json-bigint` directly and does NOT depend on @primebrick/sdk.
+ * NOT for FE — the FE consumes the same codec via `@primebrick/ui`
+ * (src/lib/api-ext.ts re-exports it).
  */
 
-import JSONBig from "json-bigint";
 import type { Request, Response, NextFunction } from "express";
 
-const jsonBigInstance = JSONBig({
-  // useNativeBigInt is intentionally OFF: in that mode json-bigint converts
-  // EVERY number token to native bigint, so any float in the payload throws
-  // "Cannot convert <float> to a BigInt". In default mode floats arrive as
-  // BigNumber objects (or plain numbers) and the reviver below sorts them.
-  strict: true,
-});
-
-/**
- * Serialize a value to an Ext-JSON string.
- * BigInt values are serialized as JSON numbers (e.g. 42n → "42").
- * Floats are serialized as JSON numbers (e.g. 3.14 → "3.14").
- */
-export function extJsonStringify(data: unknown): string {
-  return jsonBigInstance.stringify(data);
-}
-
-/**
- * Parse an Ext-JSON string.
- *
- * ALL integers are returned as native `bigint` (via reviver — the
- * useNativeBigInt option throws on float tokens, so we use a reviver instead).
- * Floats (values with decimal point or scientific notation) are returned as `number`.
- * Strings, booleans, null are unaffected.
- *
- * This makes types predictable: every integer is always `bigint`, every float
- * is always `number`. No `number | bigint` ambiguity.
- */
-export function extJsonParse<T = unknown>(text: string): T {
-  return jsonBigInstance.parse(text, (_key, value) => {
-    // Small integers arrive as `number` — force to bigint, but ONLY safe
-    // integers: huge float tokens (e.g. 1.7e308) arrive as `number` too and
-    // are integer-valued, so isInteger alone would wrongly bigint-ify them.
-    if (typeof value === "number") {
-      return Number.isSafeInteger(value) ? BigInt(value) : value;
-    }
-    // Integers beyond MAX_SAFE_INTEGER arrive as BigNumber objects — convert
-    // to native bigint without precision loss. A huge-magnitude float token
-    // could in theory arrive as BigNumber too; BigInt() rejects non-integer
-    // strings, so fall back to toNumber() there (bignumber.js's isInteger()
-    // is unreliable on values built by json-bigint).
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      (value as object).constructor?.name === "BigNumber"
-    ) {
-      const bn = value as { toString(): string; toNumber(): number };
-      try {
-        return BigInt(bn.toString());
-      } catch {
-        return bn.toNumber();
-      }
-    }
-    return value;
-  }) as T;
-}
+export { extJsonParse, extJsonStringify } from "@primebrick/core";
+import { extJsonParse, extJsonStringify } from "@primebrick/core";
 
 /**
  * Express middleware that replaces `res.json()` with Ext-JSON serialization.
@@ -112,7 +59,9 @@ export function extJsonMiddleware() {
  * This replaces the default `express.json()` body parser for routes that need
  * to receive BigInt values without precision loss. Native `JSON.parse()` converts
  * large integers to `number`, losing precision above `Number.MAX_SAFE_INTEGER`.
- * This parser uses `extJsonParse` which forces all integers to native `bigint`.
+ * This parser uses `extJsonParse` which forces all integers to native `bigint`
+ * and rejects malformed bodies — including duplicate keys — instead of
+ * silently last-winning them.
  *
  * Install once in the Express app, BEFORE routes, typically replacing or
  * alongside `express.json()`. Only parses requests with `Content-Type: application/json`.

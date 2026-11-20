@@ -137,10 +137,10 @@ describe("check-standards — dal-access hardening", () => {
 
   it("standards-exempt still works on NON-governance rules", () => {
     const r = runLint({
-      "services/x.ts": '// standards-exempt: ext-json — sanctioned stringify for cache blob\nexport const s = JSON.stringify({ a: 1 });\n',
+      "services/x.ts": '// standards-exempt: column-flag-defaults — legacy flag read\nexport const s = c.default_visible !== false;\n',
     });
     expect(r.code).toBe(0);
-    expect(r.out).not.toContain("[ext-json]");
+    expect(r.out).not.toContain("[column-flag-defaults]");
   }, T);
 
   it("layer-repo-import is default-on: controllers flagged, elsewhere clean", () => {
@@ -574,5 +574,72 @@ describe("check-standards — no-native-dialog", () => {
       "src/a.ts": "const x = confirm(t);\n",
     });
     expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+});
+
+describe("check-standards — ext-json codec boundary", () => {
+  it("flags raw JSON.stringify/JSON.parse", () => {
+    const r = runLint({
+      "services/x.ts": 'export const a = JSON.stringify({ a: 1 });\nexport const b = JSON.parse("{}");\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+  }, T);
+
+  it("flags argument-less .json() wire reads", () => {
+    const r = runLint({
+      "services/x.ts": 'export async function f(res: Response) { return res.json(); }\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+  }, T);
+
+  it("does NOT flag .json(arg) — express/body senders keep working", () => {
+    const r = runLint({
+      "controllers/x.ts": 'export function g(res: any, body: unknown) { res.json(body); }\n',
+    });
+    expect(r.out).not.toContain("[ext-json]");
+  }, T);
+
+  it("standards-exempt CANNOT suppress ext-json — governance finding", () => {
+    const r = runLint({
+      "services/x.ts": '// standards-exempt: ext-json — sanctioned stringify\nexport const s = JSON.stringify({ a: 1 });\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+    expect(r.out).toContain("[exempt-governance]");
+  }, T);
+
+  it("config allowPaths exempts the codec implementation only", () => {
+    const r = runLint(
+      {
+        "ext-json.ts": 'export const p = JSON.parse("{}");\n',
+        "services/x.ts": 'export const s = JSON.parse("{}");\n',
+      },
+      { rules: { "ext-json": { allowPaths: ["ext-json.ts"] } } },
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).not.toContain("ext-json.ts");
+    expect(r.out).toContain("services/x.ts");
+    expect(r.out).toContain("[ext-json]");
+  }, T);
+
+  it("scans test files even without --tests (wire contracts hold in tests)", () => {
+    const r = runLint({
+      "services/__tests__/x.test.ts": 'const d = JSON.parse("{}");\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+    expect(r.out).toContain("x.test.ts");
+  }, T);
+
+  it("fe profile flags raw JSON in browser code", () => {
+    const r = runLint(
+      { "lib/x.ts": 'export const s = JSON.stringify({});\nexport async function f(r: Response) { return r.json(); }\n' },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
   }, T);
 });

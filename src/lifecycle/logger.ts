@@ -254,7 +254,6 @@ export function formatLine(level: LogLevel, msg: string, meta?: LogMeta): string
       ...(state.version ? { version: state.version } : {}),
       ...restMeta,
     };
-    // standards-exempt: ext-json — NDJSON log lines are an external wire format; bigint → plain string
     return JSON.stringify(record, (_k, v) => (typeof v === "bigint" ? v.toString() : v)) + "\n";
   }
 
@@ -371,7 +370,6 @@ export function argsToMsgAndMeta(args: unknown[]): { msg: string; meta?: LogMeta
 function stringifyArg(v: unknown): string {
   if (typeof v === "string") return v;
   try {
-    // standards-exempt: ext-json — log-arg serialization is an external wire format (see above)
     return JSON.stringify(safeSerialize(v), (_k, x) => (typeof x === "bigint" ? x.toString() : x)) ?? String(v);
   } catch {
     return String(v);
