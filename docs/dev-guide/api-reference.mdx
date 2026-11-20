@@ -6257,7 +6257,9 @@ Express middleware that parses request bodies with Ext-JSON.
 This replaces the default `express.json()` body parser for routes that need
 to receive BigInt values without precision loss. Native `JSON.parse()` converts
 large integers to `number`, losing precision above `Number.MAX_SAFE_INTEGER`.
-This parser uses `extJsonParse` which forces all integers to native `bigint`.
+This parser uses `extJsonParse` which forces all integers to native `bigint`
+and rejects malformed bodies — including duplicate keys — instead of
+silently last-winning them.
 
 Install once in the Express app, BEFORE routes, typically replacing or
 alongside `express.json()`. Only parses requests with `Content-Type: application/json`.
@@ -6289,27 +6291,27 @@ Wire format: standard JSON with numbers (not strings) for bigint values.
 
 Parse an Ext-JSON string.
 
-ALL integers are returned as native `bigint` (via reviver — the
-useNativeBigInt option throws on float tokens, so we use a reviver instead).
-Floats (values with decimal point or scientific notation) are returned as `number`.
+ALL integers are returned as native `bigint` (via reviver).
+Floats (values with decimal point or scientific notation) are `number`.
 Strings, booleans, null are unaffected.
-
-This makes types predictable: every integer is always `bigint`, every float
-is always `number`. No `number | bigint` ambiguity.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | text | `string` |  |
 
-### `extJsonStringify(data): string`
+### `extJsonStringify(data, space): string`
 
 Serialize a value to an Ext-JSON string.
-BigInt values are serialized as JSON numbers (e.g. 42n → "42").
-Floats are serialized as JSON numbers (e.g. 3.14 → "3.14").
+BigInt values serialize as JSON numbers (42n → "42"); floats stay numbers.
+
+Use for request bodies carrying bigint values — the BE's ext-json body
+parser revives them to native `bigint`. `space` mirrors JSON.stringify's
+pretty-print indent for display/tooltip contexts.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | data | `unknown` |  |
+| space | `number` |  |
 
 ### `extractHostFacts(raw, route, deps): SveltePageFacts`
 
