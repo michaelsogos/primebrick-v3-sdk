@@ -66,7 +66,13 @@ function audit(): number {
   }
   for (const b of open) {
     const kind = b.split("/")[0];
-    if (exists(BASE[kind]) && aheadOf(BASE[kind], b) === 0) {
+    // ORPHAN = landed-but-never-closed: every commit is in the base AND the
+    // tip is a strict ancestor (a finished base always grows a merge commit
+    // past it). A branch sitting AT the base tip is fresh work, not an orphan.
+    const sameTip = exists(BASE[kind])
+      ? git(["rev-parse", b]).out.trim() === git(["rev-parse", BASE[kind]]).out.trim()
+      : false;
+    if (exists(BASE[kind]) && !sameTip && aheadOf(BASE[kind], b) === 0) {
       bad++;
       console.log(`  ✗ ORPHAN: ${b} is fully merged into ${BASE[kind]} — it should have been closed via gitflow finish. STOP and report.`);
     }
