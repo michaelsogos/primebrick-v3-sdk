@@ -42,6 +42,7 @@ import {
   type RouteHandler,
 } from "./rpc-router.js";
 import { validateActionChrome, resolveDisplayTemplate, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
+import { builtinEntityDecls } from "./builtin-entities.js";
 
 /** Entity declaration for `makeServiceRoutes`. `spec` only shapes the
  *  generated OpenAPI block — the router ignores it. Operation set is
@@ -134,7 +135,21 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   //   - row_custom_actions/bulk_custom_actions action_name without a
   //     declared op → boot error (dead CTA is a config bug, not a runtime
   //     501 surprise)
-  const entityDecls = input.entities ?? [];
+  // Built-in entity surfaces are mounted BY CONSTRUCTION — they arrive
+  // from registered providers (dal-pg), never from a module's `entities`.
+  // A consumer decl colliding with a builtin name is a boot error:
+  // builtins may only ever exist through this mount.
+  const builtins = builtinEntityDecls();
+  const builtinNames = new Set(builtins.map((d) => d.entityName));
+  for (const d of input.entities ?? []) {
+    if (builtinNames.has(d.entityName)) {
+      throw new Error(
+        `makeServiceRoutes: entity "${d.entityName}" is a platform builtin — ` +
+          `it is mounted by construction and must not be declared in the module`,
+      );
+    }
+  }
+  const entityDecls = [...builtins, ...(input.entities ?? [])];
   const customOps = new Map<string, EntityCustomOp[]>();
   // CTA chrome derived from each op route — synthesized into the served
   // `meta.table.row_custom_actions`/`bulk_custom_actions` below.
