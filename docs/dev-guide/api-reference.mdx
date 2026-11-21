@@ -5759,6 +5759,29 @@ are rejected BY CONSTRUCTION (they are not documentable pages — e.g.
 |-----------|------|-------------|
 | nav | `ModuleNavDeclaration` |  |
 
+### `columnSchemaLeaf(col): { type: string \| string[]; format: string; enum: string[] }`
+
+Canonical `MetaColumn → JSON-schema leaf` conversion — the honest WIRE
+shape of the column so schema-driven resolvers (`schemaTypeIcon`,
+`schemaLeafSub`, `schemaToNavNodes` — the ONE vocabulary shared with
+the payload-map editor and rule-filter picker) can render it without a
+second icon map:
+
+  - the declared `format` wins over the bare `type` (`email`→`"email"`
+    → mail, `identifier`→`"uuid"` → file-key, `json`/`rule_filter`→
+    `"object"` → braces);
+  - a `badge` column exposes its value vocabulary as `enum` (→ tags),
+    `ref` is its uuid wire shape, `sparkline` is an array;
+  - `nullable` flags the type union with `"null"` — the resolver
+    renders the base icon dashed.
+
+Icon names live ONLY in `schemaTypeIcon`; this function must never
+carry a glyph of its own.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "type"> & Partial<Pick<MetaColumn, "badge" \| "format" \| "nullable">>` |  |
+
 ### `composeRouteHandlers(handlers): RouteHandler`
 
 Compose multiple factory-produced routers — same chaining contract.
