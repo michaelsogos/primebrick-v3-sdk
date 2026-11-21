@@ -63,6 +63,7 @@ import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
+import { mergeBuiltinNav } from "../http/builtin-entities.js";
 import { entityEventPayloadSchema } from "../nats/entity-events.js";
 import type { EntityRouteDecl } from "../http/service-routes.js";
 import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
@@ -569,6 +570,12 @@ export async function createMicroservice(
   const serviceCode = resolveServiceCode(selfIdentity, configLoader.get("service_code"));
   setCurrentServiceCode(serviceCode);
 
+  // Builtin nav mount — entity-registry leaves contributed by registered
+  // providers (dal-pg sequences today) merge into the module's nav BY
+  // CONSTRUCTION, appended LAST inside their sibling. Same invariant as
+  // the route mount: module-authored collisions are a boot error.
+  const nav = mergeBuiltinNav(options.nav);
+
   // Docs emit — the service documents itself from THIS options object
   // (nav + the route handler's .entityDecls/.spec brands), never a
   // parallel docs config: a route/entity added to the service is in the
@@ -591,7 +598,7 @@ export async function createMicroservice(
     const emitResult = await emitServiceDocs({
       service_root: process.cwd(),
       service_code: serviceCode,
-      ...(options.nav ? { nav: options.nav } : {}),
+      ...(nav ? { nav } : {}),
       ...(branded?.entityDecls ? { entity_decls: branded.entityDecls } : {}),
       ...(branded?.spec ? { spec: branded.spec } : {}),
       own_schemas: dbEnv.schemas,
@@ -755,8 +762,8 @@ export async function createMicroservice(
   }
   // Module nav self-declaration — verbatim object (not a URL path): the BE
   // merges endpoints.nav into module meta + routes census.
-  if (options.nav) {
-    registrarEndpoints.nav = options.nav;
+  if (nav) {
+    registrarEndpoints.nav = nav;
   }
 
   // Module emitted-event self-declaration — verbatim object riding the same
