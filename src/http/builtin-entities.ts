@@ -23,6 +23,7 @@
 import { requireActor } from "../auth/session-context.js";
 import type { ModuleNavDeclaration } from "@primebrick/core";
 import type { EntityRouteDecl } from "./service-routes.js";
+import type { RpcRoute } from "./rpc-router.js";
 
 export interface BuiltinDeclCtx {
   actor: () => string;
@@ -31,6 +32,10 @@ export interface BuiltinDeclCtx {
 interface BuiltinDeclFactory {
   id: string;
   make: (ctx: BuiltinDeclCtx) => Record<string, unknown>[];
+  /** Governed RPC surface (e.g. `sequence-set`) — merged into
+   *  makeServiceRoutes' `rpc` input so entity_op binding, OpenAPI and
+   *  mounting treat builtin routes exactly like module-authored ones. */
+  rpc?: (ctx: BuiltinDeclCtx) => Record<string, unknown>[];
   nav?: () => BuiltinNavContribution;
 }
 
@@ -57,6 +62,19 @@ export function builtinEntityDecls(): EntityRouteDecl[] {
   if (!reg) return [];
   const ctx: BuiltinDeclCtx = { actor: () => requireActor() };
   return [...reg.values()].flatMap((f) => f.make(ctx)) as unknown as EntityRouteDecl[];
+}
+
+/** Built-in RPC routes from every registered provider — bare `RpcRoute[]`
+ *  entries, ready to merge into makeServiceRoutes' `rpc` input. Empty
+ *  when no provider is loaded or no builtin declares an RPC surface. */
+export function builtinRpcRoutes(): RpcRoute[][] {
+  const g = globalThis as Record<symbol, Map<string, BuiltinDeclFactory> | undefined>;
+  const reg = g[REGISTRY_KEY];
+  if (!reg) return [];
+  const ctx: BuiltinDeclCtx = { actor: () => requireActor() };
+  return [...reg.values()].flatMap((f) =>
+    f.rpc ? [f.rpc(ctx) as unknown as RpcRoute[]] : [],
+  );
 }
 
 /** Builtin nav contributions from every registered provider. */

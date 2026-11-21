@@ -270,3 +270,45 @@ describe("makeServiceRoutes", () => {
     expect(extJsonParse<any>(chunks[0]!)).toEqual({ pong: true });
   });
 });
+
+describe("builtin rpc routes — registry merge", () => {
+  const REG = Symbol.for("primebrick.builtin-entity-decl-factories") as symbol;
+  type RegistryMap = Map<string, { id: string; make: (ctx: unknown) => Record<string, unknown>[]; rpc?: (ctx: unknown) => Record<string, unknown>[] }>;
+  const reg = () => ((globalThis as Record<symbol, RegistryMap | undefined>)[REG] ??= new Map());
+
+  it("builtin-declared rpc routes mount, bind entity_op on the builtin entity, and feed OpenAPI", async () => {
+    reg().set("test.builtin", {
+      id: "test.builtin",
+      make: () => [{
+        entityName: "fake_builtin",
+        service: stubService(),
+        meta: { entity: "fake_builtin" },
+        permissions: { list: ["fb.read.all"], get: ["fb.read.single"] },
+      }],
+      rpc: () => [{
+        method: "POST",
+        path: "/api/v1/actions/fake-builtin-set",
+        permissions: ["fb.set.single"],
+        auth: "user",
+        mfa: { action: "fb.set", target_resource: "fake_builtin" },
+        entity_op: { entity: "fake_builtin", op: "fake_set", cta: { confirm_key: "fb.confirm" } },
+        openapi: { summary: "Fake builtin op" },
+        body: (raw: unknown) => raw,
+        handler: async () => ({ ok: true }),
+      }],
+    });
+    try {
+      const h = makeServiceRoutes({ info: { title: "T", version: "0.0.0" } });
+      // mounted
+      expect(await hits(h, "POST", "/api/v1/actions/fake-builtin-set")).toBe(true);
+      // the builtin entity decl is in the served decl set (entity_op binding
+      // → meta.actions is covered by the service-routes-cta suite)
+      expect(h.entityDecls.some((d) => d.entityName === "fake_builtin")).toBe(true);
+      // OpenAPI carries the builtin route
+      const spec = await servedSpec(h);
+      expect((spec.paths as Record<string, unknown>)["/api/v1/actions/fake-builtin-set"]).toBeDefined();
+    } finally {
+      reg().delete("test.builtin");
+    }
+  });
+});

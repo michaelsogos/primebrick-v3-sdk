@@ -42,7 +42,7 @@ import {
   type RouteHandler,
 } from "./rpc-router.js";
 import { validateActionChrome, resolveDisplayTemplate, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
-import { builtinEntityDecls } from "./builtin-entities.js";
+import { builtinEntityDecls, builtinRpcRoutes } from "./builtin-entities.js";
 
 /** Entity declaration for `makeServiceRoutes`. `spec` only shapes the
  *  generated OpenAPI block — the router ignores it. Operation set is
@@ -150,11 +150,15 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     }
   }
   const entityDecls = [...builtins, ...(input.entities ?? [])];
+  /** Builtin RPC routes mount through the same `rpc` contract as
+   *  module-authored ones — entity_op binding, OpenAPI and mounting
+   *  behave identically. */
+  const allRpc = [...builtinRpcRoutes(), ...(input.rpc ?? [])];
   const customOps = new Map<string, EntityCustomOp[]>();
   // CTA chrome derived from each op route — synthesized into the served
   // `meta.table.row_custom_actions`/`bulk_custom_actions` below.
   const ctaByOp = new Map<string, { cta?: EntityOpCta; route: RpcRoute }>();
-  for (const entry of input.rpc ?? []) {
+  for (const entry of allRpc) {
     const routes = Array.isArray(entry) ? entry : entry.routes;
     for (const r of routes) {
       if (!r.entity_op) continue;
@@ -310,7 +314,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     );
   }
 
-  for (const entry of input.rpc ?? []) {
+  for (const entry of allRpc) {
     const routes = Array.isArray(entry) ? entry : entry.routes;
     const deps = Array.isArray(entry) ? {} : (entry.deps ?? {});
     handlers.push(makeRpcRouter(routes, deps));
