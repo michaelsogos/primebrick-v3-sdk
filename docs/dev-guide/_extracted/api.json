@@ -8412,24 +8412,52 @@
 										"summary": [
 											{
 												"kind": "text",
-												"text": "AUTHORED — widget modes offered (default: both)."
+												"text": "AUTHORED — widget modes offered (default: both). "
+											},
+											{
+												"kind": "code",
+												"text": "`readonly`"
+											},
+											{
+												"kind": "text",
+												"text": " so a\n "
+											},
+											{
+												"kind": "code",
+												"text": "`DeepReadonly<MetaColumn>`"
+											},
+											{
+												"kind": "text",
+												"text": " (served-meta getter contract) stays\n assignable to "
+											},
+											{
+												"kind": "code",
+												"text": "`readonly MetaColumn[]`"
+											},
+											{
+												"kind": "text",
+												"text": " consumers."
 											}
 										]
 									},
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 476,
+											"line": 478,
 											"character": 8
 										}
 									],
 									"type": {
-										"type": "array",
-										"elementType": {
-											"type": "reference",
-											"target": 48,
-											"name": "SequenceMode",
-											"package": "@primebrick/core"
+										"type": "typeOperator",
+										"operator": "readonly",
+										"target": {
+											"type": "array",
+											"elementType": {
+												"type": "reference",
+												"target": 48,
+												"name": "SequenceMode",
+												"package": "@primebrick/core"
+											}
 										}
 									}
 								},
@@ -8452,7 +8480,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 478,
+											"line": 480,
 											"character": 8
 										}
 									],
@@ -8482,7 +8510,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 480,
+											"line": 482,
 											"character": 8
 										}
 									],
@@ -8533,7 +8561,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 486,
+							"line": 488,
 							"character": 4
 						}
 					],
@@ -8609,7 +8637,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 496,
+							"line": 498,
 							"character": 4
 						}
 					],
@@ -8751,7 +8779,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 510,
+							"line": 512,
 							"character": 4
 						}
 					],
@@ -8787,7 +8815,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 514,
+							"line": 516,
 							"character": 4
 						}
 					],
@@ -8815,7 +8843,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 516,
+							"line": 518,
 							"character": 4
 						}
 					],
@@ -8843,7 +8871,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 518,
+							"line": 520,
 							"character": 4
 						}
 					],
@@ -8871,7 +8899,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 520,
+							"line": 522,
 							"character": 4
 						}
 					],
@@ -8901,7 +8929,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 522,
+							"line": 524,
 							"character": 4
 						}
 					],
@@ -8929,7 +8957,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 524,
+							"line": 526,
 							"character": 4
 						}
 					],
@@ -8961,7 +8989,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 529,
+							"line": 531,
 							"character": 4
 						}
 					],
@@ -9009,7 +9037,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 533,
+											"line": 535,
 											"character": 8
 										}
 									],
@@ -9088,7 +9116,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 545,
+											"line": 547,
 											"character": 8
 										}
 									],
@@ -9116,7 +9144,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 552,
+											"line": 554,
 											"character": 8
 										}
 									],
@@ -9196,7 +9224,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 558,
+											"line": 560,
 											"character": 8
 										}
 									],
@@ -9249,7 +9277,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 561,
+											"line": 563,
 											"character": 8
 										}
 									],
@@ -9383,7 +9411,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 575,
+											"line": 577,
 											"character": 8
 										}
 									],
@@ -9451,7 +9479,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 583,
+											"line": 585,
 											"character": 8
 										}
 									],
@@ -9518,7 +9546,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 589,
+							"line": 591,
 							"character": 4
 						}
 					],
@@ -9556,7 +9584,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 591,
+											"line": 593,
 											"character": 8
 										}
 									],
@@ -9590,7 +9618,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 593,
+											"line": 595,
 											"character": 8
 										}
 									],
@@ -9638,7 +9666,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 596,
+											"line": 598,
 											"character": 8
 										}
 									],
@@ -9684,7 +9712,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 599,
+							"line": 601,
 							"character": 4
 						}
 					],
@@ -9706,7 +9734,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 600,
+											"line": 602,
 											"character": 8
 										}
 									],
@@ -9748,7 +9776,7 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-																	"line": 602,
+																	"line": 604,
 																	"character": 12
 																}
 															],
@@ -9784,7 +9812,7 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-																	"line": 604,
+																	"line": 606,
 																	"character": 12
 																}
 															],
@@ -9810,7 +9838,7 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-																	"line": 606,
+																	"line": 608,
 																	"character": 12
 																}
 															],
@@ -9872,7 +9900,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 611,
+							"line": 613,
 							"character": 4
 						}
 					],
@@ -9894,7 +9922,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 612,
+											"line": 614,
 											"character": 8
 										}
 									],
@@ -9938,7 +9966,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 617,
+							"line": 619,
 							"character": 4
 						}
 					],
@@ -10000,7 +10028,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 621,
+											"line": 623,
 											"character": 8
 										}
 									],
@@ -10034,7 +10062,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 624,
+											"line": 626,
 											"character": 8
 										}
 									],
@@ -10068,7 +10096,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 626,
+											"line": 628,
 											"character": 8
 										}
 									],
@@ -10112,7 +10140,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 628,
+											"line": 630,
 											"character": 8
 										}
 									],
@@ -10148,7 +10176,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 630,
+											"line": 632,
 											"character": 8
 										}
 									],
@@ -10192,7 +10220,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 633,
+											"line": 635,
 											"character": 8
 										}
 									],
@@ -10258,7 +10286,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 638,
+											"line": 640,
 											"character": 8
 										}
 									],
@@ -10285,7 +10313,7 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-																	"line": 639,
+																	"line": 641,
 																	"character": 12
 																}
 															],
@@ -10303,7 +10331,7 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-																	"line": 640,
+																	"line": 642,
 																	"character": 12
 																}
 															],
@@ -10323,7 +10351,7 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-																	"line": 641,
+																	"line": 643,
 																	"character": 12
 																}
 															],
@@ -10475,7 +10503,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 651,
+							"line": 653,
 							"character": 4
 						}
 					],
@@ -10549,7 +10577,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 653,
+							"line": 655,
 							"character": 4
 						}
 					],
@@ -10567,7 +10595,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 654,
+							"line": 656,
 							"character": 4
 						}
 					],
@@ -10627,7 +10655,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 650,
+					"line": 652,
 					"character": 12
 				}
 			]
@@ -10664,7 +10692,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 659,
+							"line": 661,
 							"character": 4
 						}
 					],
@@ -10722,7 +10750,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 663,
+							"line": 665,
 							"character": 4
 						}
 					],
@@ -10766,7 +10794,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 666,
+							"line": 668,
 							"character": 4
 						}
 					],
@@ -10818,7 +10846,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 669,
+							"line": 671,
 							"character": 4
 						}
 					],
@@ -10862,7 +10890,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 675,
+							"line": 677,
 							"character": 4
 						}
 					],
@@ -10896,7 +10924,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 657,
+					"line": 659,
 					"character": 12
 				}
 			]
@@ -10957,7 +10985,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 687,
+							"line": 689,
 							"character": 4
 						}
 					],
@@ -11023,7 +11051,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 692,
+							"line": 694,
 							"character": 4
 						}
 					],
@@ -11060,7 +11088,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 694,
+							"line": 696,
 							"character": 4
 						}
 					],
@@ -11086,7 +11114,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 696,
+							"line": 698,
 							"character": 4
 						}
 					],
@@ -11129,7 +11157,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 699,
+							"line": 701,
 							"character": 4
 						}
 					],
@@ -11154,7 +11182,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 684,
+					"line": 686,
 					"character": 12
 				}
 			]
@@ -11199,7 +11227,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 705,
+							"line": 707,
 							"character": 4
 						}
 					],
@@ -11225,7 +11253,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 707,
+							"line": 709,
 							"character": 4
 						}
 					],
@@ -11253,7 +11281,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 709,
+							"line": 711,
 							"character": 4
 						}
 					],
@@ -11289,7 +11317,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 711,
+							"line": 713,
 							"character": 4
 						}
 					],
@@ -11319,7 +11347,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 713,
+							"line": 715,
 							"character": 4
 						}
 					],
@@ -11347,7 +11375,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 716,
+							"line": 718,
 							"character": 4
 						}
 					],
@@ -11435,7 +11463,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 722,
+							"line": 724,
 							"character": 4
 						}
 					],
@@ -11503,7 +11531,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 727,
+							"line": 729,
 							"character": 4
 						}
 					],
@@ -11525,7 +11553,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 728,
+											"line": 730,
 											"character": 8
 										}
 									],
@@ -11543,7 +11571,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 729,
+											"line": 731,
 											"character": 8
 										}
 									],
@@ -11600,7 +11628,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 702,
+					"line": 704,
 					"character": 17
 				}
 			]
@@ -11653,7 +11681,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 736,
+							"line": 738,
 							"character": 4
 						}
 					],
@@ -11679,7 +11707,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 738,
+							"line": 740,
 							"character": 4
 						}
 					],
@@ -11707,7 +11735,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 740,
+							"line": 742,
 							"character": 4
 						}
 					],
@@ -11743,7 +11771,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 742,
+							"line": 744,
 							"character": 4
 						}
 					],
@@ -11773,7 +11801,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 744,
+							"line": 746,
 							"character": 4
 						}
 					],
@@ -11829,7 +11857,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 748,
+							"line": 750,
 							"character": 4
 						}
 					],
@@ -11857,7 +11885,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 750,
+							"line": 752,
 							"character": 4
 						}
 					],
@@ -11885,7 +11913,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 753,
+							"line": 755,
 							"character": 4
 						}
 					],
@@ -11913,7 +11941,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 734,
+					"line": 736,
 					"character": 17
 				}
 			]
@@ -11952,7 +11980,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 758,
+							"line": 760,
 							"character": 4
 						}
 					],
@@ -11974,7 +12002,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 759,
+							"line": 761,
 							"character": 4
 						}
 					],
@@ -11996,7 +12024,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 760,
+											"line": 762,
 											"character": 8
 										}
 									],
@@ -12014,7 +12042,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 761,
+											"line": 763,
 											"character": 8
 										}
 									],
@@ -12049,7 +12077,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 763,
+							"line": 765,
 							"character": 4
 						}
 					],
@@ -12069,7 +12097,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 764,
+							"line": 766,
 							"character": 4
 						}
 					],
@@ -12108,7 +12136,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 768,
+							"line": 770,
 							"character": 4
 						}
 					],
@@ -12157,7 +12185,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 772,
+							"line": 774,
 							"character": 4
 						}
 					],
@@ -12200,7 +12228,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 776,
+							"line": 778,
 							"character": 4
 						}
 					],
@@ -12236,7 +12264,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 756,
+					"line": 758,
 					"character": 17
 				}
 			]
@@ -12273,7 +12301,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 780,
+							"line": 782,
 							"character": 4
 						}
 					],
@@ -12291,7 +12319,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 781,
+							"line": 783,
 							"character": 4
 						}
 					],
@@ -12313,7 +12341,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 779,
+					"line": 781,
 					"character": 17
 				}
 			]
@@ -12366,7 +12394,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 790,
+							"line": 792,
 							"character": 4
 						}
 					],
@@ -12392,7 +12420,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 792,
+							"line": 794,
 							"character": 4
 						}
 					],
@@ -12468,7 +12496,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 801,
+							"line": 803,
 							"character": 4
 						}
 					],
@@ -12528,7 +12556,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 811,
+							"line": 813,
 							"character": 4
 						}
 					],
@@ -12562,7 +12590,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 813,
+							"line": 815,
 							"character": 4
 						}
 					],
@@ -12614,7 +12642,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 822,
+							"line": 824,
 							"character": 4
 						}
 					],
@@ -12666,7 +12694,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 830,
+							"line": 832,
 							"character": 4
 						}
 					],
@@ -12710,7 +12738,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 833,
+							"line": 835,
 							"character": 4
 						}
 					],
@@ -12738,7 +12766,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 835,
+							"line": 837,
 							"character": 4
 						}
 					],
@@ -12771,7 +12799,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 838,
+							"line": 840,
 							"character": 4
 						}
 					],
@@ -12803,7 +12831,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 788,
+					"line": 790,
 					"character": 17
 				}
 			]
@@ -12817,7 +12845,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 848,
+					"line": 850,
 					"character": 24
 				}
 			],
@@ -12863,7 +12891,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 848,
+							"line": 850,
 							"character": 24
 						}
 					],
@@ -12989,7 +13017,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 858,
+							"line": 860,
 							"character": 4
 						}
 					],
@@ -13025,7 +13053,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 862,
+							"line": 864,
 							"character": 4
 						}
 					],
@@ -13077,7 +13105,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 870,
+							"line": 872,
 							"character": 4
 						}
 					],
@@ -13099,7 +13127,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 871,
+											"line": 873,
 											"character": 8
 										}
 									],
@@ -13117,7 +13145,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 872,
+											"line": 874,
 											"character": 8
 										}
 									],
@@ -13153,7 +13181,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 855,
+					"line": 857,
 					"character": 17
 				}
 			]
@@ -13262,7 +13290,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 889,
+							"line": 891,
 							"character": 4
 						}
 					],
@@ -13280,7 +13308,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 890,
+							"line": 892,
 							"character": 4
 						}
 					],
@@ -13300,7 +13328,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 891,
+							"line": 893,
 							"character": 4
 						}
 					],
@@ -13320,7 +13348,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 892,
+							"line": 894,
 							"character": 4
 						}
 					],
@@ -13344,7 +13372,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 888,
+					"line": 890,
 					"character": 17
 				}
 			]
@@ -13398,7 +13426,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 898,
+					"line": 900,
 					"character": 12
 				}
 			],
@@ -13453,7 +13481,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 902,
+											"line": 904,
 											"character": 4
 										}
 									],
@@ -13480,7 +13508,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 903,
+											"line": 905,
 											"character": 4
 										}
 									],
@@ -13503,7 +13531,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 904,
+											"line": 906,
 											"character": 4
 										}
 									],
@@ -13543,7 +13571,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 906,
+											"line": 908,
 											"character": 4
 										}
 									],
@@ -13583,7 +13611,7 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-											"line": 908,
+											"line": 910,
 											"character": 4
 										}
 									],
@@ -13621,7 +13649,7 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-					"line": 919,
+					"line": 921,
 					"character": 24
 				}
 			],
@@ -13683,7 +13711,7 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-core/dist/entity-meta.d.ts",
-							"line": 919,
+							"line": 921,
 							"character": 24
 						}
 					],

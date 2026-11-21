@@ -128,7 +128,10 @@ export function mergeBuiltinNav(nav: ModuleNavDeclaration | undefined): ModuleNa
     }
     const href = `${primary}/${c.sibling_id}/${c.leaf_id}`;
     sib.nav.push({ id: c.leaf_id, label_key: c.label_key, href, icon: c.icon });
-    (sib.routes ??= []).push({ route: href, kind: "dict", entity: c.entity, label_key: c.label_key });
+    // `list` = the host-rendered EntityTablePage archetype (the standard
+    // list surface — row/bulk custom CTAs from entity_op synthesis live
+    // there; `dict` is the settings-dictionary anatomy, not a registry).
+    (sib.routes ??= []).push({ route: href, kind: "list", entity: c.entity, label_key: c.label_key });
   }
   return { ...nav, siblings };
 }
