@@ -278,6 +278,46 @@ describe("entity_op → served meta CTA synthesis", () => {
     });
   });
 
+  it("entity_op.cta chrome reaches meta.actions on a pure custom op — the confirm gate reads it", async () => {
+    const decl = entityDecl();
+    const rpc: RpcRoute[] = [
+      {
+        method: "POST",
+        path: "/api/v1/actions/schedule-set",
+        entity_op: {
+          entity: "job_schedule",
+          op: "schedule_set",
+          cta: {
+            icon: "sequence-numeric-right",
+            confirm_key: "job.entities.job_schedule.actions.set_confirm",
+            busy_key: "job.entities.job_schedule.actions.setting",
+          },
+        },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+    ];
+    const h = makeServiceRoutes({
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [rpc],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as {
+      op: string;
+      icon?: string;
+      confirm_key?: string;
+      busy_key?: string;
+    }[];
+    // `runEntityOp` gates on `meta.actions[op].confirm_key` — a CTA that
+    // only lands in `table.row_custom_actions` would dispatch unconfirmed.
+    expect(actions.find((a) => a.op === "schedule_set")).toMatchObject({
+      icon: "sequence-numeric-right",
+      confirm_key: "job.entities.job_schedule.actions.set_confirm",
+      busy_key: "job.entities.job_schedule.actions.setting",
+    });
+  });
+
   it("a resolved-pair divergence (crud_action icon + override color) fails at CONSTRUCTION", () => {
     const decl = entityDecl();
     decl.permissions = { ...decl.permissions, delete: ["p"] };

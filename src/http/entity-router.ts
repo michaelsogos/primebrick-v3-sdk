@@ -511,6 +511,15 @@ function deriveActions(
         ...(sentinel ? { sentinel } : {}),
         enabled: overrides[c.op]?.enabled !== false,
         endpoint: { method: c.method, path: c.path },
+        // Chrome rides meta.actions too — `runEntityOp` reads `confirm_key`
+        // from the action entry (not from `table.row_custom_actions`), so
+        // a declared `cta.confirm_key` MUST reach here or the op dispatches
+        // unconfirmed (gated=false → straight to MFA step-up).
+        ...(c.label_key ? { label_key: c.label_key } : {}),
+        ...(c.icon ? { icon: c.icon } : {}),
+        ...(c.color ? { color: c.color } : {}),
+        ...(c.confirm_key ? { confirm_key: c.confirm_key } : {}),
+        ...(c.busy_key ? { busy_key: c.busy_key } : {}),
       };
     });
   return [...standard, ...custom];

@@ -87292,9 +87292,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-					"line": 539,
+					"line": 548,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L539"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L548"
 				}
 			],
 			"signatures": [
@@ -87307,9 +87307,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 539,
+							"line": 548,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L539"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L548"
 						}
 					],
 					"typeParameters": [
