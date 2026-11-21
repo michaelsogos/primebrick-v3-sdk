@@ -141,7 +141,7 @@ export function rpcSpec(routes: OpenApiRouteDoc[]): Record<string, unknown> {
 
 export type EntityCrudOp =
   | "meta" | "list" | "get" | "create" | "update" | "delete" | "purge" | "restore" | "audit"
-  | "export" | "duplicate" | "bulk_delete" | "bulk_restore";
+  | "export" | "duplicate" | "bulk_delete" | "bulk_restore" | "bulk_update";
 
 const UUID_PARAM = {
   name: "uuid",
@@ -232,6 +232,19 @@ export function entityCrudSpec(
   if (ops.has("bulk_restore")) put(`${base}/bulk-restore`, "post", {
     operationId: `bulk_restore_${tag}`, summary: `Bulk restore ${tag}`,
     responses: { "200": { description: "Bulk restore result" } },
+  });
+  if (ops.has("bulk_update")) put(`${base}/bulk-update`, "post", {
+    operationId: `bulk_update_${tag}`, summary: `Bulk update ${tag}`,
+    description: `Apply-to-all patch: the same \`set\` of column values is applied to every item (per-row optimistic concurrency on \`version\`). Atomic — all-or-nothing; failures report per-row diagnostics (stale/vanished/incoherent).`,
+    requestBody: { required: true, content: { "application/json": { schema: {
+      type: "object",
+      required: ["items", "set"],
+      properties: {
+        items: { type: "array", maxItems: 100, items: { type: "object", required: ["uuid"], properties: { uuid: { type: "string", format: "uuid" }, version: { type: "integer" } } } },
+        set: { type: "object", description: "Columns applied to every item — update-editable columns only" },
+      },
+    } } } },
+    responses: { "200": { description: "Bulk update result" }, "400": { description: "Validation error" }, "404": { description: "Rows vanished" }, "409": { description: "Version conflict — extra.issues carries the conflicting rows" } },
   });
   return paths;
 }

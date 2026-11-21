@@ -76,6 +76,9 @@ export interface EntityServiceLike<TEntity = unknown> {
   duplicate(uuids: string[]): Promise<unknown>;
   bulkDelete(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   bulkRestore(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
+  /** Uniform apply-to-all patch — every item carries the same `set` keys
+   *  (per-row CAS on `version`, like every bulk). dal-pg `updateMany`. */
+  bulkUpdate(items: Array<{ uuid: string; version: number } & Record<string, unknown>>): Promise<unknown>;
   audit(uuid: string, page: number, limit: number): Promise<unknown>;
   /** `options_source:"audit.actors"` vocabulary feed — the entity's own
    *  audit actor columns distinct, label-resolved through
@@ -106,6 +109,7 @@ export type EntityAction =
   | "duplicate"
   | "bulkDelete"
   | "bulkRestore"
+  | "bulkUpdate"
   | "get"
   | "update"
   | "delete"
@@ -127,6 +131,7 @@ const ACTION_TO_OP: Record<EntityAction, string> = {
   duplicate: "duplicate.bulk",
   bulkDelete: "delete.bulk",
   bulkRestore: "restore.bulk",
+  bulkUpdate: "update.bulk",
 };
 
 export interface EntityActionMeta {
@@ -376,6 +381,36 @@ function parseBulkItems(body: unknown): Array<{ uuid: string; version: number }>
     );
   }
   return parsed as Array<{ uuid: string; version: number }>;
+}
+
+/**
+ * `{ items: [{ uuid, version }], set: { col: value } }` — the apply-to-all
+ * bulk contract: the same `set` lands on EVERY item (uniform by wire
+ * shape, never per-row payloads). `set` keys are validated against the
+ * entity's update-editable allowlist when the router carries meta —
+ * audited/managed/immutable/calculated columns, the uid and `version`
+ * can never ride a bulk patch. With no meta the validator only enforces
+ * shape; unknown/stray keys still fail closed at repo.updateMany.
+ */
+function parseBulkUpdate(
+  body: unknown,
+  allowlist: ReadonlySet<string> | null,
+): { items: Array<{ uuid: string; version: number }>; set: Record<string, unknown> } {
+  const items = parseBulkItems(body);
+  const set = (body as { set?: unknown })?.set;
+  if (!set || typeof set !== "object" || Array.isArray(set) || Object.keys(set).length === 0) {
+    throw new ValidationError("Body must carry a non-empty { set: { col: value } } object");
+  }
+  if (allowlist) {
+    for (const k of Object.keys(set)) {
+      if (!allowlist.has(k)) {
+        throw new ValidationError(
+          `set.${k} is not a bulk-editable column (audited/managed/immutable/calculated, uid or version are excluded)`,
+        );
+      }
+    }
+  }
+  return { items, set: set as Record<string, unknown> };
 }
 
 function defaultDuplicateBody(body: unknown): { uuids: string[] } {
@@ -657,6 +692,28 @@ export function makeEntityRouter<TEntity = unknown>(
     handler: async (ctx) => {
       await runGuard("bulkRestore", ctx);
       return service.bulkRestore(ctx.body as Array<{ uuid: string; version: number }>);
+    },
+  });
+
+  // Bulk-editable allowlist — derived once at construction from served
+  // meta: physical writable columns only (never audited, managed,
+  // immutable, calculated/virtual, the uid or `version`).
+  const bulkSetAllowlist = config.meta?.columns
+    ? new Set(
+        config.meta.columns
+          .filter((c) => !c.audited && !c.managed && !c.immutable && !c.kind && c.key !== config.meta!.uid && c.key !== "version")
+          .map((c) => c.key),
+      )
+    : null;
+
+  push("bulkUpdate", {
+    method: "POST",
+    path: `${base}/bulk-update`,
+    body: (raw) => parseBulkUpdate(raw, bulkSetAllowlist),
+    handler: async (ctx) => {
+      await runGuard("bulkUpdate", ctx);
+      const { items, set } = ctx.body as { items: Array<{ uuid: string; version: number }>; set: Record<string, unknown> };
+      return service.bulkUpdate(items.map((i) => ({ ...i, ...set })));
     },
   });
 

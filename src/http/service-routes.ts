@@ -92,11 +92,12 @@ export interface ServiceRoutesInput {
 //   auto-assigned unless declared). `meta` additionally requires `cfg.meta`.
 const OP_ORDER: EntityAction[] = [
   "meta", "list", "export", "get", "create", "update", "delete",
-  "purge", "restore", "audit", "duplicate", "bulkDelete", "bulkRestore",
+  "purge", "restore", "audit", "duplicate", "bulkDelete", "bulkRestore", "bulkUpdate",
 ];
 const ACTION_TO_SPEC_OP: Partial<Record<EntityAction, EntityCrudOp>> = {
   bulkDelete: "bulk_delete",
   bulkRestore: "bulk_restore",
+  bulkUpdate: "bulk_update",
 };
 
 function specOpsFor(cfg: EntityRouterConfig): EntityCrudOp[] {
