@@ -21,6 +21,7 @@
 
 import {
   makeEntityRouter,
+  opPermissions,
   type EntityCustomOp,
   type EntityAction,
   type EntityRouterConfig,
@@ -102,12 +103,7 @@ const ACTION_TO_SPEC_OP: Partial<Record<EntityAction, EntityCrudOp>> = {
 };
 
 function specOpsFor(cfg: EntityRouterConfig): EntityCrudOp[] {
-  const enabled = (a: EntityAction): boolean => {
-    if (a === "duplicate") {
-      return cfg.duplicate !== false && cfg.service.clonable === true;
-    }
-    return cfg.permissions[a] !== undefined;
-  };
+  const enabled = (a: EntityAction): boolean => opPermissions(cfg, a) !== undefined;
   const ops: EntityCrudOp[] = [];
   for (const a of OP_ORDER) {
     if (a === "meta" && !cfg.meta) continue;

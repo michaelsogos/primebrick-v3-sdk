@@ -1603,7 +1603,10 @@ Entity declaration for `makeServiceRoutes`. `spec` only shapes the
 |-------|------|-------------|
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
-| permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
+| permissions | `Partial<Record<EntityAction, typeOperator \| false>>` | Permission per action — presence registers the route. `false`
+ explicitly DISABLES an op that would otherwise default-on (the
+ bulk twins inherit their single counterpart's perms — same opt-out
+ model as `duplicate`). |
 | meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
@@ -1631,7 +1634,10 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 |-------|------|-------------|
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
-| permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
+| permissions | `Partial<Record<EntityAction, typeOperator \| false>>` | Permission per action — presence registers the route. `false`
+ explicitly DISABLES an op that would otherwise default-on (the
+ bulk twins inherit their single counterpart's perms — same opt-out
+ model as `duplicate`). |
 | meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |

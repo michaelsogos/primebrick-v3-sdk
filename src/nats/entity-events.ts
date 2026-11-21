@@ -244,6 +244,13 @@ export function entityEventPayloadSchema(meta?: EntityMeta): Record<string, unkn
   const deltaProps: Record<string, unknown> = {};
   for (const col of meta.columns) {
     if (!col.key || DAL_AUDIT_STAMPS.has(col.key)) continue;
+    // `kind:"virtual"` columns are post-query enrichments (counter
+    // projections, NATS lookups) attached by the service AFTER the fetch —
+    // the write-path snapshots (`before`/`after`/`delta`) carry physical
+    // rows only, so a virtual key in the schema would advertise a field
+    // the events never contain (and its name-vs-format hints can never be
+    // honored by a machine-state string).
+    if (col.kind === "virtual") continue;
     const leaf = columnEventJsonSchema(col);
     snapshot[col.key] = leaf;
     // `delta.<col>.{old,new}` typed by the same leaf — `$.delta.status.new`

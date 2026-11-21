@@ -180,8 +180,11 @@ export interface EntityRouterConfig<TEntity = unknown> {
   /** Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* */
   entityName: string;
   service: EntityServiceLike<TEntity>;
-  /** Permission per action — presence registers the route. */
-  permissions: Partial<Record<EntityAction, readonly string[]>>;
+  /** Permission per action — presence registers the route. `false`
+   *  explicitly DISABLES an op that would otherwise default-on (the
+   *  bulk twins inherit their single counterpart's perms — same opt-out
+   *  model as `duplicate`). */
+  permissions: Partial<Record<EntityAction, readonly string[] | false>>;
   /** Static entity meta — served by GET /meta with derived
    *  `display_name` + `actions` + `collaboration`. When omitted, the meta
    *  route is not registered even if `permissions.meta` is set. */
@@ -428,18 +431,47 @@ function defaultDuplicateBody(body: unknown): { uuids: string[] } {
 
 // ─── Meta assembly ───────────────────────────────────────────────────────────
 
+/** Bulk twins whose default derives from the single counterpart. */
+const BULK_PARENT: Partial<Record<EntityAction, EntityAction>> = {
+  bulkDelete: "delete",
+  bulkRestore: "restore",
+  bulkUpdate: "update",
+};
+
+/**
+ * Effective permissions for an op — the single source for BOTH route
+ * registration (`push`/`specOpsFor`) and `meta.actions` derivation.
+ *
+ * Default-on model: an op the facade implements is active whenever its
+ * privilege basis exists — explicit `permissions.<op>` wins, then the
+ * bulk twin inherits the SINGLE counterpart's perms (same privilege
+ * class, wider scope). Turning a default-on op OFF is the explicit
+ * `permissions.<op> === false` opt-out — same model as `duplicate`,
+ * which defaults-on for clonable services.
+ */
+export function opPermissions(
+  cfg: EntityRouterConfig,
+  a: EntityAction,
+): readonly string[] | undefined {
+  const declared = cfg.permissions[a];
+  if (declared === false) return undefined;
+  if (a === "duplicate") {
+    if (cfg.duplicate === false || cfg.service.clonable !== true) return undefined;
+    return declared ?? [`${cfg.entityName}.duplicate.bulk`];
+  }
+  if (declared !== undefined) return declared;
+  const parent = BULK_PARENT[a];
+  const parentPerms = parent ? cfg.permissions[parent] : undefined;
+  return parentPerms === false ? undefined : parentPerms;
+}
+
 function deriveActions(
   cfg: EntityRouterConfig,
   registered: Set<EntityAction>,
 ): EntityActionMeta[] {
   const overrides = cfg.meta?.actions_overrides ?? {};
-  const permsFor = (a: EntityAction): readonly string[] | undefined => {
-    if (a === "duplicate") {
-      if (cfg.duplicate === false || cfg.service.clonable !== true) return undefined;
-      return cfg.permissions.duplicate ?? [`${cfg.entityName}.duplicate.bulk`];
-    }
-    return cfg.permissions[a];
-  };
+  const permsFor = (a: EntityAction): readonly string[] | undefined =>
+    opPermissions(cfg, a);
   const standard = STANDARD_OPS.map((op) => {
     const action = (Object.keys(ACTION_TO_OP) as EntityAction[]).find(
       (a) => ACTION_TO_OP[a] === op,
@@ -591,11 +623,7 @@ export function makeEntityRouter<TEntity = unknown>(
   };
 
   const enabled = (a: EntityAction): readonly string[] | undefined => {
-    if (a === "duplicate") {
-      if (config.duplicate === false || service.clonable !== true) return undefined;
-      return config.permissions.duplicate ?? [`${config.entityName}.duplicate.bulk`];
-    }
-    return config.permissions[a];
+    return opPermissions(config, a);
   };
 
   const routes: RpcRoute[] = [];

@@ -84,6 +84,28 @@ describe("makeServiceRoutes", () => {
     expect(await hits(h, "POST", "/api/v1/entities/job_rule")).toBe(false);
   });
 
+  it("bulk twins default-on with the single counterpart; explicit false opts out", async () => {
+    const h = makeServiceRoutes({
+      info: { title: "T", version: "0.0.0" },
+      entities: [
+        // `delete` declared → bulkDelete defaults-on (inherited perms)
+        { entityName: "a", service: stubService(), permissions: { list: ["p"], delete: ["a.del"] } },
+        // explicit `false` → the ONLY way to keep the bulk route off
+        { entityName: "b", service: stubService(), permissions: { list: ["p"], delete: ["b.del"], bulkDelete: false } },
+        // explicit bulk perms still win over the inherited parent perms
+        { entityName: "c", service: stubService(), permissions: { list: ["p"], delete: ["c.del"], bulkDelete: ["c.del.bulk"] } },
+      ],
+    });
+    const spec = await servedSpec(h);
+    const paths = spec.paths as Record<string, unknown>;
+    expect(paths).toHaveProperty("/api/v1/entities/a/bulk-delete");
+    expect(paths).not.toHaveProperty("/api/v1/entities/b/bulk-delete");
+    expect(paths).toHaveProperty("/api/v1/entities/c/bulk-delete");
+    expect(await hits(h, "POST", "/api/v1/entities/a/bulk-delete")).toBe(true);
+    expect(await hits(h, "POST", "/api/v1/entities/b/bulk-delete")).toBe(false);
+    expect(await hits(h, "POST", "/api/v1/entities/c/bulk-delete")).toBe(true);
+  });
+
   it("duplicate registers only on clonable services; meta requires cfg.meta", async () => {
     const h = makeServiceRoutes({
       info: { title: "T", version: "0.0.0" },

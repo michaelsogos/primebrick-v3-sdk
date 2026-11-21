@@ -86016,16 +86016,32 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Permission per action — presence registers the route."
+								"text": "Permission per action — presence registers the route. "
+							},
+							{
+								"kind": "code",
+								"text": "`false`"
+							},
+							{
+								"kind": "text",
+								"text": "\n explicitly DISABLES an op that would otherwise default-on (the\n bulk twins inherit their single counterpart's perms — same opt-out\n model as "
+							},
+							{
+								"kind": "code",
+								"text": "`duplicate`"
+							},
+							{
+								"kind": "text",
+								"text": ")."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 184,
+							"line": 187,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L184"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L187"
 						}
 					],
 					"type": {
@@ -86055,15 +86071,24 @@
 										"package": "@primebrick/sdk"
 									},
 									{
-										"type": "typeOperator",
-										"operator": "readonly",
-										"target": {
-											"type": "array",
-											"elementType": {
-												"type": "intrinsic",
-												"name": "string"
+										"type": "union",
+										"types": [
+											{
+												"type": "typeOperator",
+												"operator": "readonly",
+												"target": {
+													"type": "array",
+													"elementType": {
+														"type": "intrinsic",
+														"name": "string"
+													}
+												}
+											},
+											{
+												"type": "literal",
+												"value": false
 											}
-										}
+										]
 									}
 								],
 								"name": "Record",
@@ -86125,9 +86150,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 188,
+							"line": 191,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L188"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L191"
 						}
 					],
 					"type": {
@@ -86172,9 +86197,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 192,
+							"line": 195,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L192"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L195"
 						}
 					],
 					"type": {
@@ -86273,9 +86298,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 200,
+							"line": 203,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L200"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L203"
 						}
 					],
 					"type": {
@@ -86298,9 +86323,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 201,
+											"line": 204,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L201"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
 										}
 									],
 									"type": {
@@ -86383,9 +86408,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 202,
+											"line": 205,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L202"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
 										}
 									],
 									"type": {
@@ -86434,9 +86459,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 202,
+																			"line": 205,
 																			"character": 38,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L202"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
 																		}
 																	],
 																	"type": {
@@ -86487,9 +86512,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 203,
+											"line": 206,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L203"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L206"
 										}
 									],
 									"type": {
@@ -86538,9 +86563,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 203,
+																			"line": 206,
 																			"character": 38,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L203"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L206"
 																		}
 																	],
 																	"type": {
@@ -86591,9 +86616,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 204,
+											"line": 207,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L207"
 										}
 									],
 									"type": {
@@ -86658,9 +86683,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 204,
+																			"line": 207,
 																			"character": 55,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L207"
 																		}
 																	],
 																	"type": {
@@ -86677,9 +86702,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 204,
+																			"line": 207,
 																			"character": 69,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L207"
 																		}
 																	],
 																	"type": {
@@ -86715,9 +86740,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 205,
+											"line": 208,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L208"
 										}
 									],
 									"type": {
@@ -86766,9 +86791,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 205,
+																			"line": 208,
 																			"character": 41,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L208"
 																		}
 																	],
 																	"type": {
@@ -86846,9 +86871,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 208,
+											"line": 211,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L208"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L211"
 										}
 									],
 									"type": {
@@ -86966,9 +86991,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 213,
+							"line": 216,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L213"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L216"
 						}
 					],
 					"type": {
@@ -87029,9 +87054,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 217,
+							"line": 220,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L217"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L220"
 						}
 					],
 					"type": {
@@ -87067,9 +87092,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 220,
+							"line": 223,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L220"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L223"
 						}
 					],
 					"type": {
@@ -87221,9 +87246,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-					"line": 233,
+					"line": 236,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L233"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L236"
 				}
 			],
 			"signatures": [
@@ -87236,9 +87261,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 233,
+							"line": 236,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L233"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L236"
 						}
 					],
 					"parameters": [
@@ -87292,9 +87317,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-					"line": 548,
+					"line": 580,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L548"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L580"
 				}
 			],
 			"signatures": [
@@ -87307,9 +87332,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 548,
+							"line": 580,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L548"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L580"
 						}
 					],
 					"typeParameters": [
@@ -93241,16 +93266,32 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Permission per action — presence registers the route."
+								"text": "Permission per action — presence registers the route. "
+							},
+							{
+								"kind": "code",
+								"text": "`false`"
+							},
+							{
+								"kind": "text",
+								"text": "\n explicitly DISABLES an op that would otherwise default-on (the\n bulk twins inherit their single counterpart's perms — same opt-out\n model as "
+							},
+							{
+								"kind": "code",
+								"text": "`duplicate`"
+							},
+							{
+								"kind": "text",
+								"text": ")."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 184,
+							"line": 187,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L184"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L187"
 						}
 					],
 					"type": {
@@ -93280,15 +93321,24 @@
 										"package": "@primebrick/sdk"
 									},
 									{
-										"type": "typeOperator",
-										"operator": "readonly",
-										"target": {
-											"type": "array",
-											"elementType": {
-												"type": "intrinsic",
-												"name": "string"
+										"type": "union",
+										"types": [
+											{
+												"type": "typeOperator",
+												"operator": "readonly",
+												"target": {
+													"type": "array",
+													"elementType": {
+														"type": "intrinsic",
+														"name": "string"
+													}
+												}
+											},
+											{
+												"type": "literal",
+												"value": false
 											}
-										}
+										]
 									}
 								],
 								"name": "Record",
@@ -93356,9 +93406,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 188,
+							"line": 191,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L188"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L191"
 						}
 					],
 					"type": {
@@ -93409,9 +93459,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 192,
+							"line": 195,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L192"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L195"
 						}
 					],
 					"type": {
@@ -93516,9 +93566,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 200,
+							"line": 203,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L200"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L203"
 						}
 					],
 					"type": {
@@ -93541,9 +93591,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 201,
+											"line": 204,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L201"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
 										}
 									],
 									"type": {
@@ -93626,9 +93676,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 202,
+											"line": 205,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L202"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
 										}
 									],
 									"type": {
@@ -93677,9 +93727,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 202,
+																			"line": 205,
 																			"character": 38,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L202"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
 																		}
 																	],
 																	"type": {
@@ -93730,9 +93780,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 203,
+											"line": 206,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L203"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L206"
 										}
 									],
 									"type": {
@@ -93781,9 +93831,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 203,
+																			"line": 206,
 																			"character": 38,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L203"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L206"
 																		}
 																	],
 																	"type": {
@@ -93834,9 +93884,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 204,
+											"line": 207,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L207"
 										}
 									],
 									"type": {
@@ -93901,9 +93951,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 204,
+																			"line": 207,
 																			"character": 55,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L207"
 																		}
 																	],
 																	"type": {
@@ -93920,9 +93970,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 204,
+																			"line": 207,
 																			"character": 69,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L204"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L207"
 																		}
 																	],
 																	"type": {
@@ -93958,9 +94008,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 205,
+											"line": 208,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L208"
 										}
 									],
 									"type": {
@@ -94009,9 +94059,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-																			"line": 205,
+																			"line": 208,
 																			"character": 41,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L205"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L208"
 																		}
 																	],
 																	"type": {
@@ -94089,9 +94139,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-											"line": 208,
+											"line": 211,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L208"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L211"
 										}
 									],
 									"type": {
@@ -94215,9 +94265,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 213,
+							"line": 216,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L213"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L216"
 						}
 					],
 					"type": {
@@ -94284,9 +94334,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 217,
+							"line": 220,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L217"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L220"
 						}
 					],
 					"type": {
@@ -94328,9 +94378,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/entity-router.ts",
-							"line": 220,
+							"line": 223,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L220"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/entity-router.ts#L223"
 						}
 					],
 					"type": {
@@ -94443,9 +94493,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-							"line": 51,
+							"line": 52,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L51"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L52"
 						}
 					],
 					"type": {
@@ -94484,9 +94534,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 53,
+											"line": 54,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L53"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L54"
 										}
 									],
 									"type": {
@@ -94513,9 +94563,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 55,
+											"line": 56,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L55"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L56"
 										}
 									],
 									"type": {
@@ -94542,9 +94592,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 57,
+											"line": 58,
 											"character": 4,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L57"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L58"
 										}
 									],
 									"type": {
@@ -94589,9 +94639,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-					"line": 50,
+					"line": 51,
 					"character": 17,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L50"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L51"
 				}
 			],
 			"typeParameters": [
@@ -94699,9 +94749,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-					"line": 69,
+					"line": 70,
 					"character": 12,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L69"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L70"
 				}
 			],
 			"type": {
@@ -94733,9 +94783,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 70,
+											"line": 71,
 											"character": 11,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L70"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L71"
 										}
 									],
 									"type": {
@@ -94770,9 +94820,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 71,
+											"line": 72,
 											"character": 11,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L71"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L72"
 										}
 									],
 									"type": {
@@ -94824,9 +94874,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-							"line": 76,
+							"line": 77,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L76"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L77"
 						}
 					],
 					"type": {
@@ -94847,9 +94897,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 76,
+											"line": 77,
 											"character": 10,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L76"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L77"
 										}
 									],
 									"type": {
@@ -94866,9 +94916,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 76,
+											"line": 77,
 											"character": 25,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L76"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L77"
 										}
 									],
 									"type": {
@@ -94887,9 +94937,9 @@
 									"sources": [
 										{
 											"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-											"line": 76,
+											"line": 77,
 											"character": 42,
-											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L76"
+											"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L77"
 										}
 									],
 									"type": {
@@ -94938,9 +94988,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-							"line": 78,
+							"line": 79,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L78"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L79"
 						}
 					],
 					"type": {
@@ -94967,9 +95017,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-							"line": 80,
+							"line": 81,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L80"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L81"
 						}
 					],
 					"type": {
@@ -94992,9 +95042,9 @@
 										"sources": [
 											{
 												"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-												"line": 80,
+												"line": 81,
 												"character": 11,
-												"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L80"
+												"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L81"
 											}
 										],
 										"type": {
@@ -95013,9 +95063,9 @@
 										"sources": [
 											{
 												"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-												"line": 80,
+												"line": 81,
 												"character": 25,
-												"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L80"
+												"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L81"
 											}
 										],
 										"type": {
@@ -95056,9 +95106,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-							"line": 82,
+							"line": 83,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L82"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L83"
 						}
 					],
 					"type": {
@@ -95128,9 +95178,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-							"line": 86,
+							"line": 87,
 							"character": 2,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L86"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L87"
 						}
 					],
 					"type": {
@@ -95191,9 +95241,9 @@
 												"sources": [
 													{
 														"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-														"line": 86,
+														"line": 87,
 														"character": 24,
-														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L86"
+														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L87"
 													}
 												],
 												"type": {
@@ -95243,9 +95293,9 @@
 												"sources": [
 													{
 														"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-														"line": 86,
+														"line": 87,
 														"character": 44,
-														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L86"
+														"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L87"
 													}
 												],
 												"type": {
@@ -95287,9 +95337,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-					"line": 74,
+					"line": 75,
 					"character": 17,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L74"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L75"
 				}
 			]
 		},
@@ -95302,9 +95352,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-					"line": 126,
+					"line": 122,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L126"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L122"
 				}
 			],
 			"signatures": [
@@ -95325,9 +95375,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/http/service-routes.ts",
-							"line": 126,
+							"line": 122,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L126"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/service-routes.ts#L122"
 						}
 					],
 					"parameters": [
@@ -103395,9 +103445,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 282,
+					"line": 289,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L282"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L289"
 				}
 			],
 			"signatures": [
@@ -103426,9 +103476,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 282,
+							"line": 289,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L282"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L289"
 						}
 					],
 					"type": {
@@ -103459,9 +103509,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-					"line": 302,
+					"line": 309,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L302"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L309"
 				}
 			],
 			"signatures": [
@@ -103530,9 +103580,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-							"line": 302,
+							"line": 309,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L302"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L309"
 						}
 					],
 					"parameters": [
@@ -103562,9 +103612,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/entity-events.ts",
-													"line": 303,
+													"line": 310,
 													"character": 9,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L303"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/entity-events.ts#L310"
 												}
 											],
 											"type": {
