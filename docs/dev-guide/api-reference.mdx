@@ -3415,7 +3415,7 @@ Values mirror the `Permission` enum in `@primebrick/sdk`.
 
 ### `EntityCrudOp`
 
-**Type:** `"meta" \| "list" \| "get" \| "create" \| "update" \| "delete" \| "purge" \| "restore" \| "audit" \| "export" \| "duplicate" \| "bulk_delete" \| "bulk_restore"`
+**Type:** `"meta" \| "list" \| "get" \| "create" \| "update" \| "delete" \| "purge" \| "restore" \| "audit" \| "export" \| "duplicate" \| "bulk_delete" \| "bulk_restore" \| "bulk_update"`
 
 ### `EntityMetaResponse`
 
@@ -6289,11 +6289,15 @@ Wire format: standard JSON with numbers (not strings) for bigint values.
 
 ### `extJsonParse(text): T`
 
-Parse an Ext-JSON string.
+Parse an Ext-JSON string — strict.
 
-ALL integers are returned as native `bigint` (via reviver).
-Floats (values with decimal point or scientific notation) are `number`.
-Strings, booleans, null are unaffected.
+ALL integer-valued numbers are returned as native `bigint`; non-integer
+floats stay `number`; strings/booleans/null are unaffected.
+
+Throws `SyntaxError` on malformed input, trailing commas, and
+duplicate keys at any depth (native JSON.parse silently last-wins —
+that failure mode is deliberately closed: a duplicated key is a wire
+contract violation, not data).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

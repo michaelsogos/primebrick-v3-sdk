@@ -486,6 +486,14 @@ function deriveActions(
       entry.color ??= "violet";
       entry.icon ??= "copy";
     }
+    // `update.bulk` is a WRITE across N rows — confirm-gated by served
+    // default (overridable via actions_overrides, chrome contract
+    // unchanged). Primary is the edit affordance, square-pen its glyph.
+    if (op === "update.bulk") {
+      entry.color ??= "primary";
+      entry.icon ??= "square-pen";
+      entry.confirm_key ??= "app.common.update_entities_confirm";
+    }
     // Icon↔color contract — the RESOLVED pair is validated once (a
     // `crud_action` CTA icon + an `actions_overrides` color could
     // combine into a divergent pair; semantic icons bind their color).
