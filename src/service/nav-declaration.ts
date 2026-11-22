@@ -94,7 +94,7 @@ function isPositiveWireInt(v: unknown): boolean {
  */
 const FORM_FIELD_KEYS = new Set([
   "key", "col", "span", "row", "row_span", "section",
-  "default_value", "placeholder_key", "required", "readonly",
+  "default_value", "placeholder_key", "required",
 ]);
 /** Keys hoisted onto `MetaColumn` — a placement carrying them is a
  *  declaration bug, rejected with the target named explicitly (a bare
@@ -154,10 +154,8 @@ function validateFormPage(form: unknown, path: string): string | null {
         return `${fpp} ('${pd["key"]}'): ${k} must be a positive integer (grid placement)`;
       }
     }
-    for (const k of ["required", "readonly"] as const) {
-      if (pd[k] !== undefined && typeof pd[k] !== "boolean") {
-        return `${fpp} ('${pd["key"]}'): ${k} must be a boolean`;
-      }
+    if (pd["required"] !== undefined && typeof pd["required"] !== "boolean") {
+      return `${fpp} ('${pd["key"]}'): required must be a boolean`;
     }
     for (const k of ["section", "placeholder_key"] as const) {
       if (pd[k] !== undefined && typeof pd[k] !== "string") {
