@@ -100,6 +100,13 @@ const FORM_FIELD_KEYS = new Set([
  *  declaration bug, rejected with the target named explicitly (a bare
  *  "unknown key" would hide where the contract now lives). */
 const PLACEMENT_MOVED_KEYS = new Set(["widget", "options_source", "allow_create"]);
+/** Served/derived `MetaColumn` semantics — `kind` (calculated/virtual
+ *  projection), `managed`/`audited` (withColumnConstraints-derived),
+ *  `uid` (the identity role — rendered as the uid pill, never a widget),
+ *  `hidden` (total suppression). A placement declaring them attempts to
+ *  author column semantics in page layout — rejected with the source
+ *  named, never a bare "unknown key". */
+const PLACEMENT_SERVED_KEYS = new Set(["kind", "managed", "audited", "uid", "hidden"]);
 
 function validateFormPage(form: unknown, path: string): string | null {
   if (!form || typeof form !== "object" || Array.isArray(form)) {
@@ -126,6 +133,10 @@ function validateFormPage(form: unknown, path: string): string | null {
       if (PLACEMENT_MOVED_KEYS.has(k)) {
         return `${fpp} ('${pd["key"]}'): '${k}' belongs on MetaColumn (meta.columns['${pd["key"]}']) — ` +
           `it is the column's semantic input contract, not page layout; move it to the entity meta`;
+      }
+      if (PLACEMENT_SERVED_KEYS.has(k)) {
+        return `${fpp} ('${pd["key"]}'): '${k}' is served MetaColumn semantics — ` +
+          `derived/owned by the entity meta and its constraint helpers, never authored in page layout`;
       }
       if (!FORM_FIELD_KEYS.has(k)) {
         return `${fpp}: unknown placement key '${k}' — closed set`;
