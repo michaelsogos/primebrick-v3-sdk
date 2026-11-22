@@ -224,6 +224,7 @@ type RuleId =
   | "i18n-entity-fallback"
   | "page-scaffold-ownership"
   | "icon-no-fallback"
+  | "e2e-wait-budget"
   | "event-bus-ownership";
 
 interface Rule {
@@ -288,6 +289,22 @@ const LINE_RULES: Rule[] = [
     pattern: /(?<![\w$.])(?<!function\s)(?:confirm|alert|prompt)\s*\([^)]|(?:\bwindow\.|\bglobalThis\.)(?:confirm|alert|prompt)\s*\([^)]/,
     hint: "native dialog call — entity confirms use the governed invoker (DeleteDialog/BulkDeleteDialog anatomy), notices use pushNotification; never window.confirm/alert/prompt",
   },
+  // e2e-wait-budget — 5 seconds is the expectation budget for every wait
+  // (docs/ai/e2e-browser-session.md "Determinism — evidence, not sleeps"):
+  // a `timeout: N` literal >5s in an e2e spec is an unjustified wait — it
+  // hides problems instead of surfacing them. `describe.configure`/`setTimeout`
+  // lines are suite/test budgets (the total phase envelope, not a poll slot)
+  // and are excluded by construction; `timeout: <variable>` is a named budget
+  // declaration and slips the literal check by design. Declared long-poll
+  // phases (e.g. AI model download/inference) live in
+  // .devin/check-standards.json allowPaths — the reviewable declaration.
+  {
+    id: "e2e-wait-budget",
+    pattern: /^(?![^\n]*\bconfigure\b)[^\n]*\btimeout\s*:\s*(?:\d{5,}|\d{2,}_\d{3}|\d_\d{3}_\d{3}|[6-9]_?\d_?\d_?\d|5_?(?:[1-9]\d{2}|0[1-9]\d|00[1-9]))/,
+    hint: "wait budget is 5s per step (docs/ai/e2e-browser-session.md — 'Determinism: evidence, not sleeps') — a wait needing >5s is a problem to diagnose, not to pad; declared long-poll phases live in .devin/check-standards.json allowPaths",
+    appliesTo: /^e2e\//,
+    alsoTests: true,
+  },
 ];
 
 // Config-gated rules — populated from `.devin/check-standards.json` (repo
@@ -302,7 +319,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-chrome-class",
   "field-stock-chrome",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
-  "event-bus-ownership",
+  "e2e-wait-budget", "event-bus-ownership",
 ]);
 const GATED_LINE_RULES: Rule[] = [
   { id: "dal-access", pattern: /\b(?:initDal|getDal|resetDal)\s*\(|\bimport\s+(?:type\s+)?\{[^}]*\b(?:initDal|getDal|resetDal)\b/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal()/resetDal() only inside the declared allowlist" },
@@ -909,7 +926,7 @@ const CONSUMER_RULES = new Set<RuleId>([
 const NO_EXEMPT_RULES = new Set<RuleId>([
   "dal-access", "dal-construct", "dal-member-write", "dal-member-access", "pg-import", "pg-pool",
   "raw-query", "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
-  "no-native-dialog", "ext-json",
+  "no-native-dialog", "ext-json", "e2e-wait-budget",
 ]);
 const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control", "no-native-dialog"]);
 // `fe` — browser SPA: no server-side contracts apply; `no-native-dialog`
@@ -918,7 +935,7 @@ const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "colu
 // only sanctioned codec — raw JSON.* and argument-less .json() reads are
 // wire corruption / bigint-loss vectors). Other gated rules activate via
 // .devin/check-standards.json.
-const FE_RULES = new Set<RuleId>(["no-native-dialog", "ext-json"]);
+const FE_RULES = new Set<RuleId>(["no-native-dialog", "ext-json", "e2e-wait-budget"]);
 /** Rules that scan test files even without --tests (alsoTests flag). */
 const ALSO_TESTS_RULES = new Set<RuleId>(LINE_RULES.filter((r) => r.alsoTests).map((r) => r.id));
 

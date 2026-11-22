@@ -711,4 +711,52 @@ describe("check-standards — ext-json codec boundary", () => {
     expect(r.code).toBe(1);
     expect(r.out).toContain("[ext-json]");
   }, T);
+
+  it("e2e-wait-budget flags wait timeouts >5s in e2e specs (fe)", () => {
+    const r = runLint(
+      {
+        "e2e/x.spec.ts":
+          'await expect(l).toBeVisible({ timeout: 10_000 });\nawait w(url, { timeout: 20_000 });\nawait l.waitFor({ timeout: 6000 });\n',
+      },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out.match(/\[e2e-wait-budget\]/g)?.length).toBe(3);
+    expect(r.out).toContain("e2e-browser-session.md");
+  }, T);
+
+  it("e2e-wait-budget passes: 5s boundary, sub-5s, suite budgets, named/variable budgets", () => {
+    const r = runLint(
+      {
+        "e2e/x.spec.ts":
+          'await expect(l).toBeVisible({ timeout: 5_000 });\nawait l.waitFor({ timeout: 900 });\ntest.describe.configure({ timeout: 600_000 });\ntest.describe.configure({ timeout: 90_000, mode: "serial" });\nawait poll({ timeout: timeoutMs });\nawait w({ timeout: LH_TIMEOUT_MS });\n',
+      },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(0);
+  }, T);
+
+  it("e2e-wait-budget does not scan non-e2e paths", () => {
+    const r = runLint(
+      { "lib/__tests__/x.test.ts": 'const o = { timeout: 60_000 };\n' },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(0);
+  }, T);
+
+  it("e2e-wait-budget is NO_EXEMPT — standards-exempt on it is itself flagged", () => {
+    const r = runLint(
+      {
+        "e2e/x.spec.ts": '// standards-exempt: e2e-wait-budget — padded wait\nawait expect(l).toBeVisible({ timeout: 10_000 });\n',
+      },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[exempt-governance]");
+    expect(r.out).toContain("[e2e-wait-budget]");
+  }, T);
 });
