@@ -3638,7 +3638,7 @@ Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
 compile error — the US→FE option boundary is enforced by the type.
 New formats are additive literals (never breaking).
 
-**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang" \| "sequence"`
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang" \| "sequence" \| "i18n_key"`
 
 ### `MetaColumnOptionsSource`
 
@@ -4104,7 +4104,7 @@ Invariants:
 
 ### `SequenceDirective`
 
-**Type:** `{ seq: string } \| { seq: { uuid: string } & SequenceDirectiveContext } \| { seq: { code: string } & SequenceDirectiveContext } \| { seq: SequenceDecl & SequenceDirectiveContext }`
+**Type:** `{ seq: string } \| { seq: { uuid: string } & SequenceDirectiveContext } \| { seq: SequenceDecl & SequenceDirectiveContext }`
 
 ### `SequenceMode`
 
@@ -4113,7 +4113,7 @@ Sequence-widget modes — the two write-path configurations a
  - `"generate"` — inline pattern builder emitting a `{seq:{pattern,…}}`
    directive (resolved + materialized inside the write transaction);
  - `"select"` — combobox over the module's `sequence` registry,
-   emitting `{seq:{code}}`/`{seq:"<uuid>"}`.
+   emitting `{seq:{uuid}}` (uuid is the ONLY sequence identity).
 
 **Type:** `"generate" \| "select"`
 
@@ -7474,7 +7474,7 @@ Two dispatch shapes are supported:
 ### `parseSequenceDirective(raw): SequenceDirective \| null`
 
 The ONLY accepted wire shape for a `format:"sequence"` column — see
-SequenceDirective for the four forms. Returns the parsed
+SequenceDirective for the three forms. Returns the parsed
 directive or `null` (shape/decl violation — the caller emits the
 `app.common.validation.sequence_directive` issue). A literal value is
 never writable: the repository resolves the directive in-transaction.
