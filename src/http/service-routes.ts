@@ -178,6 +178,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
         ...(cta?.translation_key ? { label_key: cta.translation_key } : {}),
         ...(cta?.icon ? { icon: cta.icon } : {}),
         ...(cta?.color ? { color: cta.color } : {}),
+        ...(cta?.variant ? { variant: cta.variant } : {}),
         ...(cta?.confirm_key ? { confirm_key: cta.confirm_key } : {}),
         ...(cta?.busy_key ? { busy_key: cta.busy_key } : {}),
       });
@@ -247,7 +248,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
       const required_permission = permissionDisplay(op.permissions);
       // Icon↔color contract at declaration construction — a route CTA
       // can never smuggle an invalid color or a divergent semantic pair.
-      const chromeErr = validateActionChrome(cta.icon, cta.color);
+      const chromeErr = validateActionChrome(cta.icon, cta.color, cta.variant);
       if (chromeErr) throw new Error(`entity_op "${decl.entityName}.${op.op}" cta: ${chromeErr}`);
       if (placement === "row") {
         row.push({
@@ -255,6 +256,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
           translation_key,
           icon: cta.icon,
           color: cta.color,
+          variant: cta.variant,
           disabled_when_deleted: cta.disabled_when_deleted,
           required_permission,
           row_key: cta.row_key ?? uid,
@@ -266,6 +268,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
           translation_key,
           icon: cta.icon,
           color: cta.color,
+          variant: cta.variant,
           required_permission,
           requires_selection: cta.requires_selection ?? false,
           require_step_up: cta.require_step_up ?? !!bound?.route.mfa,

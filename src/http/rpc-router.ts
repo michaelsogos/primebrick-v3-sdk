@@ -27,7 +27,7 @@ import { enforceHttpRbac } from "../auth/rbac-enforce.js";
 import { AuthError } from "../auth/verify.js";
 import { RbacDeniedError } from "../auth/rbac-enforce.js";
 import { runWithSession, type Session } from "../auth/session-context.js";
-import type { ActionColor } from "@primebrick/core";
+import type { ActionColor, ActionVariant } from "@primebrick/core";
 import type { AuthUser } from "../auth/types.js";
 import type { ApiKeyPort } from "../auth/ports/api-key-port.js";
 import { createSseWriter } from "../sse/sse-writer.js";
@@ -153,6 +153,11 @@ export interface EntityOpCta {
   /** Semantic color for icon + label together — closed `ActionColor`
    *  vocabulary, never a free-form CSS class. */
   color?: ActionColor;
+  /** CTA shape — `default` (filled severity) or `outline` (gradient
+   *  ghost). CTA-only axis, never reaches the dialog. `outline` requires
+   *  an explicit non-neutral `color` — `validateActionChrome` rejects
+   *  the ambiguous pair at construction. */
+  variant?: ActionVariant;
   /** i18n key for the CTA label — default `<entities_ns>.actions.<op>`. */
   translation_key?: string;
   /** i18n key for a pre-dispatch confirmation dialog. */

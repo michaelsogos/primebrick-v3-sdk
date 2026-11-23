@@ -44,7 +44,7 @@
  */
 
 import { extJsonStringify } from "../json/ext-json.js";
-import { STANDARD_OPS, validateActionChrome, resolveDisplayTemplate, type ActionColor, type EntityMeta } from "@primebrick/core";
+import { STANDARD_OPS, validateActionChrome, resolveDisplayTemplate, type ActionColor, type ActionVariant, type EntityMeta } from "@primebrick/core";
 import {
   streamEntityExport,
   type EntityExportConfig,
@@ -148,6 +148,9 @@ export interface EntityActionMeta {
   label_key?: string;
   icon?: string;
   color?: ActionColor;
+  /** CTA shape — `default` or `outline`. CTA-only axis: never reaches
+   *  the dialog (`tone="soft"` is the reserved security family). */
+  variant?: ActionVariant;
   /** Confirm-dialog message template override (`{entity}`/`{name}` single,
    *  `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. */
   confirm_key?: string;
@@ -170,6 +173,7 @@ export interface EntityCustomOp {
   label_key?: string;
   icon?: string;
   color?: ActionColor;
+  variant?: ActionVariant;
   confirm_key?: string;
   busy_key?: string;
 }
@@ -505,6 +509,7 @@ function deriveActions(
     if (ov?.label_key) entry.label_key = ov.label_key;
     if (ov?.icon) entry.icon = ov.icon;
     if (ov?.color) entry.color = ov.color;
+    if (ov?.variant) entry.variant = ov.variant;
     if (ov?.confirm_key) entry.confirm_key = ov.confirm_key;
     if (ov?.busy_key) entry.busy_key = ov.busy_key;
     // "Modifica" is the primary affordance by DESIGN — the standard edit
@@ -526,10 +531,16 @@ function deriveActions(
       entry.icon ??= "pencil";
       entry.confirm_key ??= "app.common.update_entities_confirm";
     }
-    // Icon↔color contract — the RESOLVED pair is validated once (a
-    // `crud_action` CTA icon + an `actions_overrides` color could
-    // combine into a divergent pair; semantic icons bind their color).
-    const chromeErr = validateActionChrome(entry.icon, entry.color);
+    // `export` is a SECONDARY affordance by DESIGN — primary color but
+    // outline shape (the ghost-gradient CTA), overridable like all chrome.
+    if (op === "export") {
+      entry.color ??= "primary";
+      entry.variant ??= "outline";
+    }
+    // Icon↔color + variant contract — the RESOLVED triple is validated
+    // once (a `crud_action` CTA + `actions_overrides` could combine into
+    // a divergent pair; semantic icons bind their color).
+    const chromeErr = validateActionChrome(entry.icon, entry.color, entry.variant);
     if (chromeErr) throw new Error(`entity "${cfg.entityName}" action "${op}": ${chromeErr}`);
     return entry;
   });
@@ -550,6 +561,7 @@ function deriveActions(
         ...(c.label_key ? { label_key: c.label_key } : {}),
         ...(c.icon ? { icon: c.icon } : {}),
         ...(c.color ? { color: c.color } : {}),
+        ...(c.variant ? { variant: c.variant } : {}),
         ...(c.confirm_key ? { confirm_key: c.confirm_key } : {}),
         ...(c.busy_key ? { busy_key: c.busy_key } : {}),
       };
@@ -596,11 +608,11 @@ export function makeEntityRouter<TEntity = unknown>(
   // first meta request: a divergent pair (semantic icon with a foreign
   // color) or a color outside the closed vocabulary is a declaration bug.
   for (const [op, ov] of Object.entries(config.meta?.actions_overrides ?? {})) {
-    const err = validateActionChrome(ov.icon, ov.color);
+    const err = validateActionChrome(ov.icon, ov.color, ov.variant);
     if (err) throw new Error(`entity-router[${config.entityName}] actions_overrides["${op}"]: ${err}`);
   }
   for (const c of config.custom_ops ?? []) {
-    const err = validateActionChrome(c.icon, c.color);
+    const err = validateActionChrome(c.icon, c.color, c.variant);
     if (err) throw new Error(`entity-router[${config.entityName}] custom_op "${c.op}": ${err}`);
   }
 
