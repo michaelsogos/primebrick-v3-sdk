@@ -56,6 +56,13 @@ dev key lives in workspace `temp/` — never in the repo.
 `<schema>.config_entries` key `db_migration.mode` = `apply | check | off` —
 re-read after each run (a patch may change it). No env flag, no guessing.
 
+### 6. Never soft-delete in a patch — tombstones are the USER's recycle bin
+Soft-deleted rows (`deleted_at IS NOT NULL`) are a user feature, not a
+migration artifact bin: the dict page renders them in the deleted view
+and offers `restore.single`. A patch that retires rows hard-deletes —
+`DELETE FROM <schema>.<table> WHERE …`, never `UPDATE … SET deleted_at`.
+Service-side maintenance cleanup uses `hardDelete`, never `delete`.
+
 ## Failure handling
 
 Registry transitions happen through the admin surface, never by hand:
