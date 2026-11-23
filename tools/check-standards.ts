@@ -219,6 +219,7 @@ type RuleId =
   | "panel-toolbar-tools"
   | "panel-chrome-class"
   | "native-control"
+  | "display-coerce"
   | "no-native-dialog"
   | "field-stock-chrome"
   | "i18n-entity-fallback"
@@ -317,7 +318,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-switch", "panel-search-clearable", "panel-raw-input",
   "panel-footer-chrome", "panel-footer-start", "panel-footer-cta", "panel-toolbar-tools",
   "panel-chrome-class",
-  "field-stock-chrome",
+  "field-stock-chrome", "display-coerce",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
   "e2e-wait-budget", "event-bus-ownership",
 ]);
@@ -388,6 +389,13 @@ const GATED_LINE_RULES: Rule[] = [
   // `border-ring` produced the blue focus border beside neutral ghost rings.
   { id: "field-stock-chrome", pattern: /\bbg-input\b|\bborder-ring\b/, hint: "stock vendored-kit tokens — field chrome is bg-background/bg-transparent + foreground/* or border-primary-gradient + ring-ring/50 (input-anatomy); never the kit's tinted fill / blue focus border" },
   { id: "i18n-entity-fallback", pattern: /\$t\([^)]*\|\|/, hint: "no entity-specific i18n fallback inside shared entity-list code — label_key resolves or the raw key shows" },
+  // display-coerce — .svelte-only syntactic approximation: markup has no
+  // type coverage in the typed pass (check-stringify.ts scans .ts), and
+  // record/index access in templates is dominantly wire data. In .ts the
+  // typed pass owns the precise eslint `no-base-to-string` semantics —
+  // String() stays legal on typed values (docs/ai/display-coercion.md).
+  { id: "display-coerce", pattern: /\bString\s*\(\s*[A-Za-z_$][\w$?!]*\s*[.[(]/, appliesTo: /\.svelte$/, hint: "member/call/index coercion — String(x) silently renders \"[object Object]\"/\"null\" on wire objects; display coercion goes through toDisplayString (@primebrick/ui) — docs/ai/display-coercion.md" },
+  { id: "display-coerce", pattern: /\$\{(?!toDisplayString)[^}]*\[[^\]]+\]/, appliesTo: /\.svelte$/, hint: "index-access interpolation — record values render via toDisplayString, never raw ${x[y]} — docs/ai/display-coercion.md" },
 ];
 
 interface StandardsConfig {
@@ -2085,7 +2093,10 @@ for (const [id, opts] of Object.entries(cfg.rules ?? {})) {
   const rule = GATED_LINE_RULES.find((r) => r.id === rid) ?? LINE_RULES.find((r) => r.id === rid);
   if (!rule) continue;
   rule.allowPaths = scope.allowPaths;
-  rule.appliesTo = scope.appliesTo;
+  // Code-level appliesTo is the rule's own domain (e.g. `.svelte`-only
+  // display-coerce, `e2e/`-only wait-budget): config may NARROW it, never
+  // erase it — `undefined` must mean "repo did not restrict", not "wipe".
+  rule.appliesTo = scope.appliesTo ?? rule.appliesTo;
   if (!LINE_RULES.includes(rule)) LINE_RULES.push(rule);
   rules.add(rule.id);
   cfgEnabled.add(rule.id);
