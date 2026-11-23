@@ -221,6 +221,7 @@ type RuleId =
   | "native-control"
   | "display-coerce"
   | "no-native-dialog"
+  | "no-raw-dialog"
   | "field-stock-chrome"
   | "i18n-entity-fallback"
   | "page-scaffold-ownership"
@@ -289,6 +290,23 @@ const LINE_RULES: Rule[] = [
     id: "no-native-dialog",
     pattern: /(?<![\w$.])(?<!function\s)(?:confirm|alert|prompt)\s*\([^)]|(?:\bwindow\.|\bglobalThis\.)(?:confirm|alert|prompt)\s*\([^)]/,
     hint: "native dialog call — entity confirms use the governed invoker (DeleteDialog/BulkDeleteDialog anatomy), notices use pushNotification; never window.confirm/alert/prompt",
+  },
+  // no-raw-dialog — the only legal dialog surface is `BorderedDialog`
+  // (two families: animated top strip, `tone="soft"` security border). The
+  // pattern bans surface-CREATING anatomy only: `Dialog.Root/Content/
+  // Portal/Trigger/Overlay` member access, `AlertDialog*`, and
+  // `DialogRoot/Content/Portal/Overlay/Trigger` named imports, plus `Dialog`
+  // imported straight from the vendored bits-ui path (bypasses the ui
+  // wrapper). `Dialog.(Close|Header|Title|Description|Footer)` are content
+  // parts that render INSIDE a BorderedDialog — legal everywhere and
+  // deliberately not matched. Designated owners (the vendored parts dir,
+  // the bordered wrapper, the command-palette composite) are exempt by
+  // path. NO_EXEMPT — the dialog surface is anatomy, not taste.
+  {
+    id: "no-raw-dialog",
+    pattern: /\bDialog\.(?:Root|Content|Portal|Trigger|Overlay)\b|\bAlertDialog\b|\bDialog(?:Root|Content|Portal|Overlay|Trigger)\b|import\s*\{[^}\n]*\bDialog\b[^}\n]*\}\s*from\s*['"][^'"\n]*bits-ui/,
+    hint: "raw dialog anatomy — the only legal dialog surface is BorderedDialog (top-strip family; tone=\"soft\" is the reserved security family). Dialog.Close/Header/Title/Description/Footer parts are legal inside it",
+    allowPaths: /(?:^|\/)lib\/components\/(?:dialog|sheet)\/|(?:^|\/)(?:dialog-bordered|command-dialog)\.svelte$/,
   },
   // e2e-wait-budget — 5 seconds is the expectation budget for every wait
   // (docs/ai/e2e-browser-session.md "Determinism — evidence, not sleeps"):
@@ -934,16 +952,16 @@ const CONSUMER_RULES = new Set<RuleId>([
 const NO_EXEMPT_RULES = new Set<RuleId>([
   "dal-access", "dal-construct", "dal-member-write", "dal-member-access", "pg-import", "pg-pool",
   "raw-query", "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
-  "no-native-dialog", "ext-json", "e2e-wait-budget",
+  "no-native-dialog", "no-raw-dialog", "ext-json", "e2e-wait-budget",
 ]);
-const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control", "no-native-dialog"]);
+const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control", "no-native-dialog", "no-raw-dialog"]);
 // `fe` — browser SPA: no server-side contracts apply; `no-native-dialog`
 // is the one always-on base rule (native confirm/alert/prompt are anatomy
 // violations in browser code); `ext-json` is always-on too (extJson* is the
 // only sanctioned codec — raw JSON.* and argument-less .json() reads are
 // wire corruption / bigint-loss vectors). Other gated rules activate via
 // .devin/check-standards.json.
-const FE_RULES = new Set<RuleId>(["no-native-dialog", "ext-json", "e2e-wait-budget"]);
+const FE_RULES = new Set<RuleId>(["no-native-dialog", "no-raw-dialog", "ext-json", "e2e-wait-budget"]);
 /** Rules that scan test files even without --tests (alsoTests flag). */
 const ALSO_TESTS_RULES = new Set<RuleId>(LINE_RULES.filter((r) => r.alsoTests).map((r) => r.id));
 
