@@ -388,4 +388,60 @@ describe("entity_op → served meta CTA synthesis", () => {
       icon: "files",
     });
   });
+
+  it("export served chrome defaults to primary + outline (secondary affordance)", async () => {
+    const decl = {
+      ...entityDecl(),
+      permissions: { ...entityDecl().permissions, export: ["p"] },
+    };
+    const h = makeServiceRoutes({
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as { op: string; enabled: boolean; color?: string; variant?: string }[];
+    expect(actions.find((a) => a.op === "export")).toMatchObject({
+      enabled: true,
+      color: "primary",
+      variant: "outline",
+    });
+  });
+
+  it("actions_overrides variant:'outline' without color is a construction error", () => {
+    const decl = entityDecl();
+    decl.meta.actions_overrides = {
+      "export": { variant: "outline" },
+    };
+    expect(() =>
+      makeServiceRoutes({
+        info: { title: "T", version: "0.0.0" },
+        entities: [decl],
+        rpc: [],
+      }),
+    ).toThrow(/outline.*color|variant.*outline/i);
+  });
+
+  it("entity_op.cta variant:'outline' without color is a construction error", () => {
+    const rpc: RpcRoute[] = [
+      {
+        method: "POST",
+        path: "/api/v1/actions/report",
+        entity_op: {
+          entity: "job_schedule",
+          op: "report",
+          cta: { variant: "outline" },
+        },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+    ];
+    expect(() =>
+      makeServiceRoutes({
+        info: { title: "T", version: "0.0.0" },
+        entities: [entityDecl()],
+        rpc: [rpc],
+      }),
+    ).toThrow(/outline.*color|variant.*outline/i);
+  });
 });

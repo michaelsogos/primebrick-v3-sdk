@@ -1016,6 +1016,7 @@ UI configuration for a selection-aware bulk CTA (endpoint-backed op
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
 | color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
+| variant | `ActionVariant` | CTA shape — `default` or `outline` (CTA-only axis, never dialogs). |
 | required_permission | `string \| string[]` | Permission required to see/use the action. |
 | requires_selection | `boolean` | When true, the CTA is enabled only with rows selected and the body
  receives `selected_uuids`; false = fires with an empty body
@@ -1423,6 +1424,10 @@ unavailable for everyone (route missing or product-disabled).
  `crud_action` route, or `meta.actions_overrides[op]`. |
 | icon | `string` |  |
 | color | `ActionColor` |  |
+| variant | `ActionVariant` | CTA shape — `default` (filled severity variant) or `outline`
+ (gradient-outline ghost). CTA-only axis: it never reaches the
+ dialog surface — dialog `tone="soft"` stays the reserved
+ auth/security family, unreachable from meta. |
 | confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` for
  single ops, `{count}`/`{entity}` for bulk). When set it replaces the
  standard `app.common.{delete,restore}Entit{y,ies}Confirm` copy —
@@ -1456,6 +1461,8 @@ Backing route of an `EntityAction` — emitted by the BE route scan.
  +color travel as ONE contract; semantic icons bind their color. |
 | icon | `string` |  |
 | color | `ActionColor` |  |
+| variant | `ActionVariant` | CTA shape — `default` or `outline`. CTA-only axis: never reaches
+ the dialog (`tone="soft"` is the reserved security family). |
 | confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` single,
  `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. |
 | busy_key | `string` | In-flight confirm-button label override — see `EntityAction.busy_key`. |
@@ -1589,6 +1596,13 @@ served response. Used automatically for edit-page titles; reusable for
 comboboxes, lists, chips. |
 | actions_overrides | `ActionsOverrides` | Per-op enable overrides — may ONLY toggle `enabled` on route-backed
  ops; a missing route already produces `enabled: false`. |
+| create | `{ surface: "form" \| "sheet" }` | Create surface declaration — HOW `create.single` is exercised.
+ `"form"` (default when absent) → census `kind:"create"` route +
+ `page_props.form` → `EntityFormPage` page (the canonical archetype).
+ `"sheet"` → NO route required (a sheet is never a nav leaf): the
+ list create CTA opens `entity.record` in `mode:"create"` — the same
+ record panel, no fetch, empty draft, POST on commit.
+ Authored on the entity meta — never via component props. |
 | columns | `MetaColumn[]` | Entity field dictionary (root-level, transversal). |
 | table | `TableMeta` | Table options — omit when the entity has no table page
  (e.g. a self-service form meta). |
@@ -2629,6 +2643,7 @@ UI configuration for a non-standard row CTA (route-backed bare op).
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
 | color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
+| variant | `ActionVariant` | CTA shape — `default` or `outline` (CTA-only axis, never dialogs). |
 | disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
 | required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
  against the user's permission set). |
@@ -2783,6 +2798,40 @@ Optional per-allocation context carried by the object directive forms —
 | counter_width | `number` | `{seq:W}` pad width (0 → no padding). |
 | period_kind | `SequencePeriodKind` | Counter-identity granularity implied by the date tokens present. |
 | sez_slots | `SequenceSezToken[]` | Sezionale slots the pattern uses, in slot order (`[]` → partition-free). |
+
+### `SequenceTokenContext`
+
+Authoring context for token examples/previews — the pattern-builder
+widget renders "what this token would emit" through the same helpers
+the real renderer uses. `counter`/`partitions` are ILLUSTRATIVE sample
+values (partitions are claim-time context, never persisted on the
+sequence row); `at` defaults to now, `tz` to UTC.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| counter | `bigint` |  |
+| at | `Date` |  |
+| tz | `string` |  |
+| partitions | `SequencePartitions` |  |
+
+### `SequenceTokenSpec`
+
+One insertable entry of the pattern grammar — the SINGLE catalog the
+ authoring widget lists, so the FE never re-declares the token set.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | `string` | Catalog identity — testids and the spec discriminator. |
+| key | `string` | i18n key suffix — `app.widgets.sequence_pattern.tokens.<key>`.
+ Explicit because the key grammar is lowercase-only and token ids
+ are case-meaningful: `{MM}` (month) and `{mm}` (minutes) would
+ both lowercase to `mm` — so minutes carries `min`, and `{HH}`/
+ `{hh}` carry `hh`/`hh12`. |
+| insert | `string` | Insertable source text — for `kind:"counter"` the panel composes
+ `{seq}`/`{seq:W}` from its padding form, so this stays `{seq}`. |
+| kind | `"date" \| "time" \| "literal" \| "sez" \| "counter"` |  |
+| slot | `string` | The used-set slot this insert consumes (`seq`, `yyyy`, `HH`, `sez`…).
+ `undefined` for repeatable literals — `{{`/`}}` never mark used. |
 
 ### `ServiceHealthCheck`
 
@@ -3316,7 +3365,21 @@ Closed action-color vocabulary — ONE semantic drives BOTH the icon and
 Per-op overrides — `enabled` toggles route-backed ops; chrome fields
  restyle the standard CTA without touching its logic.
 
-**Type:** `Record<string, { enabled: boolean; label_key: string; icon: string; color: ActionColor; confirm_key: string; busy_key: string }>`
+**Type:** `Record<string, { enabled: boolean; label_key: string; icon: string; color: ActionColor; variant: ActionVariant; confirm_key: string; busy_key: string }>`
+
+### `ActionVariant`
+
+Closed action-variant vocabulary — the CTA SHAPE axis, orthogonal to
+`color`. Same names as the svelte `Button` shape prop:
+`default` = filled severity variant (the standard look);
+`outline` = gradient-outline ghost (secondary affordance, e.g. export).
+`variant` reaches ONLY the CTA — never the dialog: an "outline dialog"
+would be the `tone="soft"` security-family style, and that tone is
+semantically reserved (MFA/OTP/session), not a shape pick.
+A meta may never smuggle a shape outside this set — the enum IS the
+contract.
+
+**Type:** `"default" \| "outline"`
 
 ### `ApiKeyCacheSource`
 
@@ -3638,7 +3701,7 @@ Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
 compile error — the US→FE option boundary is enforced by the type.
 New formats are additive literals (never breaking).
 
-**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang" \| "sequence" \| "i18n_key"`
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang" \| "sequence" \| "sequence_pattern" \| "i18n_key"`
 
 ### `MetaColumnOptionsSource`
 
@@ -3647,7 +3710,7 @@ COLUMN (`MetaColumn.options_source`), never on a form placement:
 the same contract feeds forms, list filters and docs generation.
 Closed union on purpose — an unknown source is a construction error.
 
-**Type:** `"census.emits" \| "census.callables" \| "audit.actors" \| "system.roles"`
+**Type:** `"census.emits" \| "census.callables" \| "audit.actors" \| "system.roles" \| "iana.tzones"`
 
 ### `MetaColumnType`
 
@@ -4074,9 +4137,10 @@ the FE forecast and the BE assignment (same function → no drift).
 
 Grammar (closed):
 
-  segment   := literal | counter | dateToken | partition
+  segment   := literal | counter | dateToken | timeToken | partition
   counter   := "&#123;seq&#125;" | "&#123;seq:" width "&#125;"     — exactly ONE per pattern
   dateToken := "&#123;yyyy&#125;" | "&#123;yy&#125;" | "&#123;MM&#125;" | "&#123;dd&#125;" | "&#123;q&#125;"
+  timeToken := "&#123;HH&#125;" | "&#123;hh&#125;" | "&#123;mm&#125;" | "&#123;ss&#125;" — at most once each
   partition := "&#123;sez&#125;" | "&#123;sez2&#125;" | "&#123;sez3&#125;"   — up to 3, any position
   literal   := any chars except unescaped braces; "&#123;&#123;"→"&#123;", "&#125;&#125;"→"&#125;"
 
@@ -4089,7 +4153,13 @@ Invariants:
  - a pattern carrying date tokens is PERIOD-SCOPED by its finest
    token: `{yyyy}`→reset per year, `+{q}`→per quarter, `+{MM}`→per
    month, `+{dd}`→per day (Italian-invoice semantics — no holes,
-   no duplicates inside one period);
+   no duplicates inside one period). TIME TOKENS NEVER SCOPE the
+   counter — `{mm}`/`{ss}` are claim-time cosmetics (a timestamp
+   suffix), not period granularity: an hourly counter reset would
+   be a different feature entirely;
+ - case IS the grammar: `{MM}` is month, `{mm}` is minutes; `{HH}`
+   is 24-hour, `{hh}` is 12-hour — the token sets are disjoint by
+   case, exactly like strftime/moment conventions;
  - `{sez}`/`{sez2}`/`{sez3}` are POSITIONAL sezionale slots rendered
    from directive fields (`sez`, `sez2`, `sez3`); the counter PK is
    `(sequence_id, period_key, partition_key)` where partition_key is
@@ -4129,11 +4199,18 @@ Sezionale values supplied per assignment — positional per token.
 
 ### `SequenceSegment`
 
-**Type:** `{ kind: "literal"; text: string } \| { kind: "counter"; width: number } \| { kind: "date"; token: SequenceDateToken } \| { kind: "sez"; slot: SequenceSezToken }`
+**Type:** `{ kind: "literal"; text: string } \| { kind: "counter"; width: number } \| { kind: "date"; token: SequenceDateToken } \| { kind: "time"; token: SequenceTimeToken } \| { kind: "sez"; slot: SequenceSezToken }`
 
 ### `SequenceSezToken`
 
 **Type:** `"sez" \| "sez2" \| "sez3"`
+
+### `SequenceTimeToken`
+
+`{HH}`=24h, `{hh}`=12h, `{mm}`=minutes, `{ss}`=seconds — cosmetic
+ claim-time stamps; NEVER participate in `period_key`.
+
+**Type:** `"HH" \| "hh" \| "mm" \| "ss"`
 
 ### `ServiceRoutesHandler`
 
@@ -4218,6 +4295,13 @@ Widget-level type_config capabilities (top-level type_config props).
 The full `ActionColor` vocabulary — construction/lint validation rejects
 anything outside this closed set (raw strings on the wire can never reach
 the renderer).
+
+**Type:** `typeOperator`
+
+### `ACTION_VARIANTS`
+
+The full `ActionVariant` vocabulary — construction/lint validation
+ rejects anything outside this closed set.
 
 **Type:** `typeOperator`
 
@@ -5193,6 +5277,20 @@ label can never drift apart even by accident.
 - `exec-stop`  → destructive (stop/disable is a destructive op)
 
 **Type:** `Record<string, ActionColor>`
+
+### `sequenceTokenExampleDefaults`
+
+Illustrative defaults the catalog (and any pattern-builder preview)
+ falls back to when the caller does not override the example context —
+ exported so the authoring widget and the token sheet share ONE set
+ of sample values instead of re-declaring them.
+
+**Type:** `{ counter: {"value":"42","negative":false}; partitions: { sez: "A"; sez2: "01"; sez3: "X" } }`
+
+| Field | Value |
+|-------|-------|
+| counter | {"value":"42","negative":false} |
+| partitions | "" |
 
 ### `SERVICE_SUBJECTS`
 
@@ -7642,6 +7740,21 @@ for reporting.
 |-----------|------|-------------|
 | dir | `string` |  |
 
+### `removeSequenceToken(source, slot): string`
+
+Remove the FIRST occurrence of a token slot from the pattern source —
+the sheet's "unuse" affordance (`-` on a consumed slot). `slot` is the
+used-set name: `seq` strips `{seq}` or `{seq:W}` whole (the width is
+part of the token, not trailing text); every other slot strips the
+literal `{slot}` span. Escaped `{{`/`}}` are skipped exactly like the
+tokenizer reads them, so `{{seq}}` literals are never stripped.
+Never throws — a slot not present returns the source unchanged.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| source | `string` |  |
+| slot | `string` |  |
+
 ### `renderSequenceRange(pattern, first, step, count, at, opts): string[]`
 
 Render the full code series for `count` items starting at `first` —
@@ -8039,6 +8152,13 @@ the claim RETURNING is the only truth).
 | at | `Date` |  |
 | opts | `{ tz: string; partitions: Partial<Record<SequenceSezToken, string>> }` |  |
 
+### `sequenceTokenCatalog(): SequenceTokenSpec[]`
+
+The closed token vocabulary of the pattern grammar — counter slot
+(`{seq}` plain and `{seq:W}` width example), date tokens, sezionale
+slots, literal braces. Derived from the same token sets/render helpers
+the parser and renderer use — extending the grammar extends the sheet.
+
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
 Serialize a fully resolved AuthUser into a headers object for forwarding
@@ -8310,7 +8430,18 @@ Accessor — returns the capability record for a type.
 |-----------|------|-------------|
 | type | `ConfigType` |  |
 
-### `validateActionChrome(icon, color): string \| null`
+### `usedSequenceTokens(source): Set<string>`
+
+Best-effort scan of the pattern source for already-consumed slots —
+the sheet marks used tokens (grammar: one counter, each date/sez at
+most once). NEVER throws: mid-typing text like `INV-{seq:}` still
+reports `seq` used — the UI affordance must survive invalid states.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| source | `string` |  |
+
+### `validateActionChrome(icon, color, variant): string \| null`
 
 Validates the icon↔color contract of a single action chrome override.
 Returns a diagnostic string on violation, `null` when the pair is legal:
@@ -8322,6 +8453,7 @@ Returns a diagnostic string on violation, `null` when the pair is legal:
 |-----------|------|-------------|
 | icon | `string \| undefined` |  |
 | color | `string \| undefined` |  |
+| variant | `string` |  |
 
 ### `validateCallablesDeclaration(code, decl): string \| null`
 
