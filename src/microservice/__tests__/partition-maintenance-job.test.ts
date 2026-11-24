@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   ]),
   makeNatsRoutes: vi.fn(async (_routes?: unknown, _deps?: unknown) => []),
   subscribeShielded: vi.fn(async (_subject?: unknown, _handler?: unknown) => {}),
+  serviceShieldVerify: vi.fn(async (_msg?: unknown) => undefined),
   setProcessInterval: vi.fn((_key?: unknown, _ms?: unknown, _fn?: unknown) => 0 as never),
   run: vi.fn(async () => ({ dropped: 2 })),
   i18nNs: "testsvc" as string,
@@ -42,7 +43,10 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../nats/system-jobs.js", () => ({ declareSystemJobs: h.declareJobs }));
 vi.mock("../../nats/nats-routes.js", () => ({ makeNatsRoutes: h.makeNatsRoutes }));
-vi.mock("../../nats/service-shield.js", () => ({ subscribeShielded: h.subscribeShielded }));
+vi.mock("../../nats/service-shield.js", () => ({
+  subscribeShielded: h.subscribeShielded,
+  serviceShieldVerify: h.serviceShieldVerify,
+}));
 vi.mock("../../lifecycle/process-registry.js", () => ({ setProcessInterval: h.setProcessInterval }));
 vi.mock("../../service/service-identity.js", () => ({ currentServiceCode: () => "testsvc" }));
 
@@ -56,6 +60,7 @@ type Route = {
   subject: string;
   queue?: string;
   permissions: readonly string[];
+  verify?: unknown;
   label_key: string;
   description_key: string;
   handler: (ctx: unknown) => Promise<unknown>;
@@ -117,9 +122,11 @@ describe("partition-maintenance-job — callable contract", () => {
     const route = callableRoute();
     expect(route.subject).toBe("testsvc.partition_maintenance");
     expect(route.queue).toBe("testsvc");
-    // System-lane: no user context — permissions empty, the L1 client
-    // shield is the only gate.
+    // System-lane: no user context — permissions empty AND the route's
+    // own `verify` replaces verifyNatsMessage (the arm freezes no
+    // client-shield secret — L1 enrollment is the only gate).
     expect(route.permissions).toEqual([]);
+    expect(route.verify).toBe(h.serviceShieldVerify);
     // i18n keys ride the owning schema's translation namespace — for a
     // US that namespace IS the service code.
     expect(route.label_key).toBe("testsvc.callable.partition_maintenance.label");
