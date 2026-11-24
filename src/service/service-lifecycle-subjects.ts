@@ -109,12 +109,13 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    */
   capabilities?: string[];
   /**
-   * PG schema ownership claim — the service's `DATABASE_SCHEMA` env list
-   * (validated by `assertDbEnv`). The first schema is the owned one.
+   * PG schema ownership claim — the service's declared schema list
+   * (code constant, validated by `assertValidSchemaList`). The first
+   * schema is the owned one.
    * Persisted in `service_registry.schemas`: the BE rejects registration
    * when a claimed schema is owned by a different code, or is one of the
-   * platform schemas (the BE's own `DATABASE_SCHEMA`, e.g.
-   * public/system/custom). The claim survives offline/stale rows and is
+   * platform schemas (the BE's own declared list, e.g.
+   * system/public/custom). The claim survives offline/stale rows and is
    * released only by `service.unregister` or admin purge.
    */
   schemas?: string[];

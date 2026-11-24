@@ -85,8 +85,9 @@ export interface ServiceRegistrarConfig {
    */
   docsPackDir?: string;
   /**
-   * PG schema ownership claim — the service's `DATABASE_SCHEMA` list
-   * (validated by `assertDbEnv`, first = owned schema). Sent in
+   * PG schema ownership claim — the service's declared schema list
+   * (code constant, validated by `assertValidSchemaList`, first = owned
+   * schema). Sent in
    * `service.register` → persisted in `service_registry.schemas` so the
    * BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`).
    */

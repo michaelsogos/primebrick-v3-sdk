@@ -17,7 +17,6 @@
  */
 
 import { logger } from "../lifecycle/logger.js";
-import { assertDbEnv } from "../env/db-env.js";
 
 /** Structural mirror of dal-pg's MigrationRunResult — no dal import. */
 export interface MigrationRunResultLike {
@@ -82,8 +81,14 @@ export interface DbMigrationBootOptions {
   engine: DbMigrationEnginePort;
   /** Live pg pool — evaluated lazily right after `getDal()` ran. */
   pool: () => unknown;
-  /** Owning service schema (e.g. `env.DATABASE_SCHEMA`) — registry lives there. */
-  schema: () => string;
+  /**
+   * Owned schema list — the full domain, `[0]` = primary. Injected by
+   * createMicroservice from the service's declared `schemas` option —
+   * services never declare it on `dbPatches` (single source).
+   */
+  schemas: () => readonly string[];
+  /** Registry-owning schema — defaults to `schemas()[0]` (the primary). */
+  schema?: () => string;
   /** Directory containing the .sql patch files (usually `<svc>/db-meta/patches`). */
   patchesDir: string;
   /** db-meta dir with MANIFEST.json + keys.json — defaults to dirname(patchesDir). */
@@ -93,6 +98,16 @@ export interface DbMigrationBootOptions {
   /** Entity registry of this service — enables the post-apply drift check. */
   entityRegistry?: readonly unknown[];
 }
+
+/**
+ * What a service declares as `createMicroservice({ dbPatches })` — the
+ * resolved boot options MINUS the schema fields: `schemas` is injected
+ * from the top-level `schemas` option (single source — the service cannot
+ * declare a divergent list) and `schema` defaults to the primary.
+ */
+export type ServiceDbMigrationOptions = Omit<DbMigrationBootOptions, "schemas" | "schema"> & {
+  schema?: () => string;
+};
 
 export interface MigrationBootState {
   /** null when migrations never ran (option not set). */
@@ -117,7 +132,7 @@ export async function rerunMigrations(
 ): Promise<MigrationRunResultLike> {
   const result = await opts.engine.runMigrations({
     pool: opts.pool(),
-    schema: opts.schema(),
+    schema: opts.schema?.() ?? opts.schemas()[0]!,
     patchesDir: opts.patchesDir,
     dbMetaDir: opts.dbMetaDir,
     allowedTrust: opts.allowedTrust ?? ["release"],
@@ -163,12 +178,13 @@ export async function runDbMigrationStep(
     appliedCount: 0,
   };
   const pool = opts.pool();
-  const schema = opts.schema();
+  const schemas = opts.schemas();
+  const schema = opts.schema?.() ?? schemas[0]!;
 
   // Schema-domain guard BEFORE any migration/drift work: every registered
-  // entity must resolve inside DATABASE_SCHEMA — a cross-schema entity is a
-  // code bug, so it crashes the boot (outside try: never degraded-swallowed).
-  const { schemas } = assertDbEnv();
+  // entity must resolve inside the declared schema list — a cross-schema
+  // entity is a code bug, so it crashes the boot (outside try: never
+  // degraded-swallowed).
   if (opts.entityRegistry && opts.engine.assertEntitySchemaDomain) {
     opts.engine.assertEntitySchemaDomain(opts.entityRegistry, schemas);
   }

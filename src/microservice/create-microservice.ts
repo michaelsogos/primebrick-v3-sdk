@@ -78,6 +78,7 @@ import {
   HealthCheck,
   requireEnv,
   assertDbEnv,
+  assertValidSchemaList,
   type DbEnv,
   initAuthConfig,
   invalidateAuthConfig,
@@ -121,6 +122,7 @@ import {
   rerunMigrations,
   makeRunOnceInit,
   type DbMigrationBootOptions,
+  type ServiceDbMigrationOptions,
   type MigrationBootState,
 } from "./db-migration-step.js";
 import { makeDbMigrationRouteHandler, MIGRATION_ROUTE_PREFIX } from "../http/migration-routes.js";
@@ -139,6 +141,15 @@ import {
 export interface MicroserviceOptions {
   /** Service name for logging and health endpoint (e.g. "emailsender"). */
   serviceName: string;
+  /**
+   * Owned PG schema list — declaration order, `[0]` = the primary/owned
+   * schema. This is the service's schema identity AS CODE (typically the
+   * service's `OWNED_SCHEMAS` const): it feeds the service_registry
+   * ownership claim, the entity schema-domain assert, and the migration
+   * boot step. It is deliberately NOT env-configurable — a mutated schema
+   * silently bifurcates the database.
+   */
+  schemas: readonly string[];
   /** Human-readable name shown in service registry (e.g. "Email Sender"). */
   serviceDisplayName?: string;
   /** Service description for service registry. */
@@ -308,8 +319,10 @@ export interface MicroserviceOptions {
    * them before registration. A critical failure boots the service in
    * DEGRADED mode: only `/health` + the db-migration admin routes answer,
    * domain traffic gets 503, heartbeat reports `db_migration.ok=false`.
+   * `schemas` is injected from the top-level `schemas` option (the service
+   * cannot declare a divergent list); `schema` defaults to the primary.
    */
-  dbPatches?: DbMigrationBootOptions;
+  dbPatches?: ServiceDbMigrationOptions;
 
   /**
    * Partition/retention maintenance — the shared system job produced by
@@ -408,11 +421,16 @@ export async function createMicroservice(
   //    directly AND throw for the caller's catch).
   let env: Record<string, string | undefined>;
   let dbEnv: DbEnv;
+  let schemas: readonly string[];
   try {
-    // Closed-set contract: DATABASE_URL + DATABASE_SCHEMA are the ONLY
-    // env vars a service may consume. Any violation crashes the boot.
+    // Closed-set contract: DATABASE_URL is the ONLY env var a service may
+    // consume (DATABASE_SCHEMA is rejected — schema identity is code).
+    // Any violation crashes the boot.
     dbEnv = assertDbEnv();
     env = requireEnv(options.envSchema);
+    // The declared schema list is service identity — validate it with the
+    // same strictness as the env contract (boot crash on malformed names).
+    schemas = assertValidSchemaList(options.schemas);
   } catch (error) {
     const envFile = join(process.cwd(), ".env");
     const missing = (error as Error).message;
@@ -426,6 +444,16 @@ export async function createMicroservice(
     );
     throw error;
   }
+
+  // Resolved migration boot options — `schemas` is injected from the
+  // service's declared schema list (single source; services cannot
+  // declare it on dbPatches), `schema` defaults to the primary unless the
+  // service overrides it explicitly.
+  const dbPatches: DbMigrationBootOptions | undefined = options.dbPatches && {
+    schemas: () => schemas,
+    schema: () => schemas[0]!,
+    ...options.dbPatches,
+  };
 
   // 2. DAL init (consumer callback — DB-agnostic; may be async when the
   // service wires dal event emission — `wireEntityEventEmission` awaits
@@ -459,8 +487,8 @@ export async function createMicroservice(
   //     The engine reads its own mode from <schema>.config_entries; if a
   //     patch touched preloaded state, post-apply reads see fresh data by
   //     construction (ConfigLoader has not run yet).
-  const migrationState: MigrationBootState = options.dbPatches
-    ? await runDbMigrationStep(options.dbPatches)
+  const migrationState: MigrationBootState = dbPatches
+    ? await runDbMigrationStep(dbPatches)
     : { result: null, degraded: false, lastError: null, appliedCount: 0 };
 
   // Deferred boot init — assigned once ctx exists (step 10). Any recovery
@@ -470,14 +498,14 @@ export async function createMicroservice(
   let deferredOnReady: (() => Promise<void>) | undefined;
   let recoveryInFlight = false;
   const attemptMigrationRecovery = async () => {
-    if (recoveryInFlight || !options.dbPatches || !deferredOnReady) return;
+    if (recoveryInFlight || !dbPatches || !deferredOnReady) return;
     recoveryInFlight = true;
     try {
       if (migrationState.degraded) {
         const actor = `auto-remediation:${options.serviceName}`;
-        const flipped = await options.dbPatches.engine.retryFailedPatches(
-          options.dbPatches.pool(),
-          options.dbPatches.schema(),
+        const flipped = await dbPatches.engine.retryFailedPatches(
+          dbPatches.pool(),
+          dbPatches.schema?.() ?? schemas[0]!,
           actor,
         );
         if (flipped > 0) {
@@ -485,7 +513,7 @@ export async function createMicroservice(
             tags: ["db-migration"],
           });
         }
-        const result = await rerunMigrations(options.dbPatches, migrationState, actor);
+        const result = await rerunMigrations(dbPatches, migrationState, actor);
         if (result.degraded) return;
         logger.done(
           "db-migration: auto-remediation cleared degraded state — completing boot init",
@@ -509,7 +537,7 @@ export async function createMicroservice(
   const configLoader = new ConfigLoader(options.configRepositoryAdapter());
   try {
     const loaded = await configLoader.load();
-    logger.done(`Module configuration loaded — ${Object.keys(loaded).length} keys found (${dbEnv.schemas[0]}.config_entries)`, { tags: ["core"] });
+    logger.done(`Module configuration loaded — ${Object.keys(loaded).length} keys found (${schemas[0]}.config_entries)`, { tags: ["core"] });
   } catch (error) {
     logger.error("Failed to load config (non-fatal — table may be empty)", { tags: ["core"], error: error });
   }
@@ -617,7 +645,7 @@ export async function createMicroservice(
       ...(nav ? { nav } : {}),
       ...(branded?.entityDecls ? { entity_decls: branded.entityDecls } : {}),
       ...(branded?.spec ? { spec: branded.spec } : {}),
-      own_schemas: dbEnv.schemas,
+      own_schemas: [...schemas],
       pack_dir: docsPackDir,
       check: emitCheck,
     });
@@ -877,9 +905,9 @@ export async function createMicroservice(
       // Docs pack lives next to the service entry (dist/docs-pack at the
       // service root) — present → docs_pack capability auto-declared.
       docsPackDir,
-      // Schema ownership claim — the validated DATABASE_SCHEMA list from
-      // the env contract (step 2). The BE enforces one-module-one-schema.
-      schemas: dbEnv.schemas,
+      // Schema ownership claim — the service's declared schema list
+      // (code constant, step 1). The BE enforces one-module-one-schema.
+      schemas: [...schemas],
       // Static code provenance — the BE re-derives `derived` codes and
       // rejects mismatches; `override` = explicit package.json service_code.
       codeSource: selfIdentity.service_code ? "override" : "derived",
@@ -926,9 +954,9 @@ export async function createMicroservice(
   // db_patch system module — always mounted when migrations are configured
   // (status surface for the FE admin page, and the ONLY reachable surface
   // when the service is degraded).
-  if (options.dbPatches) {
+  if (dbPatches) {
     const migrationHandler = makeDbMigrationRouteHandler(
-      options.dbPatches,
+      dbPatches,
       migrationState,
       async () => {
         await deferredOnReady?.();
@@ -952,7 +980,7 @@ export async function createMicroservice(
   // traffic. Everything except the remediation surface answers 503. The
   // flag is read live per request: a successful remediation (admin route
   // or heartbeat auto-recovery) reopens traffic without a restart.
-  if (options.dbPatches && routeHandler) {
+  if (dbPatches && routeHandler) {
     const inner = routeHandler;
     routeHandler = brandRouteHandler(async (req, res, url) => {
       if (!migrationState.degraded || url.pathname.startsWith(MIGRATION_ROUTE_PREFIX)) {

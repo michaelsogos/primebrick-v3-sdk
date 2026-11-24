@@ -399,6 +399,7 @@ export {
 export {
   runDbMigrationStep,
   type DbMigrationBootOptions,
+  type ServiceDbMigrationOptions,
   type DbMigrationEnginePort,
   type MigrationBootState,
   type MigrationRunResultLike,
@@ -411,7 +412,7 @@ export {
 
 // Env validation
 export { validateEnv, requireEnv, type EnvSchema, type EnvValidationResult } from "./env/env-validator.js";
-export { assertDbEnv, type DbEnv } from "./env/db-env.js";
+export { assertDbEnv, assertValidSchemaList, type DbEnv } from "./env/db-env.js";
 
 // Ext-JSON — BigInt-safe JSON serialization/deserialization (BE/US only, NOT for FE)
 export {
