@@ -2171,6 +2171,14 @@ mounts nothing and materializes no trigger. When set and needed, the
 `<svc>.partition_maintenance` callable is mounted inside the deferred
 on-ready init (post-NATS, post-migrations) and the system trigger is
 declared through the governed materialize route. |
+| sequenceRevive | `SequenceReviveJob` | Shared sequence-revive job wiring — produced by dal-pg's
+`makeSequenceReviveJob()`. The builtin `sequences` table mounts
+unconditionally, so the `<svc>.sequence_revive` callable mounts on
+every dal-backed service inside the deferred on-ready init
+(post-NATS, post-migrations); the system trigger is declared
+through the governed materialize route. The revive ALGORITHM lives
+once in dal-pg (`dal.sequenceRevive`) — the service only hosts the
+executor. |
 | onReady | `(ctx: MicroserviceContext) => Promise<void>` | Callback fired after everything is wired (NATS subscriptions, business
 logic init, etc.). Receives the full MicroserviceContext.
 SKIPPED entirely when the service booted degraded (migration failure). |
@@ -2773,14 +2781,32 @@ form — they select existing sequences by code/uuid instead).
 | step | `bigint` | Counter increment per emitted value — non-zero. |
 | start | `bigint` | First emitted counter value when the sequence is materialized. |
 | tz | `string \| null` | IANA zone for date tokens — `null`/`undefined` = server default. |
+| sez | `string` | Row-owned sezionale defaults materialized onto the sequence row —
+ the pattern's `{sez}`/`{sez2}`/`{sez3}` slots take the row's value
+ when the directive doesn't supply them (owned slots are immutable
+ at claim time — a directive may only supply non-owned slots). |
+| sez2 | `string` |  |
+| sez3 | `string` |  |
+| revive_every | `string` | Revive cadence `'N (day|week|month|quarter|year)[s]'` — the row is
+ cloned on a chained calendar (`expire_at` boundary, `switch_at`
+ retirement); NULL/absent = the row never revives. IMMUTABLE
+ post-create (the period contract is the row's identity). |
+| revive_grace | `string` | Overlap window `'N unit'` — how long the retired row survives
+ `expire_at` so backdated `at` values still resolve it. Editable —
+ only moves `switch_at`. Default `'0'`. |
+| revive_slot | `SequenceSezToken` | Which sez slot the period label advances at revive — must be a
+ slot the pattern uses; its value must parse under
+ derivePeriodLabel for the unit. Default `'sez'`. |
 
 ### `SequenceDirectiveContext`
 
 Optional per-allocation context carried by the object directive forms —
  the sezionale slot values (`sez`/`sez2`/`sez3` — the counter partitions
  are persisted per `(sequence, period, partition_key)`; the pattern's
- slots decide which are required/allowed) and the business date `at`
- (ISO string — drives `period_key` + date tokens; default = write time).
+ slots decide which are required/allowed), the business date `at`
+ (ISO string — drives `period_key` + date tokens; default = write
+ time), and `tz` (IANA zone overriding the row's for THIS allocation —
+ resolve-time context, never stored on the counter).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -2788,6 +2814,7 @@ Optional per-allocation context carried by the object directive forms —
 | sez2 | `string` |  |
 | sez3 | `string` |  |
 | at | `string` |  |
+| tz | `string \| null` |  |
 
 ### `SequencePattern`
 
@@ -2798,6 +2825,20 @@ Optional per-allocation context carried by the object directive forms —
 | counter_width | `number` | `{seq:W}` pad width (0 → no padding). |
 | period_kind | `SequencePeriodKind` | Counter-identity granularity implied by the date tokens present. |
 | sez_slots | `SequenceSezToken[]` | Sezionale slots the pattern uses, in slot order (`[]` → partition-free). |
+
+### `SequenceReviveJob`
+
+What `createMicroservice` needs to mount the job — produced by
+dal-pg's `makeSequenceReviveJob()`:
+`needed` is the ownership gate, `run` is the DAL executor.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| needed | `boolean` | `false` when the service owns no sequence surface — nothing mounts. |
+| run | `() => Promise<unknown>` | Runs `dal.sequenceRevive({actor:"system"})`; result → run report. |
+| i18nNs | `() => string` | The owning schema's translation namespace for the callable's
+label/description keys — `public`→`app`, every other schema owns
+itself. Resolved lazily at mount time by the dal-pg factory. |
 
 ### `SequenceTokenContext`
 
@@ -4165,6 +4206,14 @@ Invariants:
    `(sequence_id, period_key, partition_key)` where partition_key is
    the used slots joined in slot order — `{sez3}` alone ≠ `{sez}`
    with the same value: empty slots stay meaningful;
+ - the two period axes are ORTHOGONAL: date tokens always render `at`
+   (the business date on the directive ctx, default now — never
+   ambient wall-clock of the caller's choosing) and drive the
+   counter-level auto-roll via `period_key`; sez slots are the
+   ROW-OWNED period axis — a reviving sequence clones the row and
+   advances the `revive_slot` value via `derivePeriodLabel`, the
+   counter resets because the successor is a new uuid (new counter
+   namespace), never because a counter row is rewritten;
  - `step` is a non-zero bigint — negative steps are honest arithmetic
    (countdown sequences exist) and are NOT special-cased;
  - counters are `bigint` end to end: width 19 is PG bigint capacity
@@ -4196,6 +4245,10 @@ Sezionale values supplied per assignment — positional per token.
 ### `SequencePeriodKind`
 
 **Type:** `"none" \| "year" \| "quarter" \| "month" \| "day"`
+
+### `SequenceReviveUnit`
+
+**Type:** `"day" \| "week" \| "month" \| "quarter" \| "year"`
 
 ### `SequenceSegment`
 
@@ -5242,6 +5295,12 @@ Test helper alias (backward compat).
 
 **Type:** `() => void`
 
+### `REVIVE_INTERVAL_RE`
+
+`'15 days'`, `'1 month'`, `'2 years'` — the closed wire format.
+
+**Type:** `RegExp`
+
 ### `SECRET_DEFAULTS`
 
 Rotation cadence + how long `previous` stays acceptable.
@@ -5277,6 +5336,10 @@ label can never drift apart even by accident.
 - `exec-stop`  → destructive (stop/disable is a destructive op)
 
 **Type:** `Record<string, ActionColor>`
+
+### `SEQUENCE_REVIVE_UNITS`
+
+**Type:** `typeOperator`
 
 ### `sequenceTokenExampleDefaults`
 
@@ -5318,6 +5381,13 @@ NOT published by microservices — it is a BE-internal event.
 | UNREGISTER | "service.unregister" |
 | STALE | "service.stale" |
 | GATEWAY_ONLINE | "service.gateway_online" |
+
+### `SEZ_VALUE_RE`
+
+Sezionale value charset — alphanumerics and separators; the join
+ separator (US \x1f) can never appear inside a value.
+
+**Type:** `RegExp`
 
 ### `SHARED_CONFIG_SUBJECT`
 
@@ -6217,6 +6287,27 @@ now()): a Jan-issued invoice dated December lands in the Dec period.
 | kind | `SequencePeriodKind` |  |
 | at | `Date` |  |
 | tz | `string` |  |
+
+### `derivePeriodLabel(current, every): string`
+
+Advance a row-owned period label by one `revive_every` interval —
+parse-and-preserve: the CURRENT value's shape decides the render,
+never a declared format. `2026`→`2027`, `26`→`27`,
+`2026-Q1`→`2026-Q2` (or `2027-Q1` by year unit), `2026-03`→`2026-04`,
+`2026-W14`→`2026-W15`, `2026-03-16`→`2026-03-17`.
+
+Compatibility rule: the unit must not be FINER than the label's
+granularity — `'1 month'` on `2026` cannot render (throw);
+`'1 year'` on `2026-03` renders `2027-03`. A bare 2-digit label is
+`YY` under a year unit, `MM` under a month unit — anything else is a
+construction error. Throws on unparseable values: create-time
+validation calls this same function so a reviving row can never be
+built with an un-incrementable slot.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| current | `string` |  |
+| every | `string` |  |
 
 ### `deriveVisibleKeyPrefs(visibleKeys, columns): VisibleKeyPrefs`
 
@@ -7417,6 +7508,17 @@ then, and the callable is picked up by the post-onReady census.
 |-----------|------|-------------|
 | job | `PartitionMaintenanceJob` |  |
 
+### `mountSequenceReviveJob(job): Promise<void>`
+
+Mount the `<svc>.sequence_revive` callable and materialize the
+system trigger. Called by `createMicroservice` inside the deferred
+on-ready init — NATS is connected and migrations have succeeded by
+then, and the callable is picked up by the post-onReady census.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| job | `SequenceReviveJob` |  |
+
 ### `msgHeader(hdrs, name): string \| null`
 
 Case-insensitive lookup over a case-sensitive MsgHdrs.
@@ -7568,6 +7670,15 @@ Two dispatch shapes are supported:
 | entrySource | `string` |  |
 | opts | `{ component_url_routes: string[]; sheet_keys: string[] }` |  |
 | ts | `typeof ts` |  |
+
+### `parseReviveInterval(text): { count: number; unit: SequenceReviveUnit } \| null`
+
+Parse a `'N unit'` revive interval — null on anything outside the
+ closed format (validators turn null into the construction error).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| text | `string` |  |
 
 ### `parseSequenceDirective(raw): SequenceDirective \| null`
 
@@ -7943,6 +8054,36 @@ the OLD endpoint) before the delegate swap.
 | cfg | `TelemetryConfig` |  |
 | serviceName | `string` |  |
 | serviceVersion | `string` |  |
+
+### `reviveAddInterval(at, interval, tz): Date`
+
+Add a `'N unit'` interval to `at` on the WALL calendar of `tz`
+(grace arithmetic — DST-safe, the wall clock owns the semantics;
+`'1 day'` after a DST-jump boundary still lands on the next local
+midnight, not +24h into the wrong offset). `at` is an instant;
+the interval walks its zoned wall time forward, then converts back.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| at | `Date` |  |
+| interval | `string` |  |
+| tz | `string` |  |
+
+### `reviveExpireAt(at, every, tz): Date`
+
+The calendar-anchored expiry instant for a reviving row — the first
+period boundary strictly after `at` in the row's timezone:
+  start of current period (midnight today / ISO-week Monday /
+  1st-of-month / quarter start / Jan-1) + `count` units.
+`'15 days'` is day-aligned rolling from today's local midnight;
+`'1 year'` created Mar-15-2026 expires Jan-1-2027 00:00 local.
+This is the successor's `default_from` — the `at`-axis boundary.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| at | `Date` |  |
+| every | `string` |  |
+| tz | `string` |  |
 
 ### `rewriteLucideBarrelImports(code): LucideRewriteResult`
 

@@ -129,6 +129,10 @@ import {
   mountPartitionMaintenanceJob,
   type PartitionMaintenanceJob,
 } from "./partition-maintenance-job.js";
+import {
+  mountSequenceReviveJob,
+  type SequenceReviveJob,
+} from "./sequence-revive-job.js";
 
 // ─── Options ───────────────────────────────────────────────────────────────
 
@@ -317,6 +321,18 @@ export interface MicroserviceOptions {
    * declared through the governed materialize route.
    */
   partitionMaintenance?: PartitionMaintenanceJob;
+
+  /**
+   * Shared sequence-revive job wiring — produced by dal-pg's
+   * `makeSequenceReviveJob()`. The builtin `sequences` table mounts
+   * unconditionally, so the `<svc>.sequence_revive` callable mounts on
+   * every dal-backed service inside the deferred on-ready init
+   * (post-NATS, post-migrations); the system trigger is declared
+   * through the governed materialize route. The revive ALGORITHM lives
+   * once in dal-pg (`dal.sequenceRevive`) — the service only hosts the
+   * executor.
+   */
+  sequenceRevive?: SequenceReviveJob;
 
   /**
    * Callback fired after everything is wired (NATS subscriptions, business
@@ -1024,6 +1040,17 @@ export async function createMicroservice(
     } else if (options.partitionMaintenance) {
       logger.info(
         "partition_maintenance: no maintained surface in entity registry — job not declared",
+        { tags: ["jobs"] },
+      );
+    }
+    // Shared sequence-revive job — same mount contract: the callable is
+    // registered in the same payload-schema census; `needed` gates on
+    // sequence-surface ownership.
+    if (options.sequenceRevive?.needed) {
+      await mountSequenceReviveJob(options.sequenceRevive);
+    } else if (options.sequenceRevive) {
+      logger.info(
+        "sequence_revive: no sequence surface in entity registry — job not declared",
         { tags: ["jobs"] },
       );
     }

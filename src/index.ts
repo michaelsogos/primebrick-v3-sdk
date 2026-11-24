@@ -388,6 +388,13 @@ export {
   type PartitionMaintenanceJob,
 } from "./microservice/partition-maintenance-job.js";
 
+// Sequence-revive system job — the `<svc>.sequence_revive` callable +
+// system-trigger materialize, produced by dal-pg's makeSequenceReviveJob.
+export {
+  mountSequenceReviveJob,
+  type SequenceReviveJob,
+} from "./microservice/sequence-revive-job.js";
+
 // DB migration boot step + db_patch remediation surface (step 2.5)
 export {
   runDbMigrationStep,
