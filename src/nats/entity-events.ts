@@ -228,7 +228,12 @@ function honestColumnFormat(col: MetaColumn, leafType: unknown): string | undefi
   if (col.type === "ref") return "uuid";
   if (leafType !== "string") return undefined;
   const hint = HONEST_FORMAT_HINTS.find((h) => h.re.test(col.key));
-  if (hint && !hint.formats.includes("uuid")) return hint.formats[0];
+  if (!hint) return undefined;
+  // `*_by` on a text column — `actor_token` is the honest claim
+  // (`system:<code>` and uuids are both legal actors); never `uuid`,
+  // which a varchar cannot keep.
+  if (hint.formats.includes("actor_token")) return "actor_token";
+  if (!hint.formats.includes("uuid")) return hint.formats[0];
   return undefined;
 }
 
