@@ -47,7 +47,7 @@ import {
   NatsApiKeyPort,
 } from "@primebrick/sdk";
 import * as dalMigrations from "@primebrick/dal-pg";
-import { initDal, getDal } from "./db/dal.js";
+import { initDal, getDal, OWNED_SCHEMAS } from "./db/dal.js";
 import { ENTITY_REGISTRY } from "./domain/entities/registry.js";
 import { ConfigRepositoryAdapter } from "./adapters/config-repository-adapter.js";
 import { HealthCheckAdapter } from "./adapters/health-check-adapter.js";
@@ -61,19 +61,25 @@ await createMicroservice({
   icon: "mail",
   iconType: "icon",
 
-  // Closed-set env contract: DATABASE_URL + DATABASE_SCHEMA are the ONLY
-  // env vars — enforced by assertDbEnv(). envSchema has no keys left.
+  // Closed-set env contract: DATABASE_URL is the ONLY env var — enforced
+  // by assertDbEnv(). DATABASE_SCHEMA in env is a reserved violation
+  // (schema identity is code — the `schemas` option below).
   envSchema: {},
+
+  // Owned schema domain — code, not env. Feeds the registry ownership
+  // claim, the schema guard, and dbPatches (which cannot redeclare it).
+  schemas: OWNED_SCHEMAS,
 
   initDal,
   dalClose: async () => { await getDal().close(); },
   dbBanner: () => pgServerBanner(getDal(), process.env.DATABASE_URL!),
 
   // Own-schema migrations run BEFORE ConfigLoader reads config_entries.
+  // `schemas`/`schema` are injected from the top-level `schemas` option —
+  // ServiceDbMigrationOptions omits them (single source).
   dbPatches: {
     engine: dalMigrations,
     pool: () => getDal().getPool(),
-    schema: () => assertDbEnv().schemas[0],
     patchesDir: join(process.cwd(), "db-meta", "patches"),
     entityRegistry: [...ENTITY_REGISTRY],
     // NODE_ENV is a platform var (Docker ENV / launch env — never .env):

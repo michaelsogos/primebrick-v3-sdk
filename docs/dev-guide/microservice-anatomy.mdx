@@ -78,13 +78,21 @@ NATS request/reply is **deprecated** — governed correlation routes
 
 ## What the service must declare
 
-Required: `serviceName`, `envSchema`, `initDal`, `dalClose`,
+Required: `serviceName`, `schemas`, `envSchema`, `initDal`, `dalClose`,
 `configRepositoryAdapter`, `authConfigPort`, `healthCheckPort`.
 Optional: `routeHandler` (factory-produced only — `makeRpcRouter`,
 `makeOpenApiHandler`, `composeRouteHandlers`; arbitrary handlers are
 rejected), `apiKeyPort`, `endpoints`, `customHealthChecks`,
 `identityExemptPaths`, `docsPackDir`, `authDependencySetters`, `onReady`,
 identity/display/icon fields for the registry.
+
+`schemas` is the service's **schema domain** — always the `OWNED_SCHEMAS`
+const declared in `db/dal.ts` (BE: `src/db/owned-schemas.ts`), never an
+env var. It is the single source consumed by the `own_schemas` registry
+claim, the entity schema guard, and `dbPatches` — `schemas`/`schema` are
+omitted from `ServiceDbMigrationOptions` and injected here by
+construction, so a service cannot declare a divergent list. See the
+dal-pg dev-guide → *Schema domain* for the full contract.
 
 ## Deep-dives
 

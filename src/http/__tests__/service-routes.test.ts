@@ -52,6 +52,7 @@ async function servedSpec(h: ReturnType<typeof makeServiceRoutes>): Promise<Reco
 describe("makeServiceRoutes", () => {
   it("returns a factory-branded handler (createMicroservice accepts it)", () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       rpc: [[{ method: "GET", path: "/api/v1/ping", auth: "public", handler: async () => ({}) }]],
     });
@@ -60,6 +61,7 @@ describe("makeServiceRoutes", () => {
 
   it("spec paths derive from entity permissions — never restated", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [{
         entityName: "job_rule",
@@ -86,6 +88,7 @@ describe("makeServiceRoutes", () => {
 
   it("bulk twins default-on with the single counterpart; explicit false opts out", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [
         // `delete` declared → bulkDelete defaults-on (inherited perms)
@@ -108,6 +111,7 @@ describe("makeServiceRoutes", () => {
 
   it("duplicate registers only on clonable services; meta requires cfg.meta", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [
         // clonable + duplicate implicit, meta perm declared but NO meta object → no meta
@@ -132,6 +136,7 @@ describe("makeServiceRoutes", () => {
   it("duplicate config on a non-clonable service fails at construction", () => {
     expect(() =>
       makeServiceRoutes({
+        schemas: ["test"],
         info: { title: "T", version: "0.0.0" },
         entities: [{
           entityName: "e",
@@ -142,6 +147,7 @@ describe("makeServiceRoutes", () => {
     ).toThrow(/not clonable/);
     expect(() =>
       makeServiceRoutes({
+        schemas: ["test"],
         info: { title: "T", version: "0.0.0" },
         entities: [{
           entityName: "e",
@@ -163,6 +169,7 @@ describe("makeServiceRoutes", () => {
       handler: async () => ({}),
     }];
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "Webhook", version: "1.0.0" },
       rpc: [{ routes, deps: { apiKeyPort: () => null } }],
     });
@@ -173,6 +180,7 @@ describe("makeServiceRoutes", () => {
 
   it("spec cosmetics (tag/label/listResponse) shape the entity block only", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [{
         entityName: "provider",
@@ -228,6 +236,7 @@ describe("makeServiceRoutes", () => {
 
     it("constructs when every meta action is backed by an entity_op route", async () => {
       const h = makeServiceRoutes({
+        schemas: ["test"],
         info: { title: "T", version: "0.0.0" },
         entities: [entityDecl()],
         rpc: [opRoutes],
@@ -239,6 +248,7 @@ describe("makeServiceRoutes", () => {
     it("fails fast when a meta row/bulk action has no backing entity_op", () => {
       expect(() =>
         makeServiceRoutes({
+          schemas: ["test"],
           info: { title: "T", version: "0.0.0" },
           entities: [entityDecl()],
           rpc: [opRoutes.slice(0, 1)], // only "stop" — disarm_all unbacked
@@ -249,6 +259,7 @@ describe("makeServiceRoutes", () => {
     it("fails fast when entity_op names an entity with no decl", () => {
       expect(() =>
         makeServiceRoutes({
+          schemas: ["test"],
           info: { title: "T", version: "0.0.0" },
           entities: [],
           rpc: [opRoutes],
@@ -269,6 +280,7 @@ describe("makeServiceRoutes", () => {
       ];
       expect(() =>
         makeServiceRoutes({
+          schemas: ["test"],
           info: { title: "T", version: "0.0.0" },
           entities: [entityDecl()],
           rpc: [dup],
@@ -279,6 +291,7 @@ describe("makeServiceRoutes", () => {
 
   it("handler serves both openapi.json and domain routes through one mount", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       rpc: [[{ method: "GET", path: "/api/v1/ping", auth: "public", handler: async () => ({ pong: true }) }]],
     });
@@ -320,7 +333,7 @@ describe("builtin rpc routes — registry merge", () => {
       }],
     });
     try {
-      const h = makeServiceRoutes({ info: { title: "T", version: "0.0.0" } });
+      const h = makeServiceRoutes({ schemas: ["test"], info: { title: "T", version: "0.0.0" } });
       // mounted
       expect(await hits(h, "POST", "/api/v1/actions/fake-builtin-set")).toBe(true);
       // the builtin entity decl is in the served decl set (entity_op binding

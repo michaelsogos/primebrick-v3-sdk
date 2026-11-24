@@ -114,6 +114,7 @@ const opRoutes: RpcRoute[] = [
 describe("entity_op → served meta CTA synthesis", () => {
   it("synthesizes row CTAs from entity_op.cta — meta.table is NOT required", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -135,6 +136,7 @@ describe("entity_op → served meta CTA synthesis", () => {
 
   it("infers bulk placement for *_all ops + carries sentinel permissions as FE names", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -153,6 +155,7 @@ describe("entity_op → served meta CTA synthesis", () => {
 
   it("defaults: row placement, row_key = meta.uid, translation_key = <ns>.actions.<op>", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -169,6 +172,7 @@ describe("entity_op → served meta CTA synthesis", () => {
 
   it("meta.actions exposes the ops enabled with endpoint + permissions", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -190,6 +194,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       ],
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [opRoutes],
@@ -226,6 +231,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       },
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [],
@@ -265,6 +271,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       },
     ];
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [rpc],
@@ -298,6 +305,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       },
     ];
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [rpc],
@@ -342,6 +350,7 @@ describe("entity_op → served meta CTA synthesis", () => {
     ];
     expect(() =>
       makeServiceRoutes({
+        schemas: ["test"],
         info: { title: "T", version: "0.0.0" },
         entities: [decl],
         rpc: [rpc],
@@ -356,6 +365,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       permissions: { ...entityDecl().permissions, duplicate: ["p"] },
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [],
@@ -377,6 +387,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       "duplicate.bulk": { color: "info", icon: "files" },
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [],
@@ -395,6 +406,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       permissions: { ...entityDecl().permissions, export: ["p"] },
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [],
@@ -415,6 +427,7 @@ describe("entity_op → served meta CTA synthesis", () => {
     };
     expect(() =>
       makeServiceRoutes({
+        schemas: ["test"],
         info: { title: "T", version: "0.0.0" },
         entities: [decl],
         rpc: [],
@@ -438,6 +451,7 @@ describe("entity_op → served meta CTA synthesis", () => {
     ];
     expect(() =>
       makeServiceRoutes({
+        schemas: ["test"],
         info: { title: "T", version: "0.0.0" },
         entities: [entityDecl()],
         rpc: [rpc],

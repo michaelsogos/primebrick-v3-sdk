@@ -27,6 +27,10 @@ import type { RpcRoute } from "./rpc-router.js";
 
 export interface BuiltinDeclCtx {
   actor: () => string;
+  /** The module's declared schema list (code const, [0] = owned) — carried
+   *  through the ctx so builtin decls resolve their owned namespace from
+   *  service identity, never env. */
+  schemas: readonly string[];
 }
 
 interface BuiltinDeclFactory {
@@ -36,7 +40,7 @@ interface BuiltinDeclFactory {
    *  makeServiceRoutes' `rpc` input so entity_op binding, OpenAPI and
    *  mounting treat builtin routes exactly like module-authored ones. */
   rpc?: (ctx: BuiltinDeclCtx) => Record<string, unknown>[];
-  nav?: () => BuiltinNavContribution;
+  nav?: (ctx: BuiltinDeclCtx) => BuiltinNavContribution;
 }
 
 /** A builtin leaf contributed under a sibling module node — composed
@@ -56,33 +60,34 @@ const REGISTRY_KEY = Symbol.for("primebrick.builtin-entity-decl-factories");
 
 /** Built-in decls from every registered provider (dal-pg today).
  *  Empty when no provider is loaded (sdk-only tests, no-DB services). */
-export function builtinEntityDecls(): EntityRouteDecl[] {
+export function builtinEntityDecls(schemas: readonly string[]): EntityRouteDecl[] {
   const g = globalThis as Record<symbol, Map<string, BuiltinDeclFactory> | undefined>;
   const reg = g[REGISTRY_KEY];
   if (!reg) return [];
-  const ctx: BuiltinDeclCtx = { actor: () => requireActor() };
+  const ctx: BuiltinDeclCtx = { actor: () => requireActor(), schemas };
   return [...reg.values()].flatMap((f) => f.make(ctx)) as unknown as EntityRouteDecl[];
 }
 
 /** Built-in RPC routes from every registered provider — bare `RpcRoute[]`
  *  entries, ready to merge into makeServiceRoutes' `rpc` input. Empty
  *  when no provider is loaded or no builtin declares an RPC surface. */
-export function builtinRpcRoutes(): RpcRoute[][] {
+export function builtinRpcRoutes(schemas: readonly string[]): RpcRoute[][] {
   const g = globalThis as Record<symbol, Map<string, BuiltinDeclFactory> | undefined>;
   const reg = g[REGISTRY_KEY];
   if (!reg) return [];
-  const ctx: BuiltinDeclCtx = { actor: () => requireActor() };
+  const ctx: BuiltinDeclCtx = { actor: () => requireActor(), schemas };
   return [...reg.values()].flatMap((f) =>
     f.rpc ? [f.rpc(ctx) as unknown as RpcRoute[]] : [],
   );
 }
 
 /** Builtin nav contributions from every registered provider. */
-export function builtinNavContributions(): BuiltinNavContribution[] {
+export function builtinNavContributions(schemas: readonly string[]): BuiltinNavContribution[] {
   const g = globalThis as Record<symbol, Map<string, BuiltinDeclFactory> | undefined>;
   const reg = g[REGISTRY_KEY];
   if (!reg) return [];
-  return [...reg.values()].flatMap((f) => (f.nav ? [f.nav()] : []));
+  const ctx: BuiltinDeclCtx = { actor: () => requireActor(), schemas };
+  return [...reg.values()].flatMap((f) => (f.nav ? [f.nav(ctx)] : []));
 }
 
 /** Merge builtin nav contributions into the module's self-declaration —
@@ -98,8 +103,8 @@ export function builtinNavContributions(): BuiltinNavContribution[] {
  *
  *  Modules without a nav declaration get none (no route_prefixes to
  *  nest under — no surface to hang on). */
-export function mergeBuiltinNav(nav: ModuleNavDeclaration | undefined): ModuleNavDeclaration | undefined {
-  const contributions = builtinNavContributions();
+export function mergeBuiltinNav(nav: ModuleNavDeclaration | undefined, schemas: readonly string[]): ModuleNavDeclaration | undefined {
+  const contributions = builtinNavContributions(schemas);
   if (!nav || contributions.length === 0) return nav;
   const primary = nav.route_prefixes[0];
   const siblings = [...(nav.siblings ?? [])];

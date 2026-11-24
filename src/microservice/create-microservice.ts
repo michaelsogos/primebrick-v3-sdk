@@ -618,7 +618,7 @@ export async function createMicroservice(
   // providers (dal-pg sequences today) merge into the module's nav BY
   // CONSTRUCTION, appended LAST inside their sibling. Same invariant as
   // the route mount: module-authored collisions are a boot error.
-  const nav = mergeBuiltinNav(options.nav);
+  const nav = mergeBuiltinNav(options.nav, schemas);
 
   // Docs emit — the service documents itself from THIS options object
   // (nav + the route handler's .entityDecls/.spec brands), never a

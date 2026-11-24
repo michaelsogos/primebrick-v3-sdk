@@ -4,14 +4,21 @@
 
 ## Golden Rule
 
-**The ONLY allowed environment variables are the database bootstrap pair**
-`DATABASE_URL` (connection string) + `DATABASE_SCHEMA` (declared schema
-domain — CSV or JSON array; `[0]` is the service's owned schema, sent to
-the BE as the registry schema claim). Everything else — URLs, ports,
-secrets, keys, feature flags — is a **module config** read from the config
-table (`config_entries` on the BE, `<schema>.config` via `ConfigLoader` in
-microservices). `assertDbEnv()` validates the pair at boot — unknown,
-missing, empty or malformed keys crash startup.
+**The ONLY allowed environment variable is `DATABASE_URL`** (connection
+string). Everything else — URLs, ports, secrets, keys, feature flags — is
+a **module config** read from the config table (`config_entries` on the
+BE, `<schema>.config` via `ConfigLoader` in microservices).
+`assertDbEnv()` validates the contract at boot — unknown, missing, empty
+or malformed keys crash startup.
+
+**`DATABASE_SCHEMA` is a reserved violation, not a variable.** Schema
+identity is **code**: each service declares `OWNED_SCHEMAS` in
+`db/dal.ts` (BE: `src/db/owned-schemas.ts`) — the single source that feeds
+`createMicroservice({ schemas })` (registry ownership claim + entity
+guard + injected `dbPatches.schemas`) and the `db:check`/`db:meta:compare`
+wrappers. If `DATABASE_SCHEMA` is present in the process env (`.env`,
+docker `environment:`) `assertDbEnv()` **throws** — docker can configure
+where the database *is*, never which schemas the service *owns*.
 
 **`NODE_ENV` is not a config value** — it is the platform deployment-shape
 convention (`development`/`production`) set by the runtime, and the one
@@ -36,10 +43,11 @@ config row, no option, no opt-in for IPv6 or interface-specific binds.
   (secrets included — a secret is config, not env).
 - ❌ NEVER use env vars for URLs, ports, credentials, client keys, feature
   flags, or anything the service could read from its config table.
-- ✅ `DATABASE_URL` + `DATABASE_SCHEMA` are the sole exceptions — they
-  must exist before the config table is readable, and `DATABASE_SCHEMA`
-  declares which PG schemas the service may touch (entity guard +
-  registry claim).
+- ✅ `DATABASE_URL` is the sole exception — it must exist before the
+  config table is readable. `DATABASE_SCHEMA` must NOT exist: it is a
+  reserved name — schema identity lives in the `OWNED_SCHEMAS` const in
+  code (entity guard + registry claim + `dbPatches` domain all read it),
+  and `assertDbEnv()` throws when it is present.
 - ✅ When adding a config value: create a config entry (key, type, i18n
   label) in the module's config seed, document it, and read it via
   `ConfigLoader`/`ConfigEntriesService`.
@@ -65,5 +73,5 @@ never in `config_entries`:
 - Script-level knobs (`FE_DIR`, `DOCS_DIR`, `EVAL_*`, `OPENAPI_PATH`, …)
   — CLI arguments for `scripts/`/`eval/` tooling; not runtime config.
 
-The `.env` file itself may contain ONLY the DB pair — extra keys crash
+The `.env` file itself may contain ONLY `DATABASE_URL` — extra keys crash
 `assertDbEnv()` at boot.

@@ -72,7 +72,7 @@ function assertEnvFileClosedSet(cwd: string, errors: string[]): void {
   for (const line of readFileSync(envFile, "utf8").split("\n")) {
     const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
     if (m && !ALLOWED_KEYS.has(m[1]!)) {
-      errors.push(`.env contains '${m[1]}' — only DATABASE_URL and DATABASE_SCHEMA are allowed`);
+      errors.push(`.env contains '${m[1]}' — only DATABASE_URL is allowed`);
     }
   }
 }

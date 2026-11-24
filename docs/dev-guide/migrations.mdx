@@ -31,6 +31,13 @@ sanctioned `getPool()` seam in service code:
 dbPatches: { pool: () => getDal().getPool(), /* … */ }
 ```
 
+The `dbPatches` type is `ServiceDbMigrationOptions` — the resolved
+`DbMigrationBootOptions` **minus** `schemas`/`schema`: `schemas` is
+injected from the top-level `schemas` option (the `OWNED_SCHEMAS` const —
+single source, the service cannot declare a divergent list) and `schema`
+defaults to `schemas[0]` (the registry-owning primary) unless explicitly
+overridden.
+
 ## Degraded mode
 
 `runMigrations` returns `{ mode, degraded, applied[], failed[],

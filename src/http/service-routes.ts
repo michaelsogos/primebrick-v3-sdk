@@ -75,6 +75,12 @@ export type ServiceRoutesHandler = RouteHandler & {
 export interface ServiceRoutesInput {
   /** OpenAPI document info — title is required, version recommended. */
   info: { title: string; version: string; description?: string };
+  /**
+   * The service's declared schema list (code const — [0] = owned schema).
+   * Carried into the builtin decl context so platform surfaces resolve
+   * their owned namespace from service identity, never env.
+   */
+  schemas: readonly string[];
   /** Emitted as `servers[0].url` when present. */
   serverUrl?: string;
   /** Extra top-level OpenAPI tags. */
@@ -135,7 +141,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   // from registered providers (dal-pg), never from a module's `entities`.
   // A consumer decl colliding with a builtin name is a boot error:
   // builtins may only ever exist through this mount.
-  const builtins = builtinEntityDecls();
+  const builtins = builtinEntityDecls(input.schemas);
   const builtinNames = new Set(builtins.map((d) => d.entityName));
   for (const d of input.entities ?? []) {
     if (builtinNames.has(d.entityName)) {
@@ -149,7 +155,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   /** Builtin RPC routes mount through the same `rpc` contract as
    *  module-authored ones — entity_op binding, OpenAPI and mounting
    *  behave identically. */
-  const allRpc = [...builtinRpcRoutes(), ...(input.rpc ?? [])];
+  const allRpc = [...builtinRpcRoutes(input.schemas), ...(input.rpc ?? [])];
   const customOps = new Map<string, EntityCustomOp[]>();
   // CTA chrome derived from each op route — synthesized into the served
   // `meta.table.row_custom_actions`/`bulk_custom_actions` below.
