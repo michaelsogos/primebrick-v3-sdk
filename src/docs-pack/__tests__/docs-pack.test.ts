@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { extJsonParse, extJsonStringify } from "@primebrick/core/ext-json";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,6 +67,17 @@ describe("parseDocsPackPayload", () => {
 
   it("accepts a valid payload", () => {
     expect(parseDocsPackPayload(good).manifest.repo).toBe("ai");
+  });
+
+  it("accepts an ext-json wire payload — integers arrive as bigint", () => {
+    // The client path (docs-pack-client.ts) runs extJsonParse: EVERY
+    // integer becomes bigint, so schema/bytes arrive as 1n/3n — the
+    // validator must coerce, never strict-compare wire numbers.
+    const wire = extJsonParse(extJsonStringify(good));
+    const parsed = parseDocsPackPayload(wire);
+    expect(parsed.manifest.repo).toBe("ai");
+    expect(typeof parsed.manifest.schema).toBe("number");
+    expect(typeof parsed.manifest.files[0]!.bytes).toBe("number");
   });
 
   it.each([

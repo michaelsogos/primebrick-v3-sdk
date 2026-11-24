@@ -64,24 +64,48 @@ function fail(msg: string): never {
   throw new Error(`invalid docs pack payload: ${msg}`);
 }
 
+/**
+ * Wire integers arrive as bigint (ext-json codec) — accept both, coerce to
+ * number, reject everything else. The returned payload must honor its
+ * declared `number` types, never smuggle bigint downstream.
+ */
+function asInt(v: unknown, what: string): number {
+  const n = typeof v === "bigint" ? Number(v) : v;
+  if (typeof n !== "number" || !Number.isSafeInteger(n)) fail(`${what} not an integer`);
+  return n;
+}
+
 export function parseDocsPackPayload(raw: unknown): DocsPackPayload {
   if (!isRecord(raw)) fail("payload is not an object");
   const m = raw.manifest;
   if (!isRecord(m)) fail("manifest missing");
-  if (m.schema !== DOCS_PACK_SCHEMA_VERSION) fail(`unsupported schema ${String(m.schema)}`);
+  const schema = asInt(m.schema, "schema");
+  if (schema !== DOCS_PACK_SCHEMA_VERSION) fail(`unsupported schema ${String(m.schema)}`);
   if (typeof m.repo !== "string" || !m.repo) fail("manifest.repo missing");
   if (typeof m.generated_at !== "string") fail("manifest.generated_at missing");
   if (!Array.isArray(m.files)) fail("manifest.files missing");
-  for (const f of m.files) {
+  const manifestFiles: DocsPackFile[] = m.files.map((f) => {
     if (!isRecord(f) || typeof f.path !== "string" || !f.path) fail("manifest.files[].path invalid");
     if (typeof f.sha256 !== "string" || f.sha256.length !== 64) fail(`manifest file ${f.path}: bad sha256`);
-    if (typeof f.bytes !== "number" || f.bytes < 0) fail(`manifest file ${f.path}: bad bytes`);
-  }
+    const bytes = asInt(f.bytes, `manifest file ${f.path}: bytes`);
+    if (bytes < 0) fail(`manifest file ${f.path}: bad bytes`);
+    return { path: f.path, sha256: f.sha256, bytes };
+  });
   if (!Array.isArray(raw.files)) fail("files missing");
   for (const f of raw.files) {
     if (!isRecord(f) || typeof f.path !== "string" || !f.path) fail("files[].path invalid");
     if (typeof f.content !== "string") fail(`file ${f.path}: content not a string`);
   }
   if (raw.openapi !== undefined && typeof raw.openapi !== "string") fail("openapi not a string");
-  return raw as unknown as DocsPackPayload;
+  return {
+    manifest: {
+      schema: DOCS_PACK_SCHEMA_VERSION,
+      repo: m.repo,
+      generated_at: m.generated_at,
+      files: manifestFiles,
+      ...(m.has_openapi === true ? { has_openapi: true as const } : {}),
+    },
+    files: raw.files as DocsPackContentFile[],
+    ...(typeof raw.openapi === "string" ? { openapi: raw.openapi } : {}),
+  };
 }
