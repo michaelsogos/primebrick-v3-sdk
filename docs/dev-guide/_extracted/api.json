@@ -110373,9 +110373,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 173,
+							"line": 246,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L173"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L246"
 						}
 					],
 					"signatures": [
@@ -110388,9 +110388,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 173,
+									"line": 246,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L173"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L246"
 								}
 							],
 							"parameters": [
@@ -110444,9 +110444,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 214,
+							"line": 287,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L214"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L287"
 						}
 					],
 					"signatures": [
@@ -110459,9 +110459,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 214,
+									"line": 287,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L214"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L287"
 								}
 							],
 							"type": {
@@ -110488,9 +110488,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 221,
+							"line": 294,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L221"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L294"
 						}
 					],
 					"signatures": [
@@ -110503,9 +110503,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 221,
+									"line": 294,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L221"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L294"
 								}
 							],
 							"type": {
@@ -110544,9 +110544,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 229,
+							"line": 302,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L229"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L302"
 						}
 					],
 					"signatures": [
@@ -110567,9 +110567,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 229,
+									"line": 302,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L229"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L302"
 								}
 							],
 							"type": {
@@ -110590,9 +110590,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 237,
+							"line": 310,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L237"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L310"
 						}
 					],
 					"signatures": [
@@ -110613,9 +110613,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 237,
+									"line": 310,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L237"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L310"
 								}
 							],
 							"type": {
@@ -110645,9 +110645,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 245,
+							"line": 318,
 							"character": 9,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L245"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L318"
 						}
 					],
 					"signatures": [
@@ -110668,9 +110668,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 245,
+									"line": 318,
 									"character": 9,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L245"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L318"
 								}
 							],
 							"type": {
@@ -110700,9 +110700,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 249,
+							"line": 322,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L249"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L322"
 						}
 					],
 					"signatures": [
@@ -110715,9 +110715,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 249,
+									"line": 322,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L249"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L322"
 								}
 							],
 							"type": {
@@ -110750,9 +110750,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 281,
+							"line": 354,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L281"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L354"
 						}
 					],
 					"signatures": [
@@ -110789,9 +110789,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 281,
+									"line": 354,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L281"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L354"
 								}
 							],
 							"parameters": [
@@ -110901,9 +110901,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 311,
+							"line": 384,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L311"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L384"
 						}
 					],
 					"signatures": [
@@ -110943,9 +110943,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 311,
+									"line": 384,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L311"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L384"
 								}
 							],
 							"typeParameters": [
@@ -111092,9 +111092,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 314,
+															"line": 387,
 															"character": 13,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L314"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L387"
 														}
 													],
 													"type": {
@@ -111151,9 +111151,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 390,
+							"line": 462,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L390"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L462"
 						}
 					],
 					"signatures": [
@@ -111190,9 +111190,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 390,
+									"line": 462,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L390"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L462"
 								}
 							],
 							"parameters": [
@@ -111281,9 +111281,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 394,
+															"line": 466,
 															"character": 6,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L394"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L466"
 														}
 													],
 													"type": {
@@ -111318,9 +111318,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 395,
+															"line": 467,
 															"character": 6,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L395"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L467"
 														}
 													],
 													"type": {
@@ -111351,9 +111351,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 397,
+															"line": 469,
 															"character": 6,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L397"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L469"
 														}
 													],
 													"type": {
@@ -111384,9 +111384,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 399,
+															"line": 471,
 															"character": 6,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L399"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L471"
 														}
 													],
 													"type": {
@@ -111413,9 +111413,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 401,
+															"line": 473,
 															"character": 6,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L401"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L473"
 														}
 													],
 													"type": {
@@ -111451,9 +111451,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 405,
+															"line": 477,
 															"character": 6,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L405"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L477"
 														}
 													],
 													"type": {
@@ -111518,9 +111518,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 461,
+							"line": 533,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L461"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L533"
 						}
 					],
 					"signatures": [
@@ -111560,9 +111560,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 461,
+									"line": 533,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L461"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L533"
 								}
 							],
 							"parameters": [
@@ -111648,9 +111648,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-							"line": 498,
+							"line": 570,
 							"character": 15,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L498"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L570"
 						}
 					],
 					"signatures": [
@@ -111802,9 +111802,9 @@
 							"sources": [
 								{
 									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-									"line": 498,
+									"line": 570,
 									"character": 15,
-									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L498"
+									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L570"
 								}
 							],
 							"typeParameters": [
@@ -111845,9 +111845,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 499,
+															"line": 571,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L499"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L571"
 														}
 													],
 													"type": {
@@ -111864,9 +111864,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 500,
+															"line": 572,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L500"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L572"
 														}
 													],
 													"type": {
@@ -111883,9 +111883,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 501,
+															"line": 573,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L501"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L573"
 														}
 													],
 													"type": {
@@ -111904,9 +111904,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 502,
+															"line": 574,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L502"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L574"
 														}
 													],
 													"type": {
@@ -111929,9 +111929,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																			"line": 503,
+																			"line": 575,
 																			"character": 6,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L503"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L575"
 																		}
 																	],
 																	"type": {
@@ -111950,9 +111950,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																			"line": 504,
+																			"line": 576,
 																			"character": 6,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L504"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L576"
 																		}
 																	],
 																	"type": {
@@ -111971,9 +111971,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																			"line": 505,
+																			"line": 577,
 																			"character": 6,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L505"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L577"
 																		}
 																	],
 																	"type": {
@@ -111992,9 +111992,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																			"line": 506,
+																			"line": 578,
 																			"character": 6,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L506"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L578"
 																		}
 																	],
 																	"type": {
@@ -112013,9 +112013,9 @@
 																	"sources": [
 																		{
 																			"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																			"line": 507,
+																			"line": 579,
 																			"character": 6,
-																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L507"
+																			"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L579"
 																		}
 																	],
 																	"type": {
@@ -112050,9 +112050,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 509,
+															"line": 581,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L509"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L581"
 														}
 													],
 													"type": {
@@ -112097,9 +112097,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 510,
+																									"line": 582,
 																									"character": 6,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L510"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L582"
 																								}
 																							],
 																							"type": {
@@ -112118,9 +112118,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 511,
+																									"line": 583,
 																									"character": 6,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L511"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L583"
 																								}
 																							],
 																							"type": {
@@ -112219,9 +112219,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 521,
+															"line": 593,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L521"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L593"
 														}
 													],
 													"type": {
@@ -112270,9 +112270,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 522,
+															"line": 594,
 															"character": 4,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L522"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L594"
 														}
 													],
 													"type": {
@@ -112329,9 +112329,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 525,
+																									"line": 597,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L525"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L597"
 																								}
 																							],
 																							"type": {
@@ -112350,9 +112350,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 526,
+																									"line": 598,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L526"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L598"
 																								}
 																							],
 																							"type": {
@@ -112375,9 +112375,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 527,
+																									"line": 599,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L527"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L599"
 																								}
 																							],
 																							"type": {
@@ -112398,9 +112398,9 @@
 																											"sources": [
 																												{
 																													"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																													"line": 527,
+																													"line": 599,
 																													"character": 16,
-																													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L527"
+																													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L599"
 																												}
 																											],
 																											"type": {
@@ -112417,9 +112417,9 @@
 																											"sources": [
 																												{
 																													"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																													"line": 527,
+																													"line": 599,
 																													"character": 41,
-																													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L527"
+																													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L599"
 																												}
 																											],
 																											"type": {
@@ -112451,9 +112451,9 @@
 																							"sources": [
 																								{
 																									"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																									"line": 528,
+																									"line": 600,
 																									"character": 8,
-																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L528"
+																									"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L600"
 																								}
 																							],
 																							"type": {
@@ -112545,9 +112545,9 @@
 													"sources": [
 														{
 															"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-															"line": 531,
+															"line": 603,
 															"character": 16,
-															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L531"
+															"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L603"
 														}
 													],
 													"signatures": [
@@ -112560,9 +112560,9 @@
 															"sources": [
 																{
 																	"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-																	"line": 531,
+																	"line": 603,
 																	"character": 16,
-																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L531"
+																	"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L603"
 																}
 															],
 															"type": {
@@ -112653,9 +112653,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-client.ts",
-					"line": 165,
+					"line": 238,
 					"character": 13,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L165"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-client.ts#L238"
 				}
 			]
 		},
@@ -114309,9 +114309,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-					"line": 314,
+					"line": 306,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L314"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L306"
 				}
 			],
 			"signatures": [
@@ -114332,9 +114332,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-							"line": 314,
+							"line": 306,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L314"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L306"
 						}
 					],
 					"typeParameters": [
@@ -114427,9 +114427,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-					"line": 402,
+					"line": 395,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L402"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L395"
 				}
 			],
 			"signatures": [
@@ -114466,9 +114466,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-							"line": 402,
+							"line": 395,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L402"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L395"
 						}
 					],
 					"typeParameters": [
@@ -114579,9 +114579,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-					"line": 479,
+					"line": 476,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L479"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L476"
 				}
 			],
 			"signatures": [
@@ -114634,9 +114634,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-							"line": 479,
+							"line": 476,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L479"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L476"
 						}
 					],
 					"typeParameters": [
@@ -114701,9 +114701,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 482,
+													"line": 479,
 													"character": 10,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L482"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L479"
 												}
 											],
 											"type": {
@@ -114722,9 +114722,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 482,
+													"line": 479,
 													"character": 30,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L482"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L479"
 												}
 											],
 											"type": {
@@ -114759,9 +114759,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 482,
+													"line": 479,
 													"character": 64,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L482"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L479"
 												}
 											],
 											"type": {
@@ -114786,9 +114786,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 482,
+													"line": 479,
 													"character": 93,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L482"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L479"
 												}
 											],
 											"type": {

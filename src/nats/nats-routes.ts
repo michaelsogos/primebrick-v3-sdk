@@ -21,7 +21,7 @@
 
 import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
 import { jetstreamManager } from "@nats-io/jetstream";
-import { NatsClient, publishJobResultMessage } from "./nats-client.js";
+import { decodeInboundMessage, encodeOutboundMessage, messageWithInboundView, NatsClient, publishJobResultMessage } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { extJsonParse, extJsonStringify } from "../json/ext-json.js";
@@ -194,14 +194,6 @@ function isReplyError(x: unknown): x is NatsReplyError {
   return !!x && typeof x === "object" && "error" in x;
 }
 
-function encode(data: unknown): Uint8Array {
-  return new TextEncoder().encode(extJsonStringify(data));
-}
-
-function decode<T>(data: Uint8Array): T {
-  return extJsonParse(new TextDecoder().decode(data)) as T;
-}
-
 /** Contract-first validation: the payload_schema `parse` ALWAYS runs when
  *  a contract is declared (mandatory — the callable's own zod), then any
  *  extra `validate` hook. Failures surface as `VALIDATION_ERROR`, never
@@ -354,10 +346,11 @@ export async function makeNatsRoutes<TReq = unknown>(
       for await (const msg of sub) {
         const t0 = performance.now();
         try {
-          const user = await verifyAndAuthorize(msg, route);
-          const raw = decode(msg.data);
-          const request = runContract(route, raw);
-          const out = await route.handler({ user, request, msg });
+          const inbound = decodeInboundMessage(msg.data, msg.headers);
+          const view = messageWithInboundView(msg, inbound);
+          const user = await verifyAndAuthorize(view, route);
+          const request = runContract(route, inbound.data);
+          const out = await route.handler({ user, request, msg: view });
           await publishJobResultMessage(route.subject, msg.headers, {
             status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
@@ -425,15 +418,19 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
     (async () => {
       for await (const msg of sub) {
         const replyError = (code: string, message: string, extra?: Record<string, unknown>) => {
-          if (msg.reply) msg.respond(encode({ error: { code, message, ...(extra ? { extra } : {}) } }));
+          if (msg.reply) {
+            const outbound = encodeOutboundMessage({ error: { code, message, ...(extra ? { extra } : {}) } });
+            msg.respond(outbound.payload);
+          }
         };
         const t0 = performance.now();
         try {
-          const user = await verifyAndAuthorize(msg, route);
-          const raw = decode(msg.data);
-          const request = runContract(route, raw);
-          const result = await route.handler({ user, request, msg });
-          if (msg.reply) msg.respond(encode(result ?? null));
+          const inbound = decodeInboundMessage(msg.data, msg.headers);
+          const view = messageWithInboundView(msg, inbound);
+          const user = await verifyAndAuthorize(view, route);
+          const request = runContract(route, inbound.data);
+          const result = await route.handler({ user, request, msg: view });
+          if (msg.reply) msg.respond(encodeOutboundMessage(result ?? null).payload);
           await publishJobResultMessage(route.subject, msg.headers, {
             status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
@@ -496,7 +493,7 @@ export async function callNats<TRes = unknown>(
       for await (const msg of sub) {
         clearTimeout(timer);
         try {
-          const decoded = decode<unknown>(msg.data);
+          const decoded = decodeInboundMessage<unknown>(msg.data, msg.headers).data;
           if (isReplyError(decoded)) {
             reject(new Error(`${decoded.error.code}: ${decoded.error.message}`));
           } else {
@@ -508,10 +505,12 @@ export async function callNats<TRes = unknown>(
       }
     })();
 
+    const outbound = encodeOutboundMessage(data, opts.headers);
     let hdrs;
-    if (opts.headers) {
+    const transportEntries = Object.entries(outbound.transportHeaders);
+    if (transportEntries.length > 0) {
       hdrs = natsHeaders();
-      for (const [k, v] of Object.entries(opts.headers)) hdrs.set(k, v);
+      for (const [k, v] of transportEntries) hdrs.set(k, v);
     }
     // Stamp service identity (UA + shield key) — the BE's verifyPublisher
     // check depends on it. Identity is applied AFTER caller headers so it
@@ -521,6 +520,6 @@ export async function callNats<TRes = unknown>(
       hdrs ??= natsHeaders();
       for (const [name, value] of Object.entries(identity)) hdrs.set(name.toLowerCase(), value);
     }
-    nc.publish(subject, encode(data), { reply: inbox, headers: hdrs });
+    nc.publish(subject, outbound.payload, { reply: inbox, headers: hdrs });
   });
 }

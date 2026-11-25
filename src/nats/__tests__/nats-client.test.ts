@@ -7,8 +7,11 @@ const mocks = vi.hoisted(() => {
   const mockSubscribe = vi.fn();
   const mockClose = vi.fn(async () => {});
   const mockJsPublish = vi.fn(async () => ({ seq: 42 }));
-  const mockJetstream = vi.fn(() => ({ publish: mockJsPublish }));
-  const mockJetstreamManager = vi.fn(async () => ({ jsm: true }));
+  const mockConsumersAdd = vi.fn(async () => ({}));
+  const mockConsumerFetch = vi.fn();
+  const mockConsumersGet = vi.fn(async () => ({ fetch: mockConsumerFetch }));
+  const mockJetstream = vi.fn(() => ({ publish: mockJsPublish, consumers: { get: mockConsumersGet } }));
+  const mockJetstreamManager = vi.fn(async () => ({ consumers: { add: mockConsumersAdd } }));
   const mockRequest = vi.fn(async () => ({ data: new Uint8Array(0) }));
   const nc = {
     close: mockClose,
@@ -18,7 +21,7 @@ const mocks = vi.hoisted(() => {
     request: mockRequest,
   };
   const mockConnect = vi.fn(async () => nc);
-  return { mockPublish, mockSubscribe, mockClose, mockJsPublish, mockJetstream, mockJetstreamManager, mockRequest, mockConnect, nc };
+  return { mockPublish, mockSubscribe, mockClose, mockJsPublish, mockConsumersAdd, mockConsumerFetch, mockConsumersGet, mockJetstream, mockJetstreamManager, mockRequest, mockConnect, nc };
 });
 
 vi.mock("@nats-io/transport-node", () => ({
@@ -31,6 +34,9 @@ vi.mock("@nats-io/transport-node", () => ({
     return {
       get: (k: string) => map.get(k)?.[0],
       set: (k: string, v: string) => map.set(k, [v]),
+      append: (k: string, v: string) => map.set(k, [...(map.get(k) ?? []), v]),
+      keys: () => [...map.keys()],
+      delete: (k: string) => map.delete(k),
       [Symbol.iterator]: function* () {
         yield* map.entries();
       },
@@ -50,9 +56,9 @@ vi.mock("@nats-io/jetstream", async (importOriginal) => {
 });
 
 import { NatsClient } from "../nats-client.js";
-import { connect as natsConnect } from "@nats-io/transport-node";
+import { connect as natsConnect, headers as natsHeaders } from "@nats-io/transport-node";
 import { extJsonParse, extJsonStringify } from "../../json/ext-json.js";
-import { isEnvelope, openEnvelope } from "../message-envelope.js";
+import { isEnvelope, openEnvelope, sealEnvelope } from "../message-envelope.js";
 import { MessageKeyProvider, setMessageKeyProvider } from "../message-key-provider.js";
 import { serializeAuthUserToHeaders } from "../../auth/auth-user-serializer.js";
 import { initAuthConfig, loadAuthConfig, resetAuthConfigForTest } from "../../auth/auth-config-cache.js";
@@ -271,6 +277,102 @@ describe("NatsClient.publish", () => {
   });
 });
 
+describe("NatsClient.jetstreamSubscribe encryption", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setMessageKeyProvider(null);
+    resetAuthConfigForTest();
+    mocks.mockConsumerFetch.mockReset();
+    NatsClient.close();
+  });
+
+  function fakeJsMsg(data: Uint8Array, hdrs?: ReturnType<typeof natsHeaders>) {
+    return {
+      subject: "durable.subject",
+      data,
+      headers: hdrs,
+      seq: 77,
+      info: { deliveryCount: 0 },
+      working: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+      term: vi.fn(),
+    };
+  }
+
+  function endlessAfterFirst(first: ReturnType<typeof fakeJsMsg>) {
+    mocks.mockConsumerFetch
+      .mockImplementationOnce(async () => ({
+        async *[Symbol.asyncIterator]() { yield first; },
+      }))
+      .mockImplementation(async () => new Promise(() => {}));
+  }
+
+  it("opens durable payloads before verify/handler and merges sealed auth headers", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    expect(current).not.toBeNull();
+    const outer = natsHeaders();
+    outer.set("traceparent", "00-test-trace");
+    const wire = sealEnvelope(current!.key, current!.generation, { durable_secret: "sealed-durable" }, { "x-user-id": "user-js" });
+    const msg = fakeJsMsg(new TextEncoder().encode(wire), outer);
+    endlessAfterFirst(msg);
+    const handler = vi.fn(async () => {});
+    const verify = vi.fn(async () => undefined);
+
+    await NatsClient.getConnection();
+    const handle = await NatsClient.jetstreamSubscribe({
+      stream: "SVC",
+      durable: "svc-durable",
+      filterSubject: "durable.subject",
+      verify,
+      handler,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await handle.close();
+
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(verify.mock.calls[0][0].headers.get("x-user-id")).toBe("user-js");
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][0]).toEqual({ durable_secret: "sealed-durable" });
+    expect(handler.mock.calls[0][1].headers.get("x-user-id")).toBe("user-js");
+    expect(handler.mock.calls[0][1].headers.get("traceparent")).toBe("00-test-trace");
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+  });
+
+  it("terminates tampered durable ciphertext without delivering it", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    expect(current).not.toBeNull();
+    const wire = extJsonParse(sealEnvelope(current!.key, current!.generation, { durable_secret: "sealed-durable" }, {})) as {
+      enc: number;
+      gen: number;
+      iv: string;
+      data: string;
+    };
+    wire.data = wire.data.slice(0, -1) + (wire.data.endsWith("A") ? "B" : "A");
+    const msg = fakeJsMsg(new TextEncoder().encode(extJsonStringify(wire)));
+    endlessAfterFirst(msg);
+    const handler = vi.fn(async () => {});
+
+    await NatsClient.getConnection();
+    const handle = await NatsClient.jetstreamSubscribe({
+      stream: "SVC",
+      durable: "svc-durable",
+      filterSubject: "durable.subject",
+      handler,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await handle.close();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(msg.term).toHaveBeenCalledTimes(1);
+    expect(msg.ack).not.toHaveBeenCalled();
+  });
+});
+
 describe("NatsClient.subscribe", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -305,6 +407,63 @@ describe("NatsClient.subscribe", () => {
     const [parsed] = handler.mock.calls[0];
     expect(parsed.id).toBe(99n);
     expect(parsed.action).toBe("create");
+  });
+
+  it("opens encrypted messages before the handler and merges sensitive headers", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    expect(current).not.toBeNull();
+    const outerHeaders = natsHeaders();
+    outerHeaders.set("x-job-run-id", "run-9");
+    const wire = sealEnvelope(current!.key, current!.generation, { secret_field: "sealed-value" }, { "x-user-id": "user-999" });
+    const handler = vi.fn();
+    const testMsg = {
+      data: new TextEncoder().encode(wire),
+      headers: outerHeaders,
+      reply: "",
+      subject: "test.subject",
+      sid: 1,
+    };
+    mocks.mockSubscribe.mockReturnValue({
+      async *[Symbol.asyncIterator]() { yield testMsg; },
+    });
+
+    await NatsClient.getConnection();
+    await NatsClient.subscribe("test.subject", handler);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const [data, raw] = handler.mock.calls[0];
+    expect(data).toEqual({ secret_field: "sealed-value" });
+    expect(raw.headers.get("x-user-id")).toBe("user-999");
+    expect(raw.headers.get("x-job-run-id")).toBe("run-9");
+  });
+
+  it("never delivers a tampered encrypted message to the handler", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    expect(current).not.toBeNull();
+    const wire = extJsonParse(sealEnvelope(current!.key, current!.generation, { secret_field: "sealed-value" }, {})) as {
+      enc: number;
+      gen: number;
+      iv: string;
+      data: string;
+    };
+    wire.data = wire.data.slice(0, -1) + (wire.data.endsWith("A") ? "B" : "A");
+    const handler = vi.fn();
+    mocks.mockSubscribe.mockReturnValue({
+      async *[Symbol.asyncIterator]() {
+        yield { data: new TextEncoder().encode(extJsonStringify(wire)), reply: "", subject: "test.subject", sid: 1 };
+      },
+    });
+
+    await NatsClient.getConnection();
+    await NatsClient.subscribe("test.subject", handler);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("handles empty msg.data by calling handler with null", async () => {

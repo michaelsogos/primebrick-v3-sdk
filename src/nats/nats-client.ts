@@ -5,7 +5,7 @@ import type { JetStreamClient, JetStreamManager, JsMsg } from "@nats-io/jetstrea
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
-import { sealEnvelope } from "./message-envelope.js";
+import { isEnvelope, openEnvelope, sealEnvelope, MessageIntegrityViolationError } from "./message-envelope.js";
 import { getMessageKeyProvider } from "./message-key-provider.js";
 import { getLoadedAuthConfig } from "../auth/auth-config-cache.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
@@ -73,8 +73,81 @@ function injectIdentity(hdrs: MsgHdrs): void {
 }
 
 const MESSAGE_KEY_PLAINTEXT_WARNED = Symbol.for("primebrick.sdk.message-key-plaintext-warned");
+const MESSAGE_KEY_LEGACY_INBOUND_WARNED = Symbol.for("primebrick.sdk.message-key-legacy-inbound-warned");
 
-function encodeOutboundMessage(
+export interface InboundMessagePayload<T = unknown> {
+  data: T;
+  headers?: MsgHdrs;
+  encrypted: boolean;
+}
+
+function mergeInboundHeaders(outer: MsgHdrs | undefined, inner: Record<string, string>): MsgHdrs | undefined {
+  if (Object.keys(inner).length === 0) return outer;
+  const merged = headers();
+  if (outer) {
+    for (const [key, values] of outer) {
+      for (const value of values) merged.append(key, value);
+    }
+  }
+  for (const [key, value] of Object.entries(inner)) {
+    for (const existing of merged.keys()) {
+      if (existing.toLowerCase() === key.toLowerCase()) merged.delete(existing);
+    }
+    merged.set(key, value);
+  }
+  return merged;
+}
+
+function warnLegacyInboundOnce(): void {
+  const processFlags = globalThis as Record<symbol, boolean | undefined>;
+  if (processFlags[MESSAGE_KEY_LEGACY_INBOUND_WARNED] === true) return;
+  processFlags[MESSAGE_KEY_LEGACY_INBOUND_WARNED] = true;
+  logger.warn("MESSAGE_KEY_LEGACY_PLAINTEXT inbound passthrough — accepting an unencrypted transitional payload", { tags: ["nats"] });
+}
+
+/**
+ * Decode an inbound fabric payload. Encrypted envelopes are opened BEFORE
+ * auth/validation/handler code and their sensitive headers are merged over
+ * the transport header view. Plaintext remains accepted only as the explicit
+ * transitional fallback and is warned once per process. Envelope integrity or
+ * key failures throw — undecryptable content must never reach a handler.
+ */
+export function decodeInboundMessage<T = unknown>(
+  payload: Uint8Array,
+  transportHeaders?: MsgHdrs,
+): InboundMessagePayload<T> {
+  const text = new TextDecoder().decode(payload);
+  if (text === "") return { data: null as T, headers: transportHeaders, encrypted: false };
+  const parsed = extJsonParse(text) as unknown;
+  if (!isEnvelope(parsed)) {
+    warnLegacyInboundOnce();
+    return { data: parsed as T, headers: transportHeaders, encrypted: false };
+  }
+  const provider = getMessageKeyProvider();
+  if (!provider) throw new Error("MESSAGE_KEY_PROVIDER_UNAVAILABLE: encrypted payload cannot be opened");
+  const opened = openEnvelope(parsed, (generation) => provider.keyForGeneration(generation));
+  return {
+    data: opened.payload as T,
+    headers: mergeInboundHeaders(transportHeaders, opened.headers),
+    encrypted: true,
+  };
+}
+
+/** Return a Msg view exposing decrypted payload bytes and merged headers while
+ *  preserving the original message methods (notably respond()). */
+export function messageWithInboundView<T>(msg: Msg, inbound: InboundMessagePayload<T>): Msg {
+  const data = new TextEncoder().encode(extJsonStringify(inbound.data));
+  return new Proxy(msg, {
+    get(target, prop, receiver) {
+      if (prop === "data") return data;
+      if (prop === "headers") return inbound.headers;
+      const value = Reflect.get(target, prop, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+export function encodeOutboundMessage(
   data: unknown,
   hdrs?: Record<string, string>,
 ): { payload: Uint8Array; transportHeaders: Record<string, string> } {
@@ -338,10 +411,9 @@ export class NatsClient {
         await context.with(trace.setSpan(parentCtx, span), async () => {
           const t0 = performance.now();
           try {
-            const text = new TextDecoder().decode(msg.data);
-            // Empty payload — skip parsing, call handler with null
-            const data = text === "" ? (null as T) : extJsonParse<T>(text);
-            const out = await handler(data, msg);
+            const inbound = decodeInboundMessage<T>(msg.data, msg.headers);
+            const view = messageWithInboundView(msg, inbound);
+            const out = await handler(inbound.data, view);
             await publishJobResultMessage(subject, msg.headers, {
               status: "succeeded",
               duration_ms: Math.round(performance.now() - t0),
@@ -581,9 +653,25 @@ export class NatsClient {
         let dedupeKey: string | undefined;
         let dedupeAcquired = false;
         try {
+          let inbound: InboundMessagePayload<T>;
+          try {
+            inbound = decodeInboundMessage<T>(m.data, m.headers);
+          } catch (decryptError) {
+            await publishJobResultMessage(subject, m.headers, {
+              status: "failed",
+              error_code: decryptError instanceof MessageIntegrityViolationError ? "MESSAGE_INTEGRITY_VIOLATION" : "MESSAGE_DECRYPT_FAILED",
+              error_detail: decryptError instanceof Error ? decryptError.message : String(decryptError),
+              fire_seq: m.seq,
+            });
+            if (decryptError instanceof MessageIntegrityViolationError) {
+              m.term();
+              return;
+            }
+            throw decryptError;
+          }
           let authUser: AuthUser | undefined;
           if (opts.verify) {
-            const result = await opts.verify(m);
+            const result = await opts.verify({ subject, headers: inbound.headers });
             if (result === null) {
               // Terminal denial — term() prevents pointless redelivery.
               // Correlate best-effort: job-lane envelopes declare their
@@ -592,15 +680,14 @@ export class NatsClient {
               // vanishing (uncorrelated refusals used to be a silent
               // no-op — a denied due left zero trace anywhere).
               let fallback: { schedule_subject?: string } | undefined;
-              try {
-                const decoded = extJsonParse<Record<string, unknown>>(
-                  new TextDecoder().decode(m.data),
-                );
-                if (typeof decoded?.schedule_subject === "string") {
-                  fallback = { schedule_subject: decoded.schedule_subject };
-                }
-              } catch {
-                // Not an envelope-shaped payload — stay uncorrelated.
+              if (
+                typeof inbound.data === "object" &&
+                inbound.data !== null &&
+                typeof (inbound.data as { schedule_subject?: unknown }).schedule_subject === "string"
+              ) {
+                fallback = {
+                  schedule_subject: (inbound.data as unknown as { schedule_subject: string }).schedule_subject,
+                };
               }
               await publishJobResultMessage(
                 subject,
@@ -659,14 +746,12 @@ export class NatsClient {
                 .catch(() => {});
             }
           }, DEDUPE_HEARTBEAT_MS);
-          const text = new TextDecoder().decode(m.data);
-          const data = text === "" ? (null as T) : extJsonParse<T>(text);
           const t0 = performance.now();
           let out: unknown;
           try {
-            out = await opts.handler(data, {
+            out = await opts.handler(inbound.data, {
               subject,
-              headers: m.headers,
+              headers: inbound.headers,
               info: { redeliveryCount: m.info.deliveryCount, streamSequence: m.seq },
               authUser,
             });
