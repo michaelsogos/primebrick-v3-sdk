@@ -5737,6 +5737,18 @@ UUID (any version) — matches zod/JSON-Schema `format:"uuid"`.
 
 **Type:** `RegExp`
 
+### `VAULT_SUBJECTS`
+
+Governed hint subjects — metadata only, never material. DEDICATED to the
+vault: never multiplex onto the legacy `secret.rotated` (see the module
+doc for why the consumer reaction differs).
+
+**Type:** `{ ROTATED: "secret_vault.rotated" }`
+
+| Field | Value |
+|-------|-------|
+| ROTATED | "secret_vault.rotated" |
+
 ### `VENDOR_BLOCKED_PACKAGES`
 
 Packages that MUST NOT be imported raw inside a remote chunk — they are

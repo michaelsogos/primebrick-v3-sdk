@@ -273,6 +273,7 @@ export {
   type SqlPoolPort,
   type SqlClientPort,
   type SqlQueryResult,
+  VAULT_SUBJECTS,
 } from "./secrets/secret-vault.js";
 export {
   setClientShieldSecretSlot,

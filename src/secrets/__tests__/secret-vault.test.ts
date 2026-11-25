@@ -312,14 +312,14 @@ describe("SecretVault writer", () => {
     vault.stop();
   });
 
-  it("default hint path publishes metadata on the governed secret.rotated subject", async () => {
+  it("default hint path publishes metadata on the dedicated secret_vault.rotated subject", async () => {
     const { NatsClient } = await import("../../nats/nats-client.js");
     const pool = fakeVaultPool();
     const vault = new SecretVault({ pool, schema: "system", policies: [POLICY] });
     await vault.rotateIfNeeded(POLICY);
     expect(NatsClient.publishEphemeralLossy).toHaveBeenCalledTimes(1);
     const [subject, payload] = (NatsClient.publishEphemeralLossy as ReturnType<typeof vi.fn>).mock.calls[0] as [string, Record<string, unknown>];
-    expect(subject).toBe("secret.rotated");
+    expect(subject).toBe("secret_vault.rotated");
     expect(payload.scope).toBe(REF.scope);
     expect(payload.name).toBe(REF.name);
     expect(payload.generation).toBe(1);

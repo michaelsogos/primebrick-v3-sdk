@@ -31,8 +31,15 @@
  *           (A6 wiring). The output shape matches MessageKeyMaterial, so
  *           feeding the MessageKeyProvider is a one-liner. Key material
  *           NEVER transits on NATS: the only message ever published is the
- *           `secret.rotated` metadata hint (scope/name/generation/rotated_at
- *           — no material), and only AFTER the commit.
+ *           `secret_vault.rotated` metadata hint (scope/name/generation/
+ *           rotated_at — no material), and only AFTER the commit.
+ *
+ * The hint subject is DEDICATED, never the legacy `secret.rotated`: consumers
+ * of the legacy subject react by re-fetching the secret through the governed
+ * `secret.get` correlation route — legitimate for Redis-distributed shield
+ * secrets, but a banned channel for vault material. The vault hint means
+ * "re-read through direct DAL", a different consumer reaction, so it must
+ * never be multiplexed onto the legacy subject (TOC discovery, A5).
  *
  * crypto_scheme is 'raw-v1' today: encryption-at-rest is NOT simulated.
  * A vault key stored in PG would be security theater; one stored in the
@@ -44,7 +51,7 @@
 import { randomBytes } from "node:crypto";
 import { NatsClient } from "../nats/nats-client.js";
 import { logger } from "../lifecycle/logger.js";
-import { SECRET_SUBJECTS } from "./rotating-secret.js";
+
 
 // ─── Structural SQL port — satisfied by pg.Pool without a hard pg dep ───────
 
@@ -102,6 +109,15 @@ export interface VaultGenerations {
   generation: number;
   generations: Record<string, string>;
 }
+
+/**
+ * Governed hint subjects — metadata only, never material. DEDICATED to the
+ * vault: never multiplex onto the legacy `secret.rotated` (see the module
+ * doc for why the consumer reaction differs).
+ */
+export const VAULT_SUBJECTS = {
+  ROTATED: "secret_vault.rotated",
+} as const;
 
 const TABLE = "secret_vault_generations";
 const CRYPTO_SCHEME_RAW = "raw-v1";
@@ -165,7 +181,7 @@ export class SecretVault {
       await this.deps.publishHint(ref, meta);
       return;
     }
-    await NatsClient.publishEphemeralLossy(SECRET_SUBJECTS.ROTATED, {
+    await NatsClient.publishEphemeralLossy(VAULT_SUBJECTS.ROTATED, {
       scope: ref.scope,
       name: ref.name,
       generation: meta.generation,
