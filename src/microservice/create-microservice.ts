@@ -59,6 +59,9 @@ import { ClientShieldRegistry } from "../service/client-shield-registry.js";
 import { setNatsShieldRegistry } from "../nats/service-shield.js";
 import { SecretProvider, startSecretProvider, refreshSecretWithRetry } from "../secrets/rotating-secret.js";
 import { CLIENT_SHIELD_SECRET_REF } from "../auth/client-shield-secret.js";
+import { SecretVaultReader, MESSAGE_KEY_MATERIAL_REF, VAULT_SUBJECTS, type SqlPoolPort } from "../secrets/secret-vault.js";
+import { MessageKeyProvider, setMessageKeyProvider } from "../nats/message-key-provider.js";
+import { subscribeShielded } from "../nats/service-shield.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -187,6 +190,15 @@ export interface MicroserviceOptions {
    * Typically `async () => { await getDal().close(); }`.
    */
   dalClose: () => Promise<void>;
+
+  /**
+   * Lazy accessor for the consumer-owned pg pool — REQUIRED, enforced by
+   * construction: the fabric message-key provider reads vault material
+   * through direct DAL (never NATS), so every microservice must expose
+   * its pool. Typically `() => getDal().getPool()`. Lazy because initDal
+   * has not run yet when the options object is built.
+   */
+  dalPool: () => SqlPoolPort;
 
   /**
    * Factory for ConfigRepositoryPort — called after initDal.
@@ -491,6 +503,24 @@ export async function createMicroservice(
     ? await runDbMigrationStep(dbPatches)
     : { result: null, degraded: false, lastError: null, appliedCount: 0 };
 
+  // 2.6 Fabric message-key provider (WP-A6) — the vault reader goes through
+  //     direct DAL, NEVER NATS. Boot refresh is tolerant: on a fresh database
+  //     the BE may not have provisioned the vault yet — the reactive
+  //     debounced self-heal in the provider (plus the rotation-hint
+  //     subscription wired after the NATS connect) closes the gap on first
+  //     traffic instead of walling the boot.
+  const vaultReader = new SecretVaultReader({ pool: options.dalPool(), schema: "system" });
+  const messageKeyProvider = new MessageKeyProvider(() => vaultReader.readGenerations(MESSAGE_KEY_MATERIAL_REF));
+  try {
+    await messageKeyProvider.refresh();
+  } catch (error) {
+    logger.warn("fabric message-key material not readable yet — reactive self-heal will retry on first traffic", {
+      tags: ["core"],
+      error,
+    });
+  }
+  setMessageKeyProvider(messageKeyProvider);
+
   // Deferred boot init — assigned once ctx exists (step 10). Any recovery
   // path that unlatches degraded (admin route or heartbeat auto-retry)
   // completes the skipped onReady + callable re-register here; on failure
@@ -721,6 +751,19 @@ export async function createMicroservice(
     // a broadcast landing mid-retry coalesces into this loop).
     void refreshSecretWithRetry(secretProvider, CLIENT_SHIELD_SECRET_REF);
   }
+
+  // Vault rotation hints (WP-A6) — metadata-only broadcast on the DEDICATED
+  // subject: the correct consumer reaction is a direct-DAL re-read, never a
+  // secret.get fetch. Unqueued broadcast: every instance must refresh its
+  // key window. Hint loss is irrelevant by construction — the provider's
+  // reactive debounced self-heal re-reads on the first message that meets
+  // a generation it does not know.
+  await subscribeShielded(VAULT_SUBJECTS.ROTATED, async (payload) => {
+    const hint = payload as { scope?: string; name?: string };
+    if (hint.scope === MESSAGE_KEY_MATERIAL_REF.scope && hint.name === MESSAGE_KEY_MATERIAL_REF.name) {
+      await messageKeyProvider.refresh();
+    }
+  });
 
   try {
     // The BE registers its `config.get` responder after NATS connect — a

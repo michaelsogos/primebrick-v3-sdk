@@ -340,6 +340,35 @@ Adapter for raw Node.js HTTP IncomingMessage (microservices using createHttpServ
 |-----------|------|-------------|
 | name | `string` |  |
 
+### `MessageKeyProvider`
+
+#### `MessageKeyProvider(reader, partA, refreshDebounceMs)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| reader | `MessageKeyMaterialReader` |  |
+| partA | `string` |  |
+| refreshDebounceMs | `number` | reactive self-heal throttle — a miss never re-reads PG more than once per window |
+
+#### `MessageKeyProvider.refresh(): Promise<void>`
+
+Re-read the material row and re-derive the live generation window.
+
+#### `MessageKeyProvider.ready(): boolean`
+
+#### `MessageKeyProvider.currentKey(): { key: Buffer; generation: number } \| null`
+
+Publishers seal ONLY with the current generation.
+
+#### `MessageKeyProvider.keyForGeneration(generation): Buffer<ArrayBufferLike> \| null`
+
+Consumers open with whatever generation the message was sealed with —
+ any generation inside the retained window (7-day cap, autowired).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| generation | `number` |  |
+
 ### `MfaConsumeUnavailableError`
 
 The BE consume route could not be reached — transient, NOT a denial.
@@ -2132,6 +2161,15 @@ for legacy surrogate-id audit tables, uuid string post-eradication.
 | uuid | `string` |  |
 | changed_fields | `string[]` |  |
 
+### `MessageKeyMaterial`
+
+shape of the `service_message_key_material` row value in system.config_entries
+
+| Field | Type | Description |
+|-------|------|-------------|
+| generation | `number` |  |
+| generations | `Record<string, string>` | generation number → base64url parte_B for that generation (trimmed to the key window) |
+
 ### `MfaStepUpSpec`
 
 Route declaration: which action/resource the token must authorize.
@@ -2185,6 +2223,11 @@ SDK DB-agnostic: the service supplies a probe, e.g.
 | dalClose | `() => Promise<void>` | DAL close callback — called during graceful shutdown.
 The SDK is DB-agnostic so the consumer provides this.
 Typically `async () => { await getDal().close(); }`. |
+| dalPool | `() => SqlPoolPort` | Lazy accessor for the consumer-owned pg pool — REQUIRED, enforced by
+construction: the fabric message-key provider reads vault material
+through direct DAL (never NATS), so every microservice must expose
+its pool. Typically `() => getDal().getPool()`. Lazy because initDal
+has not run yet when the options object is built. |
 | configRepositoryAdapter | `() => ConfigRepositoryPort` | Factory for ConfigRepositoryPort — called after initDal.
 Reads config rows from the microservice's config table. |
 | authConfigPort | `(configLoader: ConfigLoader) => AuthConfigPort` | Factory for AuthConfigPort — called after ConfigLoader is created.
@@ -3853,6 +3896,14 @@ Global connector joining the advanced-filter group.
 
 ### `LucideRewriteResult`
 
+### `MessageKeyMaterialReader`
+
+Reader port — implemented by createMicroservice wiring (A6) as a direct DAL
+read on system.config_entries. Injectable for tests and for the boot order:
+the provider never owns the connection, only the derivation and the cache.
+
+**Type:** `() => Promise<MessageKeyMaterial \| null>`
+
 ### `MetaColumn`
 
 Entity field descriptor — the root-level `columns` dictionary.
@@ -4933,6 +4984,13 @@ Ratified policy: hourly rotation, 7-day key window (the retention cap).
 The fabric message-key material — rotating parte_B of the split key.
 
 **Type:** `VaultSecretRef`
+
+### `MESSAGE_KEY_PART_A`
+
+parte_A — fleet-common derivation root. See the posterity note above.
+Not a credential: useless alone without live access to parte_B in PG.
+
+**Type:** `"pb-mkroot-v1:8f3c2a91e47b4d06f1a593c7d28b4e05a6c1f902d7b3485e96a0c3d51f2e7b89"`
 
 ### `MFA_ACTION_AUTH_HEADER`
 
@@ -6490,6 +6548,14 @@ currently advertises. Rotating a key = bumping the generation on the BE.
 | uaPrefix | `string` |  |
 | generation | `number` |  |
 
+### `deriveMessageKey(partA, partB, generation): Buffer`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| partA | `string` |  |
+| partB | `string` |  |
+| generation | `number` |  |
+
 ### `derivePeriodKey(kind, at, tz): string`
 
 The counter-identity key for `period_kind` at `at` — `''` for
@@ -7080,6 +7146,8 @@ Returns `undefined` for entities not marked with `@Cached()`.
 | ctor | `(args: any[]) => any` |  |
 
 ### `getLogOptions(): Readonly<LoggerState>`
+
+### `getMessageKeyProvider(): MessageKeyProvider \| null`
 
 ### `getNatsShieldRegistry(): ShieldRegistryLike \| null`
 
@@ -8632,6 +8700,12 @@ Hot-swap logging options (from config reload / `config.changed`).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | opts | `{ level: LogLevel; format: LogFormat; service: string; version: string }` |  |
+
+### `setMessageKeyProvider(provider): void`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| provider | `MessageKeyProvider \| null` |  |
 
 ### `setNatsShieldRegistry(r): void`
 

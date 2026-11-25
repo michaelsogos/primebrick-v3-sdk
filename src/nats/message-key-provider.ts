@@ -56,7 +56,32 @@ export class MessageKeyProvider {
   constructor(
     private readonly reader: MessageKeyMaterialReader,
     private readonly partA: string = MESSAGE_KEY_PART_A,
+    /** reactive self-heal throttle — a miss never re-reads PG more than once per window */
+    private readonly refreshDebounceMs: number = 30_000,
   ) {}
+
+  private refreshInFlight: Promise<void> | null = null;
+  private lastRefreshAt = 0;
+
+  /**
+   * Reactive self-heal — fired when traffic meets a missing key (either
+   * direction). Debounced: unknown-generation junk can cost at most one
+   * small PG read per window per instance, and a refresh already running
+   * is never duplicated. This is what makes hint loss and boot ordering
+   * irrelevant: the first message after material appears re-reads it.
+   */
+  private refreshReactive(): void {
+    if (this.refreshInFlight) return;
+    if (Date.now() - this.lastRefreshAt < this.refreshDebounceMs) return;
+    // throttle on ATTEMPTS, not just successes — a failing reader (vault
+    // table not provisioned yet) must not be hammered by every message.
+    this.lastRefreshAt = Date.now();
+    this.refreshInFlight = this.refresh()
+      .catch(() => {})
+      .finally(() => {
+        this.refreshInFlight = null;
+      });
+  }
 
   /** Re-read the material row and re-derive the live generation window. */
   async refresh(): Promise<void> {
@@ -77,7 +102,10 @@ export class MessageKeyProvider {
 
   /** Publishers seal ONLY with the current generation. */
   currentKey(): { key: Buffer; generation: number } | null {
-    if (this.currentGeneration === null) return null;
+    if (this.currentGeneration === null) {
+      this.refreshReactive();
+      return null;
+    }
     const key = this.keys.get(this.currentGeneration);
     return key ? { key, generation: this.currentGeneration } : null;
   }
@@ -85,7 +113,9 @@ export class MessageKeyProvider {
   /** Consumers open with whatever generation the message was sealed with —
    *  any generation inside the retained window (7-day cap, autowired). */
   keyForGeneration(generation: number): Buffer | null {
-    return this.keys.get(generation) ?? null;
+    const key = this.keys.get(generation) ?? null;
+    if (!key) this.refreshReactive();
+    return key;
   }
 }
 

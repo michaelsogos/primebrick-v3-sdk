@@ -199,6 +199,15 @@ export { setProcessInterval } from "./lifecycle/process-registry.js";
 // NATS
 export { NatsClient, msgHeader } from "./nats/nats-client.js";
 export {
+  MessageKeyProvider,
+  setMessageKeyProvider,
+  getMessageKeyProvider,
+  deriveMessageKey,
+  MESSAGE_KEY_PART_A,
+  type MessageKeyMaterial,
+  type MessageKeyMaterialReader,
+} from "./nats/message-key-provider.js";
+export {
   ENTITY_EVENTS_FILTER,
   ENTITY_EVENTS_MAX_AGE_SECS,
   ENTITY_EVENTS_MAX_MSGS_PER_SUBJECT,
