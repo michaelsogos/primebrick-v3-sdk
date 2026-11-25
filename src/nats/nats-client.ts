@@ -16,6 +16,19 @@ import {
   type JobResultMessage,
 } from "./job-contract.js";
 import { lifecycleRegistry } from "../lifecycle/process-registry.js";
+import { getRedisClient } from "../cache/redis-client.js";
+
+/**
+ * Systemic delivery-dedupe tuning for the JetStream consumption wrapper
+ * (durability doctrine: dedupe is a transport guarantee, never the
+ * consumer's job). Lease covers the in-flight processing window; the
+ * heartbeat refreshes it and pings `working()` so ackWait never expires
+ * under honest long-running handlers; DONE-TTL outlives any redelivery
+ * chain so completed-work stragglers are ack'd without re-execution.
+ */
+const DEDUPE_LEASE_MS = 30_000;
+const DEDUPE_HEARTBEAT_MS = 10_000;
+const DEDUPE_DONE_TTL_MS = 6 * 60 * 60 * 1000;
 import type { AuthUser } from "../auth/types.js";
 
 export { msgHeader };
@@ -510,6 +523,12 @@ export class NatsClient {
         parentCtx,
       );
       await context.with(trace.setSpan(parentCtx, span), async () => {
+        // Hoisted above the try — the catch path releases the lease and
+        // stops the heartbeat for messages whose processing failed, so
+        // both must be visible in either block.
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
+        let dedupeKey: string | undefined;
+        let dedupeAcquired = false;
         try {
           let authUser: AuthUser | undefined;
           if (opts.verify) {
@@ -543,6 +562,52 @@ export class NatsClient {
             }
             authUser = result;
           }
+          // ── Systemic dedupe gate (Redis) ─────────────────────────────
+          // At-least-once means redeliveries HAPPEN; dedupe is the
+          // transport's responsibility, never the handler's. Keyed on
+          // stream+sequence — transport-native, no payload-contract
+          // dependency. Three states: absent → acquire and process;
+          // WACK-fresh → a live worker owns it, defer (nak with lease
+          // delay — never term, never blind-ack: if the owner crashes the
+          // lease expires and the deferred copy takes over); DONE →
+          // completed-work straggler, ack without re-executing.
+          // Redis erroring = transient infrastructure failure → throw
+          // into the outer nak path (fail-closed, the message is safe in
+          // the stream). Redis absent (service never initialized it) →
+          // process without dedupe, logged once below.
+          dedupeKey = `natsjs:dedupe:${opts.stream}:${m.seq}`;
+          const redis = getRedisClient();
+          let dedupeAcquired = false;
+          if (redis !== null) {
+            const acquired = await redis.set(dedupeKey, String(Date.now()), {
+              NX: true,
+              PX: DEDUPE_LEASE_MS,
+            });
+            if (acquired === null) {
+              const state = await redis.get(dedupeKey);
+              if (state === "DONE") {
+                m.ack();
+                return;
+              }
+              m.nak(DEDUPE_LEASE_MS);
+              return;
+            }
+            dedupeAcquired = true;
+          } else if (!(process as unknown as { dedupeWarned?: boolean }).dedupeWarned) {
+            (process as unknown as { dedupeWarned?: boolean }).dedupeWarned = true;
+            logger.warn(
+              `JetStream dedupe inactive on ${opts.stream}/${opts.durable} — no Redis client initialized; redeliveries may re-execute`,
+              { tags: ["nats"] },
+            );
+          }
+          heartbeat = setInterval(() => {
+            m.working();
+            if (dedupeAcquired) {
+              getRedisClient()
+                ?.set(dedupeKey!, String(Date.now()), { PX: DEDUPE_LEASE_MS, XX: true })
+                .catch(() => {});
+            }
+          }, DEDUPE_HEARTBEAT_MS);
           const text = new TextDecoder().decode(m.data);
           const data = text === "" ? (null as T) : extJsonParse<T>(text);
           const t0 = performance.now();
@@ -571,8 +636,28 @@ export class NatsClient {
             duration_ms: Math.round(performance.now() - t0),
             report: typeof out === "object" && out !== null ? out : undefined,
           });
+          // DONE before ack — a straggler redelivery after this point
+          // short-circuits at the gate without re-executing. If we crash
+          // between DONE and ack the straggler still finds DONE; if we
+          // crash before DONE the lease expires and the copy takes over —
+          // the residual at-least-once window shrinks to the crash-exact
+          // instant, which no transport-level mechanism can close.
+          if (dedupeAcquired) {
+            await getRedisClient()
+              ?.set(dedupeKey, "DONE", { PX: DEDUPE_DONE_TTL_MS, XX: true })
+              .catch(() => {});
+          }
+          clearInterval(heartbeat);
           m.ack();
         } catch (error) {
+          clearInterval(heartbeat);
+          // Failure path — release the lease so redelivery reprocesses
+          // fresh instead of deferring against a dead worker's key.
+          if (dedupeAcquired) {
+            await getRedisClient()
+              ?.del(dedupeKey!)
+              .catch(() => {});
+          }
           span.recordException(error as Error);
           span.setStatus({ code: SpanStatusCode.ERROR });
           logger.error(`Error processing JetStream message on "${subject}"`, { tags: ["nats"], error: error });
