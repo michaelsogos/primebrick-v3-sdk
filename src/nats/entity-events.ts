@@ -41,7 +41,7 @@ export interface EntityEventEnvelope {
   action: EntityWriteAction;
   entity: string;
   uuid: string;
-  version?: number;
+  version?: bigint;
 }
 export interface EntityEvent {
   event: EntityEventEnvelope;
