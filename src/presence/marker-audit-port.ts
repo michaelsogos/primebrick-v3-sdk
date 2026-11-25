@@ -42,7 +42,7 @@ export interface MarkerAuditParams {
   entityUuid: string;
   action: string;
   changedAt: Date;
-  version: number;
+  version: bigint;
   changedBy: string;
   delta: Record<string, { old: unknown; new: unknown }>;
 }

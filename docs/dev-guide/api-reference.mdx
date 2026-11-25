@@ -1492,7 +1492,7 @@ most recent change without scanning the audit log.
 |-------|------|-------------|
 | entity_type | `string` |  |
 | entity_uuid | `string` |  |
-| version | `number` | The new `version` after the save. |
+| version | `bigint` | The new `version` after the save. |
 | audit_log_id | `string \| number` | The audit row key of the change — bigint for legacy surrogate-id
  audit tables, uuid string for post-eradication `*_audit` rows
  (PK `(uuid, changed_at)`). |
@@ -1606,6 +1606,14 @@ comboboxes, lists, chips. |
  list create CTA opens `entity.record` in `mode:"create"` — the same
  record panel, no fetch, empty draft, POST on commit.
  Authored on the entity meta — never via component props. |
+| form | `{ validators: string[] }` | Entity-level form policy — the surface an entity declares for
+ surfaces that have no authored `page_props.form` (builtin/platform
+ entities have no route decl to author against: their record-sheet
+ forms ride the synthesized fallback). Consumed by
+ `synthesizeFormDecl`, which attaches `validators` verbatim — an
+ authored route `page_props.form` always wins (page-domain
+ placement beats entity policy). Field census stays synthesized:
+ `meta.columns` order is the single source, never duplicated. |
 | columns | `MetaColumn[]` | Entity field dictionary (root-level, transversal). |
 | table | `TableMeta` | Table options — omit when the entity has no table page
  (e.g. a self-service form meta). |
@@ -2031,7 +2039,7 @@ convention). Structurally assignable from the real `AuditParams`:
 | entityUuid | `string` |  |
 | action | `string` |  |
 | changedAt | `Date` |  |
-| version | `number` |  |
+| version | `bigint` |  |
 | changedBy | `string` |  |
 | delta | `Record<string, { old: unknown; new: unknown }>` |  |
 
@@ -3504,6 +3512,18 @@ own domain subject only — nothing in this axis knows scheduling exists.
 
 **Type:** `{ ok: true; ua: string } \| { ok: false; status: 401 \| 403; error: string }`
 
+### `ColumnDefaultSpec`
+
+`ColumnDefaultSpec` — the computed-default vocabulary a `MetaColumn.default`
+may carry instead of a literal. Closed union — consumers recognize the
+spec by `kind` membership, never by object shape alone (a jsonb column
+may legitimately hold a literal object default).
+
+  - `"next_day_start_local"` — the form seeds tomorrow at 00:00 in the
+    USER's local zone, serialized to the column's wire type (`datetime`
+    → UTC ISO). The anchor-default for "starts from" fields (e.g.
+    `sequence.default_from`).
+
 ### `ConfigEntry`
 
 Standard Config Table entry.
@@ -3740,13 +3760,6 @@ crosses the wire. Same physical-column rule as `color_field`.
 
 ### `MetaColumnDependsCondition`
 
-A sibling-value condition — the SAME vocabulary `null_label.when` and
-`visible_on` already use for row-gated rendering, lifted to form scope.
-`prop` compares against the pivot ROW's prop (the picked ref option's
-raw row — e.g. its `code`); absent `prop` compares the pivot's stored
-value directly. `equals`/`not` take a single literal, `values` a set
-(IN semantics).
-
 ### `MetaColumnFormat`
 
 Authored field-format vocabulary — the SEMANTIC input contract of a
@@ -3758,7 +3771,7 @@ Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
 compile error — the US→FE option boundary is enforced by the type.
 New formats are additive literals (never breaking).
 
-**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang" \| "sequence" \| "sequence_pattern" \| "i18n_key"`
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang" \| "sequence" \| "sequence_pattern" \| "revive_interval" \| "revive_offset" \| "i18n_key"`
 
 ### `MetaColumnOptionsSource`
 
@@ -4169,6 +4182,12 @@ Queryable — same type the DAL Repository uses (Pick&#60;Pool, "query"&#62;).
 `<chunk>.deps.json` — emitted next to each remote chunk at build time,
 declaring the vendor specifiers/versions it was compiled against.
 
+### `ReviveSpec`
+
+A revive axis value: a `'N unit'` interval or a pinned instant.
+
+**Type:** `{ kind: "interval"; count: number; unit: SequenceReviveUnit } \| { kind: "at"; at: Date }`
+
 ### `RoundingMode`
 
 **Type:** `"UP" \| "DOWN" \| "CEILING" \| "FLOOR" \| "HALF_UP" \| "HALF_DOWN" \| "HALF_EVEN"`
@@ -4261,6 +4280,10 @@ Sezionale values supplied per assignment — positional per token.
 ### `SequencePeriodKind`
 
 **Type:** `"none" \| "year" \| "quarter" \| "month" \| "day"`
+
+### `SequenceReviveSlot`
+
+**Type:** `typeof SEQUENCE_REVIVE_SLOTS[number]`
 
 ### `SequenceReviveUnit`
 
@@ -5320,9 +5343,17 @@ Test helper alias (backward compat).
 
 **Type:** `() => void`
 
+### `REVIVE_AT_RE`
+
+**Type:** `RegExp`
+
 ### `REVIVE_INTERVAL_RE`
 
 `'15 days'`, `'1 month'`, `'2 years'` — the closed wire format.
+
+**Type:** `RegExp`
+
+### `REVIVE_UNTIL_RE`
 
 **Type:** `RegExp`
 
@@ -5361,6 +5392,13 @@ label can never drift apart even by accident.
 - `exec-stop`  → destructive (stop/disable is a destructive op)
 
 **Type:** `Record<string, ActionColor>`
+
+### `SEQUENCE_REVIVE_SLOTS`
+
+The three positional sezionale slots — the only legal `revive_slot`
+ values, and the slots a pattern's `{sez}`/`{sez2}`/`{sez3}` tokens map.
+
+**Type:** `typeOperator`
 
 ### `SEQUENCE_REVIVE_UNITS`
 
@@ -6665,6 +6703,12 @@ Parse an Ext-JSON string — strict.
 ALL integer-valued numbers are returned as native `bigint`; non-integer
 floats stay `number`; strings/booleans/null are unaffected.
 
+The single sanctioned exception: the `status` integer of an RFC7807
+problem-details object (shape-detected by type+title+detail strings)
+stays `number` — the error model is HTTP-native and its status is
+classified with typeof guards across the ecosystem. An integer `status`
+outside that shape is a domain integer and stays bigint, always.
+
 Throws `SyntaxError` on malformed input, trailing commas, and
 duplicate keys at any depth (native JSON.parse silently last-wins —
 that failure mode is deliberately closed: a duplicated key is a wire
@@ -7673,6 +7717,14 @@ Scale is preserved as written (`"1.230"` → scale 3).
 |-----------|------|-------------|
 | raw | `unknown` |  |
 
+### `parseGraceSpec(text): ReviveSpec \| null`
+
+`revive_grace` spec — `'N unit'` offset or `'until <RFC3339>'` pin.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| text | `string` |  |
+
 ### `parseMapKeysDeclaration(raw): Record<string, MapKeyDecl>`
 
 Parse an `x_map_keys.prop` declaration row (the template's `variables`
@@ -7710,6 +7762,14 @@ Two dispatch shapes are supported:
 
 Parse a `'N unit'` revive interval — null on anything outside the
  closed format (validators turn null into the construction error).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| text | `string` |  |
+
+### `parseReviveSpec(text): ReviveSpec \| null`
+
+`revive_every` spec — `'N unit'` cadence or `'at <RFC3339>'` pin.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -8104,6 +8164,19 @@ the interval walks its zoned wall time forward, then converts back.
 | interval | `string` |  |
 | tz | `string` |  |
 
+### `reviveAdvanceSpec(every, period_kind): { count: number; unit: SequenceReviveUnit } \| null`
+
+The interval a successor's sez label advances by — the authored
+ interval itself, or `'1 <period_kind>'` under an `'at'` pin (the
+ pattern's own grain is the natural advance — `'26'`→`'27'` under a
+ yearly pattern). `null` when the spec is unparseable or `'at'` meets
+ a period-free pattern (`period_kind:'none'` — no grain to advance).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| every | `string` |  |
+| period_kind | `SequencePeriodKind` |  |
+
 ### `reviveExpireAt(at, every, tz): Date`
 
 The calendar-anchored expiry instant for a reviving row — the first
@@ -8327,6 +8400,25 @@ the claim RETURNING is the only truth).
 | count | `number` |  |
 | at | `Date` |  |
 | opts | `{ tz: string; partitions: Partial<Record<SequenceSezToken, string>> }` |  |
+
+### `sequenceReviveShapeIssues(row): FieldIssue[]`
+
+The revive contract on a (possibly merged) sequence row — ONE predicate
+consumed by the form's cross-field registry, the wire validator, and
+the service's merged-row check, so the three surfaces can never drift:
+
+  - a supplied `sez*` value must name a slot the pattern declares;
+  - `revive_slot` requires `revive_every` and is required by it;
+  - `revive_slot` must be a slot the pattern uses;
+  - the slot's row-owned value must be present and advanceable by
+    `derivePeriodLabel` — a free-text sezionale can never revive.
+
+An unparseable `pattern` contributes NO issues — the `sequence_pattern`
+format check owns that finding; this predicate is the shape layer.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| row | `{ pattern: string; sez: string \| null; sez2: string \| null; sez3: string \| null; revive_every: string \| null; revive_slot: string \| null }` |  |
 
 ### `sequenceTokenCatalog(): SequenceTokenSpec[]`
 
