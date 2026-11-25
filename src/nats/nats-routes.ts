@@ -20,6 +20,7 @@
  */
 
 import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
+import { jetstreamManager } from "@nats-io/jetstream";
 import { NatsClient, publishJobResultMessage } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
@@ -133,6 +134,16 @@ export interface NatsRoute<TReq = unknown> {
   label_key?: string;
   description_key?: string;
   /**
+   * Durable work-item transport — the route is consumed through JetStream
+   * (at-least-once + systemic Redis dedupe) instead of lossy core pub/sub.
+   * The factory ensures the per-service workqueue stream `<SERVICECODE>`
+   * capturing exactly this subject and wires the same shield/RBAC/contract
+   * middleware — the declaration is identical, only the transport changes.
+   * THE default for state-carrying work items (durability doctrine);
+   * absence is legitimate only for the governed ephemeral exceptions.
+   */
+  durable?: boolean;
+  /**
    * The ONE service call. An object the handler returns is carried onto
    * the `jobs.result.*` outcome message as `report` (same convention as
    * `NatsClient.jetstreamSubscribe`) — a fire-and-forget route that wants
@@ -238,6 +249,65 @@ async function verifyAndAuthorize(
 // ─── Fire-and-forget subscribers ────────────────────────────────────────────
 
 /**
+ * Durable work-item transport wiring — the same governance chain as the
+ * core path (shield → verify/RBAC → contract parse → handler), consumed
+ * through JetStream so the message survives consumer downtime and the
+ * systemic dedupe in jetstreamSubscribe absorbs redeliveries.
+ *
+ * Stream topology: one workqueue stream per service (`<SERVICECODE>`),
+ * capturing exactly the service's durable subjects — capture is
+ * per-subject, so the publisher migrates independently and nothing is
+ * lost in the cutover window. Filter subjects are disjoint by
+ * construction (one route per subject), satisfying the workqueue
+ * single-consumer-group constraint.
+ */
+async function subscribeDurableRoute<TReq>(route: NatsRoute<TReq>, deps: NatsRouterDeps): Promise<void> {
+  const streamName = deps.serviceCode.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  // Union-merge with any existing capture set — a service registering
+  // durable routes in multiple makeNatsRoutes batches must not shrink
+  // the stream's subjects to the latest batch.
+  let subjects = [route.subject];
+  try {
+    const jsm = await jetstreamManager(await NatsClient.getConnection());
+    const info = await jsm.streams.info(streamName);
+    const existing = (info.config.subjects ?? []).filter((s) => s !== route.subject);
+    subjects = [...existing, route.subject];
+  } catch {
+    // Stream absent — first durable route creates it with this subject.
+  }
+  await NatsClient.ensureStream(streamName, subjects, { retention: "workqueue", syncSubjects: true });
+
+  const durableName = `${deps.serviceCode}-${route.subject.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  await NatsClient.jetstreamSubscribe<TReq>({
+    stream: streamName,
+    durable: durableName,
+    filterSubject: route.subject,
+    verify: async (m) => {
+      try {
+        return await verifyAndAuthorize(m as unknown as Msg, route);
+      } catch (err) {
+        // Auth/RBAC denial is TERMINAL — redelivery would re-deny the same
+        // caller identity forever (same policy as the webhook template).
+        if (err instanceof AuthError || err instanceof RbacDeniedError) return null;
+        throw err;
+      }
+    },
+    // A contract-validation failure can never succeed on redelivery — the
+    // payload is immutable. Terminal, not a nak-loop.
+    isTerminal: (err) => err instanceof ValidationError,
+    handler: async (data, jmsg) => {
+      const request = runContract(route, data);
+      return await route.handler({
+        user: jmsg.authUser,
+        request,
+        msg: { subject: jmsg.subject, headers: jmsg.headers } as unknown as Msg,
+      });
+    },
+  });
+  logger.info(`Subscribed to ${route.subject} (durable, stream ${streamName})`, { tags: ["nats-sub"] });
+}
+
+/**
  * Register governed pub/sub subscribers. Errors are logged, never thrown
  * into the message loop — fire-and-forget has no caller to answer to.
  */
@@ -249,6 +319,22 @@ export async function makeNatsRoutes<TReq = unknown>(
   const subs: Subscription[] = [];
 
   for (const route of routes) {
+    if (route.durable === true) {
+      if (route.payload_schema) {
+        recordCallable({
+          subject: route.subject,
+          kind: "pub",
+          permissions: route.permissions,
+          payload_schema: route.payload_schema.schema,
+          label_key: route.label_key,
+          description_key: route.description_key,
+        });
+      }
+      // Durable handles self-register in the lifecycle registry (hot-reload
+      // dedupe inside jetstreamSubscribe) — no core Subscription to return.
+      await subscribeDurableRoute(route, deps);
+      continue;
+    }
     const queue = route.queue === null ? undefined : (route.queue ?? deps.serviceCode);
     const sub = dedupedSubscribe(nc, route.subject, queue);
     subs.push(sub);

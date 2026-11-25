@@ -360,6 +360,10 @@ export class NatsClient {
       maxMsgsPerSubject?: number;
       /** Discard policy on limits — "old" = FIFO eviction (default server-side). */
       discard?: "old" | "new";
+      /** Retention policy — "workqueue" removes a message on first ack
+       *  (exact work-item semantics); "limits" (server default) keeps it
+       *  for replay within the age/count bounds. */
+      retention?: "limits" | "workqueue";
     },
   ): Promise<void> {
     const nc = await NatsClient.getConnection();
@@ -373,6 +377,7 @@ export class NatsClient {
         ? { max_msgs_per_subject: opts.maxMsgsPerSubject }
         : {}),
       ...(opts?.discard ? { discard: opts.discard } : {}),
+      ...(opts?.retention ? { retention: opts.retention } : {}),
     };
     try {
       await jsm.streams.add(config);
@@ -468,6 +473,15 @@ export class NatsClient {
       subject?: string;
       headers?: MsgHdrs;
     }) => Promise<AuthUser | null | undefined>;
+    /**
+     * Terminal-error predicate — when the handler throws and this returns
+     * true, the message is `term()`inated (no redelivery) instead of
+     * `nak()`ed. Poison messages (schema-validation failures: the payload
+     * will NEVER become valid) must be terminal, or they redeliver
+     * forever. Handler/coding errors stay transient — redelivery is the
+     * point of durability.
+     */
+    isTerminal?: (error: unknown) => boolean;
     handler: (
       data: T,
       msg: {
@@ -628,6 +642,20 @@ export class NatsClient {
               fire_seq: m.seq,
               duration_ms: Math.round(performance.now() - t0),
             });
+            if (opts.isTerminal?.(handlerError) === true) {
+              // Poison message — redelivery can never succeed, so terminate
+              // instead of nak-looping. The lease is released: nothing will
+              // ever reprocess this key, and DONE must not be written (the
+              // work did NOT complete — terminal ≠ success).
+              clearInterval(heartbeat);
+              if (dedupeAcquired) {
+                await getRedisClient()
+                  ?.del(dedupeKey!)
+                  .catch(() => {});
+              }
+              m.term();
+              return;
+            }
             throw handlerError;
           }
           await publishJobResultMessage(subject, m.headers, {
