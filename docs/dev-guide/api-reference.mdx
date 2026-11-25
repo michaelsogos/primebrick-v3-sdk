@@ -448,7 +448,7 @@ and encoded as UTF-8 before publishing.
 |-----------|------|-------------|
 | subject | `string` | NATS subject |
 | data | `unknown` | Any serializable object (bigint values are preserved) |
-| hdrs | `Record<string, string>` |  |
+| hdrs | `Record<string, string>` | Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode) |
 
 #### `NatsClient.subscribe(subject, handler, opts): Promise<Subscription>`
 

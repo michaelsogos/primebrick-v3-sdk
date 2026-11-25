@@ -5,6 +5,9 @@ import type { JetStreamClient, JetStreamManager, JsMsg } from "@nats-io/jetstrea
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
+import { sealEnvelope } from "./message-envelope.js";
+import { getMessageKeyProvider } from "./message-key-provider.js";
+import { getLoadedAuthConfig } from "../auth/auth-config-cache.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { msgHeader } from "./msg-headers.js";
@@ -67,6 +70,44 @@ function injectIdentity(hdrs: MsgHdrs): void {
   for (const [name, value] of Object.entries(identity)) {
     hdrs.set(name.toLowerCase(), value);
   }
+}
+
+const MESSAGE_KEY_PLAINTEXT_WARNED = Symbol.for("primebrick.sdk.message-key-plaintext-warned");
+
+function encodeOutboundMessage(
+  data: unknown,
+  hdrs?: Record<string, string>,
+): { payload: Uint8Array; transportHeaders: Record<string, string> } {
+  const current = getMessageKeyProvider()?.currentKey() ?? null;
+  if (current) {
+    const configuredAuthHeaders = new Set<string>();
+    const authConfig = getLoadedAuthConfig();
+    if (authConfig) {
+      for (const configured of Object.values(authConfig.gateway.headers)) {
+        if (typeof configured === "string") configuredAuthHeaders.add(configured.toLowerCase());
+      }
+    }
+    const sensitiveHeaders: Record<string, string> = {};
+    const transportHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(hdrs ?? {})) {
+      if (key.toLowerCase().startsWith("x-user-") || configuredAuthHeaders.has(key.toLowerCase())) {
+        sensitiveHeaders[key] = value;
+      } else {
+        transportHeaders[key] = value;
+      }
+    }
+    const wire = sealEnvelope(current.key, current.generation, data, sensitiveHeaders);
+    return { payload: new TextEncoder().encode(wire), transportHeaders };
+  }
+  const processFlags = globalThis as Record<symbol, boolean | undefined>;
+  if (processFlags[MESSAGE_KEY_PLAINTEXT_WARNED] !== true) {
+    processFlags[MESSAGE_KEY_PLAINTEXT_WARNED] = true;
+    logger.warn("MESSAGE_KEY_UNAVAILABLE plaintext fallback — NATS publish is unencrypted until MessageKeyProvider is wired", { tags: ["nats"] });
+  }
+  return {
+    payload: new TextEncoder().encode(extJsonStringify(data)),
+    transportHeaders: { ...(hdrs ?? {}) },
+  };
 }
 
 /**
@@ -235,20 +276,18 @@ export class NatsClient {
    *
    * @param subject - NATS subject
    * @param data - Any serializable object (bigint values are preserved)
-   * @param headers - Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode)
+   * @param hdrs - Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode)
    */
   static async publishEphemeralLossy(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
     const nc = await NatsClient.getConnection();
-    const payload = new TextEncoder().encode(extJsonStringify(data));
+    const outbound = encodeOutboundMessage(data, hdrs);
     const natsHeaders = headers();
-    if (hdrs) {
-      for (const [key, value] of Object.entries(hdrs)) {
-        natsHeaders.set(key, value);
-      }
+    for (const [key, value] of Object.entries(outbound.transportHeaders)) {
+      natsHeaders.set(key, value);
     }
     injectIdentity(natsHeaders);
     injectInto(natsHeaders);
-    nc.publish(subject, payload, { headers: natsHeaders });
+    nc.publish(subject, outbound.payload, { headers: natsHeaders });
   }
 
   /**
@@ -425,16 +464,14 @@ export class NatsClient {
     hdrs?: Record<string, string>,
   ): Promise<bigint> {
     const js = NatsClient.getJetStream();
-    const payload = new TextEncoder().encode(extJsonStringify(data));
+    const outbound = encodeOutboundMessage(data, hdrs);
     const natsHeaders = headers();
-    if (hdrs) {
-      for (const [key, value] of Object.entries(hdrs)) {
-        natsHeaders.set(key, value);
-      }
+    for (const [key, value] of Object.entries(outbound.transportHeaders)) {
+      natsHeaders.set(key, value);
     }
     injectIdentity(natsHeaders);
     injectInto(natsHeaders);
-    const ack = await js.publish(subject, payload, { headers: natsHeaders });
+    const ack = await js.publish(subject, outbound.payload, { headers: natsHeaders });
     return BigInt(ack.seq);
   }
 

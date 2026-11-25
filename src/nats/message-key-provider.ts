@@ -88,3 +88,13 @@ export class MessageKeyProvider {
     return this.keys.get(generation) ?? null;
   }
 }
+
+let activeMessageKeyProvider: MessageKeyProvider | null = null;
+
+export function setMessageKeyProvider(provider: MessageKeyProvider | null): void {
+  activeMessageKeyProvider = provider;
+}
+
+export function getMessageKeyProvider(): MessageKeyProvider | null {
+  return activeMessageKeyProvider;
+}
