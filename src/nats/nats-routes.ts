@@ -21,7 +21,8 @@
 
 import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
 import { jetstreamManager } from "@nats-io/jetstream";
-import { decodeInboundMessage, encodeOutboundMessage, messageWithInboundView, NatsClient, publishJobResultMessage } from "./nats-client.js";
+import { decodeInboundMessage, encodeOutboundMessage, messageWithInboundView } from "./message-codec.js";
+import { NatsClient, publishJobResultMessage } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { verifyNatsPublisher } from "./service-shield.js";
 import { extJsonParse, extJsonStringify } from "../json/ext-json.js";

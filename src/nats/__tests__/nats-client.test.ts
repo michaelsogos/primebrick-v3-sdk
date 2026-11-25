@@ -356,6 +356,7 @@ describe("NatsClient.jetstreamSubscribe encryption", () => {
     const msg = fakeJsMsg(new TextEncoder().encode(extJsonStringify(wire)));
     endlessAfterFirst(msg);
     const handler = vi.fn(async () => {});
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
 
     await NatsClient.getConnection();
     const handle = await NatsClient.jetstreamSubscribe({
@@ -370,6 +371,27 @@ describe("NatsClient.jetstreamSubscribe encryption", () => {
     expect(handler).not.toHaveBeenCalled();
     expect(msg.term).toHaveBeenCalledTimes(1);
     expect(msg.ack).not.toHaveBeenCalled();
+
+    // Security evidence: the term()+return path bypasses the outer error
+    // logger, so the violation MUST surface as its own structured security
+    // event — metadata only, never payload/ciphertext material.
+    const securityLogs = errorSpy.mock.calls.filter(
+      ([msg]) => typeof msg === "string" && msg.includes("integrity violation"),
+    );
+    expect(securityLogs).toHaveLength(1);
+    const meta = securityLogs[0][1] as Record<string, unknown>;
+    expect(meta.security_event).toBe("nats_message_integrity_violation");
+    expect(meta.error_code).toBe("MESSAGE_INTEGRITY_VIOLATION");
+    expect(meta.stream).toBe("SVC");
+    expect(meta.durable).toBe("svc-durable");
+    expect(meta.stream_sequence).toBe(77);
+    expect(meta.key_generation).toBe(Number(current!.generation));
+    expect(meta.subject).toBe("durable.subject");
+    expect(meta.tags).toEqual(expect.arrayContaining(["nats", "security"]));
+    const serializedMeta = extJsonStringify(meta);
+    expect(serializedMeta).not.toContain("sealed-durable");
+    expect(serializedMeta).not.toContain("durable_secret");
+    errorSpy.mockRestore();
   });
 });
 
@@ -438,6 +460,46 @@ describe("NatsClient.subscribe", () => {
     expect(data).toEqual({ secret_field: "sealed-value" });
     expect(raw.headers.get("x-user-id")).toBe("user-999");
     expect(raw.headers.get("x-job-run-id")).toBe("run-9");
+  });
+
+  it("passes a closed decrypted view to the handler — ciphertext unreachable through it", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    expect(current).not.toBeNull();
+    const wire = sealEnvelope(current!.key, current!.generation, { secret_field: "sealed-value" }, { "x-user-id": "user-view" });
+    const respond = vi.fn(() => true);
+    const testMsg = {
+      data: new TextEncoder().encode(wire),
+      headers: natsHeaders(),
+      reply: "reply.subject",
+      subject: "test.subject",
+      sid: 1,
+      respond,
+    };
+    const handler = vi.fn();
+    mocks.mockSubscribe.mockReturnValue({
+      async *[Symbol.asyncIterator]() { yield testMsg; },
+    });
+
+    await NatsClient.getConnection();
+    await NatsClient.subscribe("test.subject", handler);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const [, view] = handler.mock.calls[0] as [unknown, {
+      data: Uint8Array;
+      string: () => string;
+      respond: () => boolean;
+      subject: string;
+      reply: string;
+    }];
+    expect(extJsonParse(new TextDecoder().decode(view.data))).toEqual({ secret_field: "sealed-value" });
+    expect(view.string()).not.toBe(wire);
+    view.respond();
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(view.subject).toBe("test.subject");
+    expect(view.reply).toBe("reply.subject");
   });
 
   it("never delivers a tampered encrypted message to the handler", async () => {

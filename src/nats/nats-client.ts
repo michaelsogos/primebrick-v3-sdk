@@ -4,10 +4,15 @@ import { jetstream, jetstreamManager, AckPolicy, JetStreamApiError } from "@nats
 import type { JetStreamClient, JetStreamManager, JsMsg } from "@nats-io/jetstream";
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { logger } from "../lifecycle/logger.js";
-import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
-import { isEnvelope, openEnvelope, sealEnvelope, MessageIntegrityViolationError } from "./message-envelope.js";
-import { getMessageKeyProvider } from "./message-key-provider.js";
-import { getLoadedAuthConfig } from "../auth/auth-config-cache.js";
+import { extJsonStringify } from "../json/ext-json.js";
+import { MessageIntegrityViolationError } from "./message-envelope.js";
+import {
+  decodeInboundMessage,
+  encodeOutboundMessage,
+  messageWithInboundView,
+  peekEnvelopeGeneration,
+  type InboundMessagePayload,
+} from "./message-codec.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { msgHeader } from "./msg-headers.js";
@@ -70,117 +75,6 @@ function injectIdentity(hdrs: MsgHdrs): void {
   for (const [name, value] of Object.entries(identity)) {
     hdrs.set(name.toLowerCase(), value);
   }
-}
-
-const MESSAGE_KEY_PLAINTEXT_WARNED = Symbol.for("primebrick.sdk.message-key-plaintext-warned");
-const MESSAGE_KEY_LEGACY_INBOUND_WARNED = Symbol.for("primebrick.sdk.message-key-legacy-inbound-warned");
-
-export interface InboundMessagePayload<T = unknown> {
-  data: T;
-  headers?: MsgHdrs;
-  encrypted: boolean;
-}
-
-function mergeInboundHeaders(outer: MsgHdrs | undefined, inner: Record<string, string>): MsgHdrs | undefined {
-  if (Object.keys(inner).length === 0) return outer;
-  const merged = headers();
-  if (outer) {
-    for (const [key, values] of outer) {
-      for (const value of values) merged.append(key, value);
-    }
-  }
-  for (const [key, value] of Object.entries(inner)) {
-    for (const existing of merged.keys()) {
-      if (existing.toLowerCase() === key.toLowerCase()) merged.delete(existing);
-    }
-    merged.set(key, value);
-  }
-  return merged;
-}
-
-function warnLegacyInboundOnce(): void {
-  const processFlags = globalThis as Record<symbol, boolean | undefined>;
-  if (processFlags[MESSAGE_KEY_LEGACY_INBOUND_WARNED] === true) return;
-  processFlags[MESSAGE_KEY_LEGACY_INBOUND_WARNED] = true;
-  logger.warn("MESSAGE_KEY_LEGACY_PLAINTEXT inbound passthrough — accepting an unencrypted transitional payload", { tags: ["nats"] });
-}
-
-/**
- * Decode an inbound fabric payload. Encrypted envelopes are opened BEFORE
- * auth/validation/handler code and their sensitive headers are merged over
- * the transport header view. Plaintext remains accepted only as the explicit
- * transitional fallback and is warned once per process. Envelope integrity or
- * key failures throw — undecryptable content must never reach a handler.
- */
-export function decodeInboundMessage<T = unknown>(
-  payload: Uint8Array,
-  transportHeaders?: MsgHdrs,
-): InboundMessagePayload<T> {
-  const text = new TextDecoder().decode(payload);
-  if (text === "") return { data: null as T, headers: transportHeaders, encrypted: false };
-  const parsed = extJsonParse(text) as unknown;
-  if (!isEnvelope(parsed)) {
-    warnLegacyInboundOnce();
-    return { data: parsed as T, headers: transportHeaders, encrypted: false };
-  }
-  const provider = getMessageKeyProvider();
-  if (!provider) throw new Error("MESSAGE_KEY_PROVIDER_UNAVAILABLE: encrypted payload cannot be opened");
-  const opened = openEnvelope(parsed, (generation) => provider.keyForGeneration(generation));
-  return {
-    data: opened.payload as T,
-    headers: mergeInboundHeaders(transportHeaders, opened.headers),
-    encrypted: true,
-  };
-}
-
-/** Return a Msg view exposing decrypted payload bytes and merged headers while
- *  preserving the original message methods (notably respond()). */
-export function messageWithInboundView<T>(msg: Msg, inbound: InboundMessagePayload<T>): Msg {
-  const data = new TextEncoder().encode(extJsonStringify(inbound.data));
-  return new Proxy(msg, {
-    get(target, prop, receiver) {
-      if (prop === "data") return data;
-      if (prop === "headers") return inbound.headers;
-      const value = Reflect.get(target, prop, receiver) as unknown;
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-}
-
-export function encodeOutboundMessage(
-  data: unknown,
-  hdrs?: Record<string, string>,
-): { payload: Uint8Array; transportHeaders: Record<string, string> } {
-  const current = getMessageKeyProvider()?.currentKey() ?? null;
-  if (current) {
-    const configuredAuthHeaders = new Set<string>();
-    const authConfig = getLoadedAuthConfig();
-    if (authConfig) {
-      for (const configured of Object.values(authConfig.gateway.headers)) {
-        if (typeof configured === "string") configuredAuthHeaders.add(configured.toLowerCase());
-      }
-    }
-    const sensitiveHeaders: Record<string, string> = {};
-    const transportHeaders: Record<string, string> = {};
-    for (const [key, value] of Object.entries(hdrs ?? {})) {
-      if (key.toLowerCase().startsWith("x-user-") || configuredAuthHeaders.has(key.toLowerCase())) {
-        sensitiveHeaders[key] = value;
-      } else {
-        transportHeaders[key] = value;
-      }
-    }
-    const wire = sealEnvelope(current.key, current.generation, data, sensitiveHeaders);
-    return { payload: new TextEncoder().encode(wire), transportHeaders };
-  }
-  const processFlags = globalThis as Record<symbol, boolean | undefined>;
-  if (processFlags[MESSAGE_KEY_PLAINTEXT_WARNED] !== true) {
-    processFlags[MESSAGE_KEY_PLAINTEXT_WARNED] = true;
-    logger.warn("MESSAGE_KEY_UNAVAILABLE plaintext fallback — NATS publish is unencrypted until MessageKeyProvider is wired", { tags: ["nats"] });
-  }
-  return {
-    payload: new TextEncoder().encode(extJsonStringify(data)),
-    transportHeaders: { ...(hdrs ?? {}) },
-  };
 }
 
 /**
@@ -657,16 +551,39 @@ export class NatsClient {
           try {
             inbound = decodeInboundMessage<T>(m.data, m.headers);
           } catch (decryptError) {
-            await publishJobResultMessage(subject, m.headers, {
-              status: "failed",
-              error_code: decryptError instanceof MessageIntegrityViolationError ? "MESSAGE_INTEGRITY_VIOLATION" : "MESSAGE_DECRYPT_FAILED",
-              error_detail: decryptError instanceof Error ? decryptError.message : String(decryptError),
-              fire_seq: m.seq,
-            });
             if (decryptError instanceof MessageIntegrityViolationError) {
+              // Security evidence FIRST, before anything else: the term()+return
+              // below bypasses the outer error logger, so without this log a
+              // tampered/foreign message on a non-job-correlated subject would
+              // vanish silently. Metadata only — never payload, ciphertext,
+              // sensitive headers or key material.
+              span.recordException(decryptError);
+              span.setStatus({ code: SpanStatusCode.ERROR });
+              logger.error("NATS message integrity violation — terminating without delivery", {
+                tags: ["nats", "security"],
+                security_event: "nats_message_integrity_violation",
+                subject,
+                stream: opts.stream,
+                durable: opts.durable,
+                stream_sequence: m.seq,
+                key_generation: peekEnvelopeGeneration(m.data),
+                error_code: "MESSAGE_INTEGRITY_VIOLATION",
+              });
+              await publishJobResultMessage(subject, m.headers, {
+                status: "failed",
+                error_code: "MESSAGE_INTEGRITY_VIOLATION",
+                error_detail: decryptError.message,
+                fire_seq: m.seq,
+              });
               m.term();
               return;
             }
+            await publishJobResultMessage(subject, m.headers, {
+              status: "failed",
+              error_code: "MESSAGE_DECRYPT_FAILED",
+              error_detail: decryptError instanceof Error ? decryptError.message : String(decryptError),
+              fire_seq: m.seq,
+            });
             throw decryptError;
           }
           let authUser: AuthUser | undefined;
