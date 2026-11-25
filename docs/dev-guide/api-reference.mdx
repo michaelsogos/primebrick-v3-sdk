@@ -428,15 +428,25 @@ the connection was never established.
 
 #### `NatsClient.close(): Promise<void>`
 
-#### `NatsClient.publish(subject, data, hdrs): Promise<void>`
+#### `NatsClient.publishEphemeralLossy(subject, data, hdrs): Promise<void>`
 
-Publish a message with automatic Ext-JSON serialization.
+LOSSY fire-and-forget publish — core NATS, no persistence, no redelivery.
+If the consumer is down, busy or mid-restart, the message is silently
+gone. For this platform's reliability doctrine NO payload is
+non-mission-critical, so this primitive is legitimate ONLY for the
+governed exceptions of the 4-class doctrine (see nats-client.mdx):
+ephemeral presence (self-superseding), invalidation hints whose
+consumers re-pull truth on a TTL, and request/reply traffic.
+Everything else must use `publish()` (JetStream-durable).
+The name is deliberately deterrent — writing it should feel wrong.
+Lint `no-fnf-nats-publish` bans call sites outside sanctioned paths.
+
 The data object is serialized with extJsonStringify (BigInt-safe)
 and encoded as UTF-8 before publishing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| subject | `string` | NATS subject (e.g. "emailsender.send", "customer.created") |
+| subject | `string` | NATS subject |
 | data | `unknown` | Any serializable object (bigint values are preserved) |
 | hdrs | `Record<string, string>` |  |
 
@@ -469,11 +479,15 @@ enabled (`nats -js`).
   targets must be covered (ADR-51). |
 | opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean; maxAgeSecs: number; maxMsgsPerSubject: number; discard: "old" \| "new" }` |  |
 
-#### `NatsClient.jetstreamPublish(subject, data, hdrs): Promise<bigint>`
+#### `NatsClient.publish(subject, data, hdrs): Promise<bigint>`
 
-Publish a message to JetStream and await the PubAck (durable write
-confirmed server-side). Same Ext-JSON serialization and header
-propagation as `publish()`.
+Publish a message — THE publish primitive of the platform. JetStream-durable
+by construction: the write is confirmed server-side via PubAck before
+returning, the message survives consumer downtime, and delivery is
+at-least-once. This is the default and ONLY sanctioned way to publish
+state-carrying traffic; the lossy core-NATS variant exists only for the
+governed ephemeral exceptions as `publishEphemeralLossy`.
+Same Ext-JSON serialization and header propagation everywhere.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

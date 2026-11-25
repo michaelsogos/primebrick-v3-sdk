@@ -9,7 +9,7 @@
  * subscribe helper needed) — the BE bridges these subjects to per-entity
  * `SseEventBus` instances.
  *
- * Serialization uses `extJsonStringify` (BigInt-safe) via `NatsClient.publish`.
+ * Serialization uses `extJsonStringify` (BigInt-safe).
  */
 import { NatsClient } from "../nats/nats-client.js";
 import type { PresenceDelta, EntityChangedMarker } from "./types.js";
@@ -43,7 +43,7 @@ export async function publishPresence(
   entityUuid: string,
   delta: PresenceDelta,
 ): Promise<void> {
-  await nc.publish(presenceSubject(entityType, entityUuid), delta);
+  await nc.publishEphemeralLossy(presenceSubject(entityType, entityUuid), delta);
 }
 
 /**
@@ -57,5 +57,5 @@ export async function publishEntityChanged(
   nc: typeof NatsClient,
   marker: EntityChangedMarker,
 ): Promise<void> {
-  await nc.publish(entityChangedSubject(marker.entity_type, marker.entity_uuid), marker);
+  await nc.publishEphemeralLossy(entityChangedSubject(marker.entity_type, marker.entity_uuid), marker);
 }

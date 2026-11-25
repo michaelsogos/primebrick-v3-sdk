@@ -116,7 +116,7 @@ export class RotatingSecretEngine {
       // TTL = rotation + grace: the key IS the lifecycle — its expiry forces
       // regeneration, so no scheduler is required for self-healing.
       await this.redis.pExpire(key, this.rotationMs + this.graceMs);
-      await NatsClient.publish(SECRET_SUBJECTS.ROTATED, { ...ref, rotated_at: slot.rotated_at });
+      await NatsClient.publishEphemeralLossy(SECRET_SUBJECTS.ROTATED, { ...ref, rotated_at: slot.rotated_at });
       if (ref.scope === CLIENT_SHIELD_SECRET_REF.scope && ref.name === CLIENT_SHIELD_SECRET_REF.name) setClientShieldSecretSlot(slot);
       logger.info(
         `The service client-shield secret has been rotated and broadcast to all registered services. Next rotation in ${humanizeMs(this.rotationMs)} (${this.rotationMs}ms).`,

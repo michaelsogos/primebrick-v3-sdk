@@ -93,7 +93,7 @@ describe("NatsClient", () => {
   });
 });
 
-describe("NatsClient.publish", () => {
+describe("NatsClient.publishEphemeralLossy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     NatsClient.close();
@@ -101,7 +101,7 @@ describe("NatsClient.publish", () => {
 
   it("serializes payload with extJsonStringify and publishes as Uint8Array", async () => {
     await NatsClient.getConnection();
-    await NatsClient.publish("test.subject", { id: 42n, name: "test" });
+    await NatsClient.publishEphemeralLossy("test.subject", { id: 42n, name: "test" });
 
     expect(mocks.mockPublish).toHaveBeenCalledTimes(1);
     const [subject, payload] = mocks.mockPublish.mock.calls[0];
@@ -115,7 +115,7 @@ describe("NatsClient.publish", () => {
   it("serializes bigint values correctly (round-trip)", async () => {
     await NatsClient.getConnection();
     const data = { count: 9007199254740993n, nested: { value: 123n } };
-    await NatsClient.publish("bigint.subject", data);
+    await NatsClient.publishEphemeralLossy("bigint.subject", data);
 
     const payload = mocks.mockPublish.mock.calls[0][1] as Uint8Array;
     const decoded = extJsonParse(new TextDecoder().decode(payload));

@@ -100,7 +100,7 @@ export function makeNatsEntityEventPort(serviceCode: string): EntityEventPort {
         ...draft,
         event: { ...draft.event, service: serviceCode, subject },
       };
-      await NatsClient.jetstreamPublish(subject, event);
+      await NatsClient.publish(subject, event);
     },
   };
 }

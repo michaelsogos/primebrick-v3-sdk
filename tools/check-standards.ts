@@ -227,7 +227,8 @@ type RuleId =
   | "page-scaffold-ownership"
   | "icon-no-fallback"
   | "e2e-wait-budget"
-  | "event-bus-ownership";
+  | "event-bus-ownership"
+  | "no-fnf-nats-publish";
 
 interface Rule {
   id: RuleId;
@@ -338,7 +339,7 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-chrome-class",
   "field-stock-chrome", "display-coerce",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
-  "e2e-wait-budget", "event-bus-ownership",
+  "e2e-wait-budget", "event-bus-ownership", "no-fnf-nats-publish",
 ]);
 const GATED_LINE_RULES: Rule[] = [
   { id: "dal-access", pattern: /\b(?:initDal|getDal|resetDal)\s*\(|\bimport\s+(?:type\s+)?\{[^}]*\b(?:initDal|getDal|resetDal)\b/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal()/resetDal() only inside the declared allowlist" },
@@ -348,6 +349,15 @@ const GATED_LINE_RULES: Rule[] = [
   // another module's vocabulary. Cross-service reactions live as
   // job_triggers rows (data, JH-dispatched), never as code subscriptions.
   { id: "event-bus-ownership", pattern: /\b(?:subscribe\w*|filter_?[Ss]ubject)\s*[:(]?\s*["'`]events\./, hint: "entity-domain events are consumed ONLY by job-handler (durable ENTITY_EVENTS) — cross-service reactions are job_triggers rows, never direct subscriptions" },
+  // no-fnf-nats-publish — the lossy core-NATS primitive is legitimate ONLY for
+  // the governed ephemeral exceptions of the durability doctrine (presence
+  // heartbeats, self-superseding lifecycle beats, invalidation hints whose
+  // consumers re-pull truth on a TTL). Every sanctioned call site is a
+  // reviewable allowPaths entry; everything else uses NatsClient.publish
+  // (JetStream-durable by construction). The deterrent name is the point:
+  // a new match means someone chose silent message loss — it must be a
+  // deliberate, documented decision, never an accident.
+  { id: "no-fnf-nats-publish", pattern: /\bpublishEphemeralLossy\s*\(/, hint: "fire-and-forget publish — silent message loss if the consumer is down; use NatsClient.publish (JetStream-durable) or justify the ephemeral exception in allowPaths" },
   { id: "layer-repo-import", pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'][^"']*[-_](?:dal|repo|repository)(?:\.js|\.ts)?["']/, hint: "transport/dispatch layers must call services — never import *-dal/*-repo modules" },
   // Single-line `import { …Switch… } from '@primebrick/ui'` — \b after
   // "Switch" never matches SwitchField. Multi-line import lists are caught

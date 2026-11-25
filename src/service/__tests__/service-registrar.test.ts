@@ -26,7 +26,7 @@ function makeNatsMock(replyBatches: unknown[][] = [[{ registered: true }]]) {
     }),
   };
   return {
-    publish: vi.fn(async () => {}),
+    publishEphemeralLossy: vi.fn(async () => {}),
     conn,
     getConnection: vi.fn(async () => conn),
     subscribe: vi.fn(async () => {}),
@@ -104,8 +104,8 @@ describe("ServiceRegistrar", () => {
 
   it("sendHeartbeat() publishes to service.heartbeat subject", async () => {
     await registrar.sendHeartbeat();
-    expect(nats.publish).toHaveBeenCalledTimes(1);
-    const [subject, payload] = nats.publish.mock.calls[0];
+    expect(nats.publishEphemeralLossy).toHaveBeenCalledTimes(1);
+    const [subject, payload] = nats.publishEphemeralLossy.mock.calls[0];
     expect(subject).toBe(SERVICE_SUBJECTS.HEARTBEAT);
     expect(payload.code).toBe("emailsender");
     expect(payload.base_url).toBe("http://localhost:8081");
@@ -118,19 +118,19 @@ describe("ServiceRegistrar", () => {
   it("sendHeartbeat() includes service_version when configured", async () => {
     registrar = new ServiceRegistrar(nats as any, { ...baseConfig, service_version: "2.0.0" });
     await registrar.sendHeartbeat();
-    const payload = nats.publish.mock.calls[0][1];
+    const payload = nats.publishEphemeralLossy.mock.calls[0][1];
     expect(payload.service_version).toBe("2.0.0");
   });
 
   it("sendHeartbeat() swallows errors", async () => {
-    nats.publish.mockRejectedValue(new Error("nats down"));
+    nats.publishEphemeralLossy.mockRejectedValue(new Error("nats down"));
     await expect(registrar.sendHeartbeat()).resolves.toBeUndefined();
   });
 
   it("unregister() publishes to service.unregister subject", async () => {
     await registrar.unregister();
-    expect(nats.publish).toHaveBeenCalledTimes(1);
-    const [subject, payload] = nats.publish.mock.calls[0];
+    expect(nats.publishEphemeralLossy).toHaveBeenCalledTimes(1);
+    const [subject, payload] = nats.publishEphemeralLossy.mock.calls[0];
     expect(subject).toBe(SERVICE_SUBJECTS.UNREGISTER);
     expect(payload.code).toBe("emailsender");
     expect(payload.base_url).toBe("http://localhost:8081");
@@ -162,7 +162,7 @@ describe("ServiceRegistrar", () => {
     }));
     registrar = new ServiceRegistrar(nats as any, baseConfig, healthCheckFn);
     await registrar.sendHeartbeat();
-    const payload = nats.publish.mock.calls[0][1];
+    const payload = nats.publishEphemeralLossy.mock.calls[0][1];
     expect(payload.http_healthy).toBe(false);
     expect(payload.checks.db.ok).toBe(false);
     expect(payload.checks.db.error).toBe("connection refused");
@@ -172,7 +172,7 @@ describe("ServiceRegistrar", () => {
   it("nats_connected reflects NatsClient.isConnected() result", async () => {
     nats.isConnected = vi.fn(() => false);
     await registrar.sendHeartbeat();
-    const payload = nats.publish.mock.calls[0][1];
+    const payload = nats.publishEphemeralLossy.mock.calls[0][1];
     expect(payload.nats_connected).toBe(false);
   });
 });

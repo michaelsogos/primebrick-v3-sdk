@@ -18,7 +18,7 @@ function fakeRedis() {
 const REF = { scope: "global", name: "service_client_shield_secret" };
 
 vi.mock("../../nats/nats-client.js", () => ({
-  NatsClient: { publish: vi.fn(async () => {}), subscribe: vi.fn(async () => {}), getConnection: vi.fn() },
+  NatsClient: { publishEphemeralLossy: vi.fn(async () => {}), subscribe: vi.fn(async () => {}), getConnection: vi.fn() },
 }));
 vi.mock("../../nats/service-shield.js", () => ({ subscribeShielded: vi.fn(async () => {}) }));
 
@@ -31,7 +31,7 @@ describe("RotatingSecretEngine", () => {
     const slot = await engine.get(REF);
     expect(slot.current).toMatch(/^[0-9a-f]{64}$/);
     expect(slot.previous).toBeNull();
-    expect(NatsClient.publish).toHaveBeenCalledWith(SECRET_SUBJECTS.ROTATED, expect.objectContaining(REF));
+    expect(NatsClient.publishEphemeralLossy).toHaveBeenCalledWith(SECRET_SUBJECTS.ROTATED, expect.objectContaining(REF));
   });
 
   it("get is idempotent within the rotation window (no re-rotate on read)", async () => {

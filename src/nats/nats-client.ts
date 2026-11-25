@@ -83,7 +83,7 @@ export async function publishJobResultMessage(
   const trigger_uuid = msgHeader(headers, JOB_TRIGGER_ID_HEADER) ?? undefined;
   if (run_id === undefined && schedule_subject === undefined) return;
   try {
-    await NatsClient.jetstreamPublish(jobResultSubject(subject), {
+    await NatsClient.publish(jobResultSubject(subject), {
       ...result,
       run_id,
       schedule_subject,
@@ -206,19 +206,25 @@ export class NatsClient {
 
 
   /**
-   * Publish a message with automatic Ext-JSON serialization.
+   * LOSSY fire-and-forget publish — core NATS, no persistence, no redelivery.
+   * If the consumer is down, busy or mid-restart, the message is silently
+   * gone. For this platform's reliability doctrine NO payload is
+   * non-mission-critical, so this primitive is legitimate ONLY for the
+   * governed exceptions of the 4-class doctrine (see nats-client.mdx):
+   * ephemeral presence (self-superseding), invalidation hints whose
+   * consumers re-pull truth on a TTL, and request/reply traffic.
+   * Everything else must use `publish()` (JetStream-durable).
+   * The name is deliberately deterrent — writing it should feel wrong.
+   * Lint `no-fnf-nats-publish` bans call sites outside sanctioned paths.
+   *
    * The data object is serialized with extJsonStringify (BigInt-safe)
    * and encoded as UTF-8 before publishing.
    *
-   * @param subject - NATS subject (e.g. "emailsender.send", "customer.created")
+   * @param subject - NATS subject
    * @param data - Any serializable object (bigint values are preserved)
    * @param headers - Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode)
-   *
-   * Example:
-   *   await NatsClient.publish("customer.created", { entity_id: 42n, action: "CREATED" });
-   *   await NatsClient.publish("emailsender.send", request, authHeaders);
    */
-  static async publish(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
+  static async publishEphemeralLossy(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
     const nc = await NatsClient.getConnection();
     const payload = new TextEncoder().encode(extJsonStringify(data));
     const natsHeaders = headers();
@@ -385,13 +391,17 @@ export class NatsClient {
   }
 
   /**
-   * Publish a message to JetStream and await the PubAck (durable write
-   * confirmed server-side). Same Ext-JSON serialization and header
-   * propagation as `publish()`.
+   * Publish a message — THE publish primitive of the platform. JetStream-durable
+   * by construction: the write is confirmed server-side via PubAck before
+   * returning, the message survives consumer downtime, and delivery is
+   * at-least-once. This is the default and ONLY sanctioned way to publish
+   * state-carrying traffic; the lossy core-NATS variant exists only for the
+   * governed ephemeral exceptions as `publishEphemeralLossy`.
+   * Same Ext-JSON serialization and header propagation everywhere.
    *
    * @returns The stream sequence number assigned by JetStream.
    */
-  static async jetstreamPublish(
+  static async publish(
     subject: string,
     data: unknown,
     hdrs?: Record<string, string>,

@@ -153,11 +153,11 @@ describe("verifyNatsPublisher — stale-snapshot recovery", () => {
 
 describe("publishJobResultMessage — correlation contract", () => {
   beforeEach(() => {
-    vi.spyOn(NatsClient, "jetstreamPublish").mockResolvedValue({ seq: 1n } as never);
+    vi.spyOn(NatsClient, "publish").mockResolvedValue({ seq: 1n } as never);
   });
 
   it("headers win over the envelope fallback", async () => {
-    const spy = vi.spyOn(NatsClient, "jetstreamPublish");
+    const spy = vi.spyOn(NatsClient, "publish");
     await publishJobResultMessage(
       "jobs.due.user.job.forward.abc",
       hdrs({ "x-job-schedule-subject": "jobs.schedule.hdr" }),
@@ -170,7 +170,7 @@ describe("publishJobResultMessage — correlation contract", () => {
   });
 
   it("envelope schedule_subject correlates a header-less denial", async () => {
-    const spy = vi.spyOn(NatsClient, "jetstreamPublish");
+    const spy = vi.spyOn(NatsClient, "publish");
     await publishJobResultMessage(
       "jobs.due.user.job.forward.abc",
       hdrs({}),
@@ -186,7 +186,7 @@ describe("publishJobResultMessage — correlation contract", () => {
   });
 
   it("no headers + no fallback → silent no-op (uncorrelated result is unsendable)", async () => {
-    const spy = vi.spyOn(NatsClient, "jetstreamPublish");
+    const spy = vi.spyOn(NatsClient, "publish");
     await publishJobResultMessage("emailsender.send", hdrs({}), { status: "failed" });
     expect(spy).not.toHaveBeenCalled();
   });

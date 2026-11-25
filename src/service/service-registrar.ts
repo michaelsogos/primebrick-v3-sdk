@@ -354,7 +354,7 @@ export class ServiceRegistrar {
         checks,
         pkg_name: this.pkgName,
       };
-      await this.nats.publish(SERVICE_SUBJECTS.HEARTBEAT, payload);
+      await this.nats.publishEphemeralLossy(SERVICE_SUBJECTS.HEARTBEAT, payload);
     } catch (error) {
       logger.error(`Heartbeat error for ${this.config.serviceCode}`, { tags: ["core"], error: error });
     }
@@ -368,7 +368,7 @@ export class ServiceRegistrar {
       pkg_name: this.pkgName,
       service_version: this.config.service_version,
     };
-    await this.nats.publish(SERVICE_SUBJECTS.UNREGISTER, payload);
+    await this.nats.publishEphemeralLossy(SERVICE_SUBJECTS.UNREGISTER, payload);
     logger.info(`Unregistered ${this.config.serviceCode} via NATS`, { tags: ["core"] });
   }
 
