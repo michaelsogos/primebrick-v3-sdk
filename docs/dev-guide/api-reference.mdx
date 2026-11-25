@@ -477,7 +477,7 @@ enabled (`nats -js`).
 | subjects | `string[]` | Subjects bound to the stream (e.g. ["webhook.&#62;"]). For
   scheduled-message streams BOTH the schedule subjects AND the fire
   targets must be covered (ADR-51). |
-| opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean; maxAgeSecs: number; maxMsgsPerSubject: number; discard: "old" \| "new" }` |  |
+| opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean; maxAgeSecs: number; maxMsgsPerSubject: number; discard: "old" \| "new"; retention: "limits" \| "workqueue" }` |  |
 
 #### `NatsClient.publish(subject, data, hdrs): Promise<bigint>`
 
@@ -516,7 +516,7 @@ messages (concurrency), `maxDeliver` bounds retries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number; streamSequence: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
+| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; isTerminal: (error: unknown) => boolean; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number; streamSequence: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
 
 ### `NatsHeaderProvider`
 
@@ -2301,6 +2301,13 @@ AND wires the mandatory runtime validation. Omit for private routes:
 a callable without a contract is not mappable. |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
 | description_key | `string` |  |
+| durable | `boolean` | Durable work-item transport — the route is consumed through JetStream
+(at-least-once + systemic Redis dedupe) instead of lossy core pub/sub.
+The factory ensures the per-service workqueue stream `<SERVICECODE>`
+capturing exactly this subject and wires the same shield/RBAC/contract
+middleware — the declaration is identical, only the transport changes.
+THE default for state-carrying work items (durability doctrine);
+absence is legitimate only for the governed ephemeral exceptions. |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<unknown>` | The ONE service call. An object the handler returns is carried onto
 the `jobs.result.*` outcome message as `report` (same convention as
 `NatsClient.jetstreamSubscribe`) — a fire-and-forget route that wants
