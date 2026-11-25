@@ -263,6 +263,18 @@ export {
   type SecretGetResponse,
 } from "./secrets/rotating-secret.js";
 export {
+  SecretVault,
+  SecretVaultReader,
+  MESSAGE_KEY_MATERIAL_REF,
+  MESSAGE_KEY_MATERIAL_POLICY,
+  type VaultSecretRef,
+  type VaultEntryPolicy,
+  type VaultGenerations,
+  type SqlPoolPort,
+  type SqlClientPort,
+  type SqlQueryResult,
+} from "./secrets/secret-vault.js";
+export {
   setClientShieldSecretSlot,
   getClientShieldSecretSlot,
   currentClientShieldSecret,

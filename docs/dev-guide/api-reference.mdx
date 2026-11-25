@@ -767,6 +767,66 @@ Interval driver — ensure existence now, then rotate every rotationMs.
 | scope | `string` |  |
 | name | `string` |  |
 
+### `SecretVault`
+
+#### `SecretVault(deps)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| deps | `{ pool: SqlPoolPort; schema: string; policies: typeOperator; publishHint: (ref: VaultSecretRef, meta: { generation: number; rotated_at: number }) => Promise<void> }` |  |
+
+#### `SecretVault.rotateIfNeeded(policy): Promise<{ rotated: boolean; generation: number \| null }>`
+
+Rotate-if-needed: allocate the next generation when the ref has no
+material yet (boot self-healing) or the current generation is older
+than the policy cadence. Trimming of expired generations happens in
+the SAME transaction either way.
+
+Critical-section discipline (ratified):
+  BEGIN → pg_advisory_xact_lock → RE-READ state → maybe INSERT →
+  DELETE expired → COMMIT → hint broadcast AFTER commit.
+The lock is transaction-scoped: released automatically on
+commit/rollback/crash — no TTL, no orphan locks, no second infra.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| policy | `VaultEntryPolicy` |  |
+
+#### `SecretVault.ensureAll(): Promise<void>`
+
+Boot provisioning — ensure every owned ref has live material.
+
+#### `SecretVault.startAutoRotation()`
+
+Interval driver — ensure now, then check every policy cadence.
+ Idempotent per ref: a lifecycle re-run must not stack intervals.
+
+#### `SecretVault.stop()`
+
+Stop all cadence timers (shutdown/tests).
+
+### `SecretVaultReader`
+
+Read-only access to the vault generations of a ref. Services consume this
+through direct DAL — never over NATS. No policy knowledge required: rows
+older than the retention window no longer exist, so everything present
+belongs to the live key window.
+
+#### `SecretVaultReader(deps)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| deps | `{ pool: SqlPoolPort; schema: string }` |  |
+
+#### `SecretVaultReader.readGenerations(ref): Promise<VaultGenerations \| null>`
+
+null when the ref has no material yet (pre-boot or after a wipe — the
+ owning writer self-heals it; consumers stay unavailable and retry).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| ref | `VaultSecretRef` |  |
+
 ### `ServiceRegistrar`
 
 Registers a microservice via NATS lifecycle events and maintains
@@ -3181,6 +3241,17 @@ Structural view of the client registry needed for shield checks.
 |-------|------|-------------|
 | allowedPrefixes | `typeOperator` |  |
 
+### `SqlClientPort`
+
+### `SqlPoolPort`
+
+### `SqlQueryResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| rows | `Record<string, unknown>[]` |  |
+| rowCount | `number \| null` |  |
+
 ### `SqlVersionProbe`
 
 Minimal server-version probe — satisfied structurally by dal-pg's `Dal`
@@ -3416,6 +3487,33 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 |-------|------|-------------|
 | protocols | `string[]` | Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. |
 | error_label_key | `string` |  |
+
+### `VaultEntryPolicy`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| ref | `VaultSecretRef` |  |
+| rotationMs | `number` | Rotation cadence — rotation happens when the current generation is
+ older than this (checked at boot and on the interval). |
+| retentionMs | `number` | Retention window — generations older than this are physically deleted
+ inside every rotation transaction. |
+
+### `VaultGenerations`
+
+Reader output — shaped exactly like MessageKeyMaterial so the A6 wiring
+is `new MessageKeyProvider(() => reader.readGenerations(ref))`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| generation | `number` |  |
+| generations | `Record<string, string>` |  |
+
+### `VaultSecretRef`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| scope | `string` | "global" for fleet-wide secrets, or a service/module scope. |
+| name | `string` |  |
 
 ### `VisibleKeyPrefs`
 
@@ -4823,6 +4921,18 @@ Control-plane route for system-trigger materialization (primebrick-job).
 | done | "" |
 | warn | "" |
 | error | "" |
+
+### `MESSAGE_KEY_MATERIAL_POLICY`
+
+Ratified policy: hourly rotation, 7-day key window (the retention cap).
+
+**Type:** `VaultEntryPolicy`
+
+### `MESSAGE_KEY_MATERIAL_REF`
+
+The fabric message-key material — rotating parte_B of the split key.
+
+**Type:** `VaultSecretRef`
 
 ### `MFA_ACTION_AUTH_HEADER`
 

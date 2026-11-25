@@ -7,13 +7,15 @@
     },
     "raw-query": {
       "allowPaths": [
-        "translations/translations-service.ts"
+        "translations/translations-service.ts",
+        "secrets/secret-vault.ts"
       ]
     },
     "raw-sql": {
       "allowPaths": [
         "translations/translations-service.ts",
-        "docs-gen/service-docs.ts"
+        "docs-gen/service-docs.ts",
+        "secrets/secret-vault.ts"
       ]
     },
     "ext-json": {
@@ -30,7 +32,8 @@
         "nats/nats-client.ts",
         "presence/nats-subjects.ts",
         "service/service-registrar.ts",
-        "secrets/rotating-secret.ts"
+        "secrets/rotating-secret.ts",
+        "secrets/secret-vault.ts"
       ]
     }
   }
