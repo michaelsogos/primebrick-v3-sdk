@@ -68,8 +68,9 @@ export function decodeInboundMessage<T = unknown>(
   if (text === "") return { data: null as T, headers: transportHeaders, encrypted: false };
   const parsed = extJsonParse(text) as unknown;
   if (!isEnvelope(parsed)) {
-    warnLegacyInboundOnce();
-    return { data: parsed as T, headers: transportHeaders, encrypted: false };
+    // A7 — hard reject: plaintext inbound is an attack or an ungoverned
+    // publisher. The transitional passthrough is closed.
+    throw new Error("MESSAGE_PLAINTEXT_REJECTED: inbound payload is not a sealed envelope — plaintext on the NATS wire is rejected by construction");
   }
   const provider = getMessageKeyProvider();
   if (!provider) throw new Error("MESSAGE_KEY_PROVIDER_UNAVAILABLE: encrypted payload cannot be opened");
@@ -152,13 +153,7 @@ export function encodeOutboundMessage(
     const wire = sealEnvelope(current.key, current.generation, data, sensitiveHeaders);
     return { payload: new TextEncoder().encode(wire), transportHeaders };
   }
-  const processFlags = globalThis as Record<symbol, boolean | undefined>;
-  if (processFlags[MESSAGE_KEY_PLAINTEXT_WARNED] !== true) {
-    processFlags[MESSAGE_KEY_PLAINTEXT_WARNED] = true;
-    logger.warn("MESSAGE_KEY_UNAVAILABLE plaintext fallback — NATS publish is unencrypted until MessageKeyProvider is wired", { tags: ["nats"] });
-  }
-  return {
-    payload: new TextEncoder().encode(extJsonStringify(data)),
-    transportHeaders: { ...(hdrs ?? {}) },
-  };
+  // A7 — fail-closed by construction: no key material means something is
+  // broken at boot ordering — NEVER emit plaintext on the wire.
+  throw new Error("MESSAGE_KEY_PROVIDER_UNAVAILABLE: refusing to publish plaintext — the wire is envelope-only by construction");
 }
