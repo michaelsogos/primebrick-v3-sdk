@@ -250,6 +250,13 @@ export interface MicroserviceOptions {
    * external providers). Everything else is gated by default.
    */
   identityExemptPaths?: RegExp[];
+  /**
+   * Internal provenance mode — defaults to "enforce" (internal-only services).
+   * The BE edge passes "verify-if-present": browser traffic is unsigned by
+   * nature, but cleartext identity injection is rejected and signed internal
+   * traffic is verified. Never set "off" outside tests.
+   */
+  internalProvenance?: "enforce" | "verify-if-present" | "off";
 
   /**
    * Auth dependency setters — called after auth config is loaded.
@@ -1052,6 +1059,7 @@ export async function createMicroservice(
     routeHandler,
     clientShieldRegistry,
     identityExemptPaths: options.identityExemptPaths,
+    internalProvenance: options.internalProvenance ?? "enforce",
   });
 
   // 8b. Register AFTER the HTTP server is listening — the BE discovers
