@@ -11,7 +11,7 @@
  *   - The schedule declaration is a stored, rollup-subject message carrying
  *     `Nats-Schedule` + `Nats-Schedule-Target`; republishing on the same
  *     subject REPLACES the schedule.
- *   - Custom headers (incl. the L1 client-shield key and the correlation
+ *   - Custom headers (incl. the publisher User-Agent identity stamp and the correlation
  *     headers `x-job-schedule-subject`) are copied verbatim onto the fired
  *     message — publisher identity and correlation survive the delayed fire.
  *   - Fired messages are written into the stream and NEVER dispatched to
@@ -70,23 +70,23 @@ export const JOB_SCHEDULE_HEADERS = {
  * Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
  *
  * What a due message CAN prove at the gate:
- *   - L1 publisher identity — the schedule declaration was published by an
- *     enrolled service (its static client-shield key survives the rotating
- *     secret because it lives outside that scheme).
+ *   - L1 provenance — the fired message travels in the sealed envelope, which
+ *     only a service holding vault-derived message keys can produce: envelope
+ *     validity IS the publisher proof (A7).
  *   - For the user lane: the structural presence of the actor claim
  *     (`x-user-id`) that the ARM attested.
  *
  * What it deliberately does NOT check: the arm-time serialized AuthUser
- * and the rotating client-shield secret frozen in the fired headers —
- * both die ~65 minutes after arming (rotation 60m + grace 5m), which
- * would kill every long-lived user-lane schedule. Authorization is
+ * frozen in the fired headers —
+ * permissions attest the arming instant, not the firing one, and
+ * a revoked grant must stop the fire. Authorization is
  * re-derived AT FIRE TIME instead: the consumer runs the freshness
  * checkpoint (see due-forwarder's `freshAuthHeaders` →
  * `auth.ctl.resolve_user`), which re-resolves the actor with CURRENT
  * permissions or refuses the fire (fail-closed). RBAC belongs on the
  * callable's own route — evaluated on FRESH headers — never at this
  * gate: arm-time permissions would keep firing for a since-revoked
- * grant until the secret happened to rotate.
+ * grant.
  *
  *   - "system" lane → L1 only; the handler receives no authUser.
  *   - "user" lane   → L1 + actor-claim presence; the handler ALSO

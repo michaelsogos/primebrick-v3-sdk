@@ -187,8 +187,8 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
 
       // The client-identity gate (shield registry) is gone — internal
       // provenance verification above is strictly stronger: proof-of-possession
-      // of vault-derived keys, never a transmitted secret. The registry still
-      // lives for NATS publisher attribution only (verifyNatsPublisher).
+      // of vault-derived keys, never a transmitted secret. The shield registry
+      // is gone entirely — publisher attribution on NATS is the sealed envelope.
 
       // Custom routes
       if (options.routeHandler) {

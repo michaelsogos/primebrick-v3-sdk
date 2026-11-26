@@ -5,7 +5,7 @@
  * is baked in and cannot be bypassed by the consumer.
  *
  * Auth kinds:
- *   "user"    — GATEWAY-RESOLVED: verify gateway secret + AuthUser headers
+ *   "user"    — GATEWAY-RESOLVED: deserialize AuthUser headers (edge-provenanced)
  *   "api_key" — API key verification via ApiKeyPort (e.g. S2S receivers)
  *   "public"  — explicitly unauthenticated (openapi.json); auditable because
  *               it must be declared in the route definition

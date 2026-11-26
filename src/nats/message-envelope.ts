@@ -4,7 +4,7 @@
  * Every durable/ephemeral message crossing the fabric is sealed inside an
  * encrypted envelope: the business payload AND the sensitive user-auth headers
  * travel in ciphertext; only non-confidential transport metadata (otel trace,
- * job correlation ids, shield stamps) stays in cleartext NATS headers.
+ * job correlation ids, identity stamps) stays in cleartext NATS headers.
  *
  * Wire format (ext-json):
  *   { enc: 1, gen: N, iv: b64url(12B), data: b64url(ciphertext || 16B GCM tag) }

@@ -16,7 +16,7 @@
  * Serve it with `makeOpenApiHandler(spec)` — a RouteHandler answering
  * `GET /api/v1/openapi.json`. The endpoint is inside the client-identity
  * gate by default (it is not listed in identityExemptPaths): internal
- * callers authenticate with their client shield key, which is exactly how
+ * callers authenticate with proof-of-possession provenance, which is exactly how
  * the BE discovery fetcher reaches it.
  *
  * `entityCrudSpec` emits the canonical `/api/v1/entities/:entity/...` block —

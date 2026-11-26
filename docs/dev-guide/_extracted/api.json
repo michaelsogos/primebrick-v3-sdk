@@ -44577,9 +44577,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/auth/auth-user-serializer.ts",
-					"line": 37,
+					"line": 38,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L37"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L38"
 				}
 			],
 			"signatures": [
@@ -44593,16 +44593,16 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Serialize a fully resolved AuthUser into a headers object for forwarding\nto microservices (HTTP proxy or NATS). Also includes the gateway secret\nheader for anti-spoofing."
+								"text": "Serialize a fully resolved AuthUser into a headers object for forwarding\nto microservices (HTTP proxy or NATS). No secret is included — provenance\nis proof-of-possession, applied by the transport funnel."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/auth/auth-user-serializer.ts",
-							"line": 37,
+							"line": 38,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L37"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L38"
 						}
 					],
 					"parameters": [
@@ -44665,9 +44665,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/auth/auth-user-serializer.ts",
-					"line": 81,
+					"line": 83,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L81"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L83"
 				}
 			],
 			"signatures": [
@@ -44681,16 +44681,16 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Deserialize an AuthUser from headers (microservice side, GATEWAY-RESOLVED mode).\nThe gateway secret is verified separately by verifyAuthGatewayResolved()."
+								"text": "Deserialize an AuthUser from headers (microservice side, GATEWAY-RESOLVED mode).\nAnti-spoofing is the proof-of-possession provenance verified at the\ntransport edge before this chain runs — there is no secret to verify."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/auth/auth-user-serializer.ts",
-							"line": 81,
+							"line": 83,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L81"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/auth-user-serializer.ts#L83"
 						}
 					],
 					"parameters": [
@@ -48075,7 +48075,7 @@
 								"summary": [
 									{
 										"kind": "text",
-										"text": "Endpoint reachable anonymously. STILL requires client-shield-secret in GATEWAY mode."
+										"text": "Endpoint reachable anonymously — no user context required."
 									}
 								]
 							},
@@ -60532,7 +60532,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ", so the call must ALWAYS be additionally gated by the client\nshield (it is — verifyNatsPublisher runs first on every governed route).\n\n"
+								"text": ", so the call must ALWAYS travel the governed fabric — the\nsealed envelope (NATS) / provenance signature (HTTP) IS the proof, and a user-less service cannot forge it.\n\n"
 							},
 							{
 								"kind": "code",
@@ -63066,9 +63066,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/auth/verify-nats.ts",
-					"line": 22,
+					"line": 23,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L22"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L23"
 				}
 			],
 			"signatures": [
@@ -63089,9 +63089,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/auth/verify-nats.ts",
-							"line": 22,
+							"line": 23,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L22"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L23"
 						}
 					],
 					"parameters": [
@@ -63156,9 +63156,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/auth/verify-nats.ts",
-					"line": 34,
+					"line": 36,
 					"character": 16,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L34"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L36"
 				}
 			],
 			"signatures": [
@@ -63172,16 +63172,16 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Build NATS headers from a resolved AuthUser (publisher side, BE).\nWraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing."
+								"text": "Build NATS headers from a resolved AuthUser (publisher side, BE).\nWraps serializeAuthUserToHeaders() — anti-spoofing is the sealed-envelope\nprovenance, not a transmitted secret."
 							}
 						]
 					},
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/auth/verify-nats.ts",
-							"line": 34,
+							"line": 36,
 							"character": 16,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L34"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/auth/verify-nats.ts#L36"
 						}
 					],
 					"parameters": [
@@ -63689,7 +63689,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Verify auth in GATEWAY-RESOLVED mode (microservices).\nNO ports needed. Just verifies gateway secret + deserializes AuthUser from headers."
+								"text": "Verify auth in GATEWAY-RESOLVED mode (microservices).\nNO ports needed. Deserializes the AuthUser from headers — anti-spoofing is the transport-edge provenance, not a shared secret."
 							}
 						]
 					},
@@ -110256,7 +110256,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ".\n\nWhat a due message CAN prove at the gate:\n  - L1 publisher identity — the schedule declaration was published by an\n    enrolled service (its static client-shield key survives the rotating\n    secret because it lives outside that scheme).\n  - For the user lane: the structural presence of the actor claim\n    ("
+								"text": ".\n\nWhat a due message CAN prove at the gate:\n  - L1 provenance — the fired message travels in the sealed envelope, which\n    only a service holding vault-derived message keys can produce: envelope\n    validity IS the publisher proof (A7).\n  - For the user lane: the structural presence of the actor claim\n    ("
 							},
 							{
 								"kind": "code",
@@ -110264,7 +110264,7 @@
 							},
 							{
 								"kind": "text",
-								"text": ") that the ARM attested.\n\nWhat it deliberately does NOT check: the arm-time serialized AuthUser\nand the rotating client-shield secret frozen in the fired headers —\nboth die ~65 minutes after arming (rotation 60m + grace 5m), which\nwould kill every long-lived user-lane schedule. Authorization is\nre-derived AT FIRE TIME instead: the consumer runs the freshness\ncheckpoint (see due-forwarder's "
+								"text": ") that the ARM attested.\n\nWhat it deliberately does NOT check: the arm-time serialized AuthUser\nfrozen in the fired headers —\npermissions attest the arming instant, not the firing one, and\na revoked grant must stop the fire. Authorization is\nre-derived AT FIRE TIME instead: the consumer runs the freshness\ncheckpoint (see due-forwarder's "
 							},
 							{
 								"kind": "code",
@@ -110280,7 +110280,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "), which re-resolves the actor with CURRENT\npermissions or refuses the fire (fail-closed). RBAC belongs on the\ncallable's own route — evaluated on FRESH headers — never at this\ngate: arm-time permissions would keep firing for a since-revoked\ngrant until the secret happened to rotate.\n\n  - \"system\" lane → L1 only; the handler receives no authUser.\n  - \"user\" lane   → L1 + actor-claim presence; the handler ALSO\n    receives no authUser at the gate (it resolves its own). A due\n    message without the claim is malformed → "
+								"text": "), which re-resolves the actor with CURRENT\npermissions or refuses the fire (fail-closed). RBAC belongs on the\ncallable's own route — evaluated on FRESH headers — never at this\ngate: arm-time permissions would keep firing for a since-revoked\ngrant.\n\n  - \"system\" lane → L1 only; the handler receives no authUser.\n  - \"user\" lane   → L1 + actor-claim presence; the handler ALSO\n    receives no authUser at the gate (it resolves its own). A due\n    message without the claim is malformed → "
 							},
 							{
 								"kind": "code",
@@ -114245,7 +114245,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " for\nservice-authenticated routes ("
+								"text": " for\nservice-lane routes ("
 							},
 							{
 								"kind": "code",
@@ -114253,7 +114253,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " shield check) — services have\nno AuthUser."
+								"text": " service check) — services have\nno AuthUser."
 							}
 						]
 					},
@@ -114395,7 +114395,7 @@
 					},
 					{
 						"kind": "text",
-						"text": " → caller verified, no user (service-to-BE shield identity)\n  - "
+						"text": " → caller verified, no user (service-to-service lane identity)\n  - "
 					},
 					{
 						"kind": "code",
@@ -114681,7 +114681,7 @@
 						"summary": [
 							{
 								"kind": "text",
-								"text": "Service-identity verification (e.g. BE client-shield check) instead of\nthe default AuthUser+RBAC chain. Use for service-to-BE subjects where\nthe caller is a service, not a user."
+								"text": "Service-identity verification (service-lane check) instead of\nthe default AuthUser+RBAC chain. Use for service-to-BE subjects where\nthe caller is a service, not a user."
 							}
 						]
 					},
@@ -114720,7 +114720,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " REPLACES the global Layer-1\nclient-shield check entirely (it must do the equivalent check itself,\ntypically with "
+								"text": " REPLACES the global Layer-1\ncaller-verification layer entirely (it must do the equivalent check itself,\ntypically with "
 							},
 							{
 								"kind": "code",
@@ -114949,7 +114949,7 @@
 							},
 							{
 								"kind": "text",
-								"text": "\ncapturing exactly this subject and wires the same shield/RBAC/contract\nmiddleware — the declaration is identical, only the transport changes.\nTHE default for state-carrying work items (durability doctrine);\nabsence is legitimate only for the governed ephemeral exceptions."
+								"text": "\ncapturing exactly this subject and wires the same verify/RBAC/contract\nmiddleware — the declaration is identical, only the transport changes.\nTHE default for state-carrying work items (durability doctrine);\nabsence is legitimate only for the governed ephemeral exceptions."
 							}
 						]
 					},
@@ -115723,9 +115723,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-					"line": 316,
+					"line": 317,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L316"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L317"
 				}
 			],
 			"signatures": [
@@ -115746,9 +115746,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-							"line": 316,
+							"line": 317,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L316"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L317"
 						}
 					],
 					"typeParameters": [
@@ -115841,9 +115841,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-					"line": 405,
+					"line": 406,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L405"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L406"
 				}
 			],
 			"signatures": [
@@ -115880,9 +115880,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-							"line": 405,
+							"line": 406,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L405"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L406"
 						}
 					],
 					"typeParameters": [
@@ -115993,9 +115993,9 @@
 			"sources": [
 				{
 					"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-					"line": 486,
+					"line": 487,
 					"character": 22,
-					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L486"
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L487"
 				}
 			],
 			"signatures": [
@@ -116048,9 +116048,9 @@
 					"sources": [
 						{
 							"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-							"line": 486,
+							"line": 487,
 							"character": 22,
-							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L486"
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L487"
 						}
 					],
 					"typeParameters": [
@@ -116115,9 +116115,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 489,
+													"line": 490,
 													"character": 10,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L489"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L490"
 												}
 											],
 											"type": {
@@ -116136,9 +116136,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 489,
+													"line": 490,
 													"character": 30,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L489"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L490"
 												}
 											],
 											"type": {
@@ -116173,9 +116173,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 489,
+													"line": 490,
 													"character": 64,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L489"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L490"
 												}
 											],
 											"type": {
@@ -116200,9 +116200,9 @@
 											"sources": [
 												{
 													"fileName": "primebrick-v3-sdk/src/nats/nats-routes.ts",
-													"line": 489,
+													"line": 490,
 													"character": 93,
-													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L489"
+													"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/nats/nats-routes.ts#L490"
 												}
 											],
 											"type": {
@@ -124374,7 +124374,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (ua_prefix in\nsystem.client_shield_registry, service_registry.pkg_name, log messages)."
+								"text": "\n(service_registry.pkg_name, log messages)."
 							}
 						]
 					},
@@ -124841,7 +124841,7 @@
 							},
 							{
 								"kind": "text",
-								"text": " (ua_prefix in\nsystem.client_shield_registry, service_registry.pkg_name, log messages)."
+								"text": "\n(service_registry.pkg_name, log messages)."
 							}
 						]
 					},

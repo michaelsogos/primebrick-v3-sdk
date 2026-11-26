@@ -50,8 +50,8 @@ export interface ServiceHeartbeatPayload {
   icon_type?: 'url' | 'base64' | 'icon';
   /**
    * Package name from the service's package.json — with `service_version`
-   * it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-   * system.client_shield_registry, service_registry.pkg_name, log messages).
+   * it forms the canonical identity `{pkg_name}/{version}`
+   * (service_registry.pkg_name, log messages).
    */
   pkg_name?: string;
 }

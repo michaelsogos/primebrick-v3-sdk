@@ -106,7 +106,7 @@ export class ServiceRegistrar {
     private readonly healthCheckFn?: HealthCheckFn,
   ) {
     // Auto-derive name/version from package.json — the registry row must
-    // always carry real identity (it feeds system.client_shield_registry).
+    // always carry real identity (it feeds service_registry).
     const pkg = detectPackageIdentity();
     this.pkgName = pkg.name;
     this.capabilities = pkg.capabilities;

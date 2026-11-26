@@ -146,8 +146,8 @@ export function runAsSystem<T>(fn: () => T): T {
  * the governed path for operations with no acting user (welcome emails on
  * self-registration, scheduled jobs, lifecycle work). Same shape the
  * is_system API-key path produces in verify-api-key.ts: RBAC bypasses via
- * `isSystem`, so the call must ALWAYS be additionally gated by the client
- * shield (it is — verifyNatsPublisher runs first on every governed route).
+ * `isSystem`, so the call must ALWAYS travel the governed fabric — the
+ * sealed envelope (NATS) / provenance signature (HTTP) IS the proof, and a user-less service cannot forge it.
  *
  * `initiator` records WHO triggered the send (the real session actor when
  * one exists, else the service code) — it is audit metadata, not identity.

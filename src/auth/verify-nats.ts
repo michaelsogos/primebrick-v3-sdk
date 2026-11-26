@@ -2,11 +2,12 @@
  * NATS convenience wrapper for verifyAuthGatewayResolved.
  *
  * Microservices use GATEWAY-RESOLVED mode for NATS: the BE publisher serializes
- * the full AuthUser into NATS headers, the subscriber verifies the gateway secret
- * and deserializes the AuthUser. NO ports needed.
+ * the full AuthUser into NATS headers, the subscriber deserializes it —
+ * anti-spoofing is the sealed-envelope provenance, not a shared secret.
+ * NO ports needed.
  *
  * Also includes buildNatsAuthHeaders() — the publisher-side helper that wraps
- * serializeAuthUserToHeaders() and adds the gateway secret.
+ * serializeAuthUserToHeaders() — no secret is added; provenance is the sealed envelope.
  */
 
 import type { Msg } from "@nats-io/transport-node";
@@ -29,7 +30,8 @@ export async function verifyNatsMessage(
 
 /**
  * Build NATS headers from a resolved AuthUser (publisher side, BE).
- * Wraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing.
+ * Wraps serializeAuthUserToHeaders() — anti-spoofing is the sealed-envelope
+ * provenance, not a transmitted secret.
  */
 export function buildNatsAuthHeaders(
   user: AuthUser,

@@ -73,7 +73,7 @@ export interface CallablePayloadContract<TReq = unknown> {
 export interface NatsRouteContext<TReq = unknown> {
   /**
    * Resolved caller (GATEWAY-RESOLVED headers). `undefined` for
-   * service-authenticated routes (`verify` shield check) — services have
+   * service-lane routes (`verify` service check) — services have
    * no AuthUser.
    */
   user?: AuthUser;
@@ -87,7 +87,7 @@ export interface NatsRouteContext<TReq = unknown> {
  * Custom caller verification. Replaces the default
  * verifyNatsMessage+enforceNatsRbac chain. Return:
  *   - `AuthUser`  → caller verified (user available in ctx.user)
- *   - `undefined` → caller verified, no user (service-to-BE shield identity)
+ *   - `undefined` → caller verified, no user (service-to-service lane identity)
  *   - `null`      → denied (auth error to the caller / drop for pub/sub)
  */
 export type NatsRouteVerify = (msg: Msg) => Promise<AuthUser | null | undefined>;
@@ -117,14 +117,14 @@ export interface NatsRoute<TReq = unknown> {
   permissions: readonly string[];
   rbacMode?: "any" | "all";
   /**
-   * Service-identity verification (e.g. BE client-shield check) instead of
+   * Service-identity verification (service-lane check) instead of
    * the default AuthUser+RBAC chain. Use for service-to-BE subjects where
    * the caller is a service, not a user.
    */
   verify?: NatsRouteVerify;
   /**
    * Enrollment channel — the route's `verify` REPLACES the global Layer-1
-   * client-shield check entirely (it must do the equivalent check itself,
+   * caller-verification layer entirely (it must do the equivalent check itself,
    * typically with `allowNewPrefix`). Only legal on routes whose purpose
    * is first-time client enrollment (service.register): everywhere else a
    * skipped L1 is a security hole and the flag must never be set.
@@ -149,7 +149,7 @@ export interface NatsRoute<TReq = unknown> {
    * Durable work-item transport — the route is consumed through JetStream
    * (at-least-once + systemic Redis dedupe) instead of lossy core pub/sub.
    * The factory ensures the per-service workqueue stream `<SERVICECODE>`
-   * capturing exactly this subject and wires the same shield/RBAC/contract
+   * capturing exactly this subject and wires the same verify/RBAC/contract
    * middleware — the declaration is identical, only the transport changes.
    * THE default for state-carrying work items (durability doctrine);
    * absence is legitimate only for the governed ephemeral exceptions.
@@ -234,10 +234,11 @@ async function verifyAndAuthorize(
   // A7 — the client-shield publisher check is removed from the NATS user
   // layer: a valid sealed envelope can only be produced by a service holding
   // vault-derived message keys, so envelope validity IS the provenance proof
-  // (stronger than a cleartext stamp). The shield stays at the HTTP edge,
-  // where the threat model is real. RBAC and route.verify are unchanged.
+  // (stronger than a cleartext stamp). Provenance verification stays at the
+  // HTTP edge, where the threat model is real. RBAC and route.verify are
+  // unchanged.
   // Layer 2 — caller verification: custom service-auth hook, or the
-  // default client-shield-secret + AuthUser + RBAC chain.
+  // default AuthUser + RBAC chain.
   if (route.verify) {
     const result = await route.verify(msg);
     if (result === null) throw new AuthError("SERVICE_AUTH_DENIED", "caller identity rejected");
@@ -252,7 +253,7 @@ async function verifyAndAuthorize(
 
 /**
  * Durable work-item transport wiring — the same governance chain as the
- * core path (shield → verify/RBAC → contract parse → handler), consumed
+ * core path (verify/RBAC → contract parse → handler), consumed
  * through JetStream so the message survives consumer downtime and the
  * systemic dedupe in jetstreamSubscribe absorbs redeliveries.
  *
@@ -532,9 +533,9 @@ export async function callNats<TRes = unknown>(
       hdrs = natsHeaders();
       for (const [k, v] of transportEntries) hdrs.set(k, v);
     }
-    // Stamp service identity (UA + shield key) — the BE's verifyPublisher
-    // check depends on it. Identity is applied AFTER caller headers so it
-    // can never be overridden. No-op until configureInternalClient() runs.
+    // Stamp service identity (User-Agent) — observability attribution on
+    // every hop. Identity is applied AFTER caller headers so it can never
+    // be overridden. No-op until configureInternalClient() runs.
     const identity = internalIdentityHeaders();
     if (identity) {
       hdrs ??= natsHeaders();

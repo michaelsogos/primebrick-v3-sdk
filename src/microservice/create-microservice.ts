@@ -631,10 +631,10 @@ export async function createMicroservice(
   // Internal HTTP client (B11): all service-to-service fetches go through
   // `internalFetch` — identity headers are injected automatically and can
   // never be forgotten or overridden by the caller. MUST run before any
-  // callNats (config.get, service.register): the BE's shield check reads
-  // these headers.
+  // callNats (config.get, service.register): the BE's provenance verification readsads
+  // the provenance headers of every call.
   // Resolve service coordinates EARLY — the identity closure below captures
-  // serviceCode; every callNats (client_shield_registry.get, secret.get, register)
+  // serviceCode; every callNats (config.get, secret.get, register)
   // invokes it, so these must be initialized before the first NATS call.
   // serviceCode is STATIC identity: package.json "service_code" or the
   // `primebrick-<code>` name derivation — never runtime-editable config.

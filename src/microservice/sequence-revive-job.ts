@@ -97,11 +97,10 @@ export async function mountSequenceReviveJob(
 
   // The callable route — the actual executor, inside this process. A
   // work item (queue `<svc>`): exactly one replica runs each fire. A
-  // system-lane dispatch carries NO user context and NO client-shield
-  // secret (run_as:"system" arms headers-free — the rotating secret is
-  // never frozen), so `verify: serviceLaneVerify` replaces the default
-  // verifyNatsMessage L2 chain: the L1 client-shield enrollment is the
-  // gate, exactly as `dueLaneVerify("system")` defines the lane.
+  // system-lane dispatch carries NO user context (run_as:"system"
+  // arms headers-free), so `verify: serviceLaneVerify` replaces the default
+  // verifyNatsMessage L2 chain: the sealed-envelope provenance is the gate,
+  // exactly as `dueLaneVerify("system")` defines the lane.
   await makeNatsRoutes(
     [
       {

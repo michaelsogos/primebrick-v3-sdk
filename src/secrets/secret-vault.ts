@@ -36,7 +36,7 @@
  *
  * The hint subject is DEDICATED, never the legacy `secret.rotated`: consumers
  * of the legacy subject react by re-fetching the secret through the governed
- * `secret.get` correlation route — legitimate for Redis-distributed shield
+ * `secret.get` correlation route — legitimate for Redis-distributed shared
  * secrets, but a banned channel for vault material. The vault hint means
  * "re-read through direct DAL", a different consumer reaction, so it must
  * never be multiplexed onto the legacy subject (TOC discovery, A5).

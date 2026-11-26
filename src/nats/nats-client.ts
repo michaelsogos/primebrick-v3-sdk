@@ -60,7 +60,7 @@ function apiErrCode(error: unknown): number | undefined {
 }
 
 /**
- * Stamp the caller's service identity (User-Agent + client shield key)
+ * Stamp the caller's service identity (User-Agent)
  * onto outbound message headers — applied AFTER caller-supplied headers
  * so identity can never be overridden. Silent no-op until
  * `configureInternalClient()` runs at boot.

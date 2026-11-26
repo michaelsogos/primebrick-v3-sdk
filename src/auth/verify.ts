@@ -7,9 +7,9 @@
  *     RoleMappingPort. Needs AuthPorts.
  *
  *   GATEWAY-RESOLVED (microservices):
- *     Verifies the gateway secret header (anti-spoofing), then deserializes
- *     the pre-resolved AuthUser from headers. NO ports needed. The BE already
- *     did all the work; the microservice just trusts the result.
+ *     Deserializes the pre-resolved AuthUser from headers — anti-spoofing is the
+ *     transport-edge provenance (sealed envelope on NATS, proof-of-possession on
+ *     HTTP). NO ports needed — there is no shared secret to verify.
  */
 
 import type { HeaderProvider } from "./header-provider.js";
@@ -53,7 +53,7 @@ export async function verifyAuth(
 
 /**
  * Verify auth in GATEWAY-RESOLVED mode (microservices).
- * NO ports needed. Just verifies gateway secret + deserializes AuthUser from headers.
+ * NO ports needed. Deserializes the AuthUser from headers — anti-spoofing is the transport-edge provenance, not a shared secret.
  */
 export async function verifyAuthGatewayResolved(
   headers: HeaderProvider,

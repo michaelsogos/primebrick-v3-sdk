@@ -4,8 +4,8 @@
  * `GET /api/v1/system/docs/pack` → `{ manifest, files: [{path, content}] }`
  *
  * Protection: `auth: "public"` at route level because the caller is a
- * service, not a user — the real gate is the B11 client-identity shield
- * in `createHttpServer` (User-Agent registry check + client-shield key),
+ * service, not a user — the real gate is the internal-provenance verification
+ * in `createHttpServer` (proof-of-possession of vault-derived keys),
  * which runs before any route. The route is unreachable without a valid
  * service identity.
  */

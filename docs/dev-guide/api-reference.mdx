@@ -2283,11 +2283,11 @@ replicas). Pass `null` ONLY for broadcast listeners that must see every
 message — that intent stays visible in the declaration. |
 | permissions | `typeOperator` | RBAC permissions — MANDATORY unless `verify` is set. |
 | rbacMode | `"any" \| "all"` |  |
-| verify | `NatsRouteVerify` | Service-identity verification (e.g. BE client-shield check) instead of
+| verify | `NatsRouteVerify` | Service-identity verification (service-lane check) instead of
 the default AuthUser+RBAC chain. Use for service-to-BE subjects where
 the caller is a service, not a user. |
 | enrollment | `boolean` | Enrollment channel — the route's `verify` REPLACES the global Layer-1
-client-shield check entirely (it must do the equivalent check itself,
+caller-verification layer entirely (it must do the equivalent check itself,
 typically with `allowNewPrefix`). Only legal on routes whose purpose
 is first-time client enrollment (service.register): everywhere else a
 skipped L1 is a security hole and the flag must never be set. |
@@ -2304,7 +2304,7 @@ a callable without a contract is not mappable. |
 | durable | `boolean` | Durable work-item transport — the route is consumed through JetStream
 (at-least-once + systemic Redis dedupe) instead of lossy core pub/sub.
 The factory ensures the per-service workqueue stream `<SERVICECODE>`
-capturing exactly this subject and wires the same shield/RBAC/contract
+capturing exactly this subject and wires the same verify/RBAC/contract
 middleware — the declaration is identical, only the transport changes.
 THE default for state-carrying work items (durability doctrine);
 absence is legitimate only for the governed ephemeral exceptions. |
@@ -2318,7 +2318,7 @@ its execution report recorded on the run row just returns it. |
 | Field | Type | Description |
 |-------|------|-------------|
 | user | `AuthUser` | Resolved caller (GATEWAY-RESOLVED headers). `undefined` for
-service-authenticated routes (`verify` shield check) — services have
+service-lane routes (`verify` service check) — services have
 no AuthUser. |
 | request | `TReq` | Validated request payload. |
 | msg | `Msg` | Raw NATS message — headers, subject, reply. |
@@ -2917,8 +2917,8 @@ One insertable entry of the pattern grammar — the SINGLE catalog the
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
-it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-system.client_shield_registry, service_registry.pkg_name, log messages). |
+it forms the canonical identity `{pkg_name}/{version}`
+(service_registry.pkg_name, log messages). |
 
 ### `ServiceRegisterPayload`
 
@@ -2938,8 +2938,8 @@ system.client_shield_registry, service_registry.pkg_name, log messages). |
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
-it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-system.client_shield_registry, service_registry.pkg_name, log messages). |
+it forms the canonical identity `{pkg_name}/{version}`
+(service_registry.pkg_name, log messages). |
 | endpoints | `Record<string, unknown>` |  |
 | part_of | `string` | ROOT LEVEL the module belongs to (`part of`) — e.g. 'system' for
 platform services, 'crm' for the CRM domain. Persisted in
@@ -4026,7 +4026,7 @@ MountPageFn.
 Custom caller verification. Replaces the default
 verifyNatsMessage+enforceNatsRbac chain. Return:
   - `AuthUser`  → caller verified (user available in ctx.user)
-  - `undefined` → caller verified, no user (service-to-BE shield identity)
+  - `undefined` → caller verified, no user (service-to-service lane identity)
   - `null`      → denied (auth error to the caller / drop for pub/sub)
 
 **Type:** `(msg: Msg) => Promise<AuthUser \| null \| undefined>`
@@ -5957,7 +5957,8 @@ the IDP `sub`. The mapping is performed by the UserResolverPort.
 ### `buildNatsAuthHeaders(user, config): Record<string, string>`
 
 Build NATS headers from a resolved AuthUser (publisher side, BE).
-Wraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing.
+Wraps serializeAuthUserToHeaders() — anti-spoofing is the sealed-envelope
+provenance, not a transmitted secret.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6416,7 +6417,8 @@ Derive the persistable intent from the resolved set + served columns:
 ### `deserializeAuthUserFromHeaders(headers, config): AuthUser`
 
 Deserialize an AuthUser from headers (microservice side, GATEWAY-RESOLVED mode).
-The gateway secret is verified separately by verifyAuthGatewayResolved().
+Anti-spoofing is the proof-of-possession provenance verified at the
+transport edge before this chain runs — there is no secret to verify.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6484,23 +6486,23 @@ Boot-time staleness: emit iff the pack is missing or generation inputs
 Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
 
 What a due message CAN prove at the gate:
-  - L1 publisher identity — the schedule declaration was published by an
-    enrolled service (its static client-shield key survives the rotating
-    secret because it lives outside that scheme).
+  - L1 provenance — the fired message travels in the sealed envelope, which
+    only a service holding vault-derived message keys can produce: envelope
+    validity IS the publisher proof (A7).
   - For the user lane: the structural presence of the actor claim
     (`x-user-id`) that the ARM attested.
 
 What it deliberately does NOT check: the arm-time serialized AuthUser
-and the rotating client-shield secret frozen in the fired headers —
-both die ~65 minutes after arming (rotation 60m + grace 5m), which
-would kill every long-lived user-lane schedule. Authorization is
+frozen in the fired headers —
+permissions attest the arming instant, not the firing one, and
+a revoked grant must stop the fire. Authorization is
 re-derived AT FIRE TIME instead: the consumer runs the freshness
 checkpoint (see due-forwarder's `freshAuthHeaders` →
 `auth.ctl.resolve_user`), which re-resolves the actor with CURRENT
 permissions or refuses the fire (fail-closed). RBAC belongs on the
 callable's own route — evaluated on FRESH headers — never at this
 gate: arm-time permissions would keep firing for a since-revoked
-grant until the secret happened to rotate.
+grant.
 
   - "system" lane → L1 only; the handler receives no authUser.
   - "user" lane   → L1 + actor-claim presence; the handler ALSO
@@ -8453,8 +8455,8 @@ the parser and renderer use — extending the grammar extends the sheet.
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
 Serialize a fully resolved AuthUser into a headers object for forwarding
-to microservices (HTTP proxy or NATS). Also includes the gateway secret
-header for anti-spoofing.
+to microservices (HTTP proxy or NATS). No secret is included — provenance
+is proof-of-possession, applied by the transport funnel.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -8642,8 +8644,8 @@ Synthetic `is_system` AuthUser for service-initiated outbound calls —
 the governed path for operations with no acting user (welcome emails on
 self-registration, scheduled jobs, lifecycle work). Same shape the
 is_system API-key path produces in verify-api-key.ts: RBAC bypasses via
-`isSystem`, so the call must ALWAYS be additionally gated by the client
-shield (it is — verifyNatsPublisher runs first on every governed route).
+`isSystem`, so the call must ALWAYS travel the governed fabric — the
+sealed envelope (NATS) / provenance signature (HTTP) IS the proof, and a user-less service cannot forge it.
 
 `initiator` records WHO triggered the send (the real session actor when
 one exists, else the service code) — it is audit metadata, not identity.
@@ -8855,7 +8857,7 @@ Needs AuthPorts (UserResolverPort + RoleMappingPort).
 ### `verifyAuthGatewayResolved(headers, config): Promise<AuthUser>`
 
 Verify auth in GATEWAY-RESOLVED mode (microservices).
-NO ports needed. Just verifies gateway secret + deserializes AuthUser from headers.
+NO ports needed. Deserializes the AuthUser from headers — anti-spoofing is the transport-edge provenance, not a shared secret.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

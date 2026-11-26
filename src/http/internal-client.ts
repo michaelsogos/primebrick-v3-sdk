@@ -3,7 +3,7 @@
  * service over HTTP (BE→US, US→US).
  *
  * `internalFetch` is a thin wrapper over `fetch` that force-injects the
- * caller's service-identity headers (User-Agent + x-primebrick-client-shield-key)
+ * caller's service-identity header (the User-Agent stamp — observability identity; trust itself is proof-of-possession, applied below)
  * provided by `configureInternalClient`. Identity headers are applied AFTER
  * the caller's own headers so they can never be overridden or spoofed.
  *

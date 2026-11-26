@@ -1,13 +1,13 @@
 /**
  * `fetchDocsPack` — pull a service's docs pack over governed internal HTTP.
  *
- * Uses `internalFetch`, so the caller's service-identity headers
- * (User-Agent + client-shield key) are always attached — the only legal
+ * Uses `internalFetch`, so the caller's User-Agent identity stamp is always
+ * attached and the request carries proof-of-possession provenance — the only legal
  * way to reach another service's pack endpoint.
  *
- * Additionally stamps the rotating client-shield secret: the BE's pack
- * route (a service-to-service endpoint without user context) is gated by
- * that secret, which the secret engine provisions to every consumer.
+ * The BE's pack
+ * route (a service-to-service endpoint without user context) is gated by that
+ * provenance verification at the transport edge.
  */
 
 import { internalFetch } from "../http/internal-client.js";
