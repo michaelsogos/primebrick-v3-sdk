@@ -17,7 +17,6 @@
  */
 
 import { logger } from "../lifecycle/logger.js";
-import { assertDbEnv } from "../env/db-env.js";
 
 /** Structural mirror of dal-pg's MigrationRunResult — no dal import. */
 export interface MigrationRunResultLike {
@@ -51,14 +50,11 @@ export interface MigrationEngineOptsLike {
  * otherwise reject the dal signatures, and the concrete types cannot be
  * named here anyway (SDK must not import dal-pg).
  */
+/* eslint-disable @typescript-eslint/no-explicit-any -- port boundary: dal-pg pool/registry/diff types cannot be named in SDK, and `any` bivariance is required under strictFunctionTypes */
 export interface DbMigrationEnginePort {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   runMigrations(opts: MigrationEngineOptsLike): Promise<MigrationRunResultLike>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   registryStatus(pool: any, schema: string): Promise<unknown[]>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   retryFailedPatches(pool: any, schema: string, actor?: string): Promise<number>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   approvePendingReview(
     pool: any,
     schema: string,
@@ -66,7 +62,6 @@ export interface DbMigrationEnginePort {
     actor: string,
     note?: string,
   ): Promise<boolean>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resolveManually(
     pool: any,
     schema: string,
@@ -74,21 +69,26 @@ export interface DbMigrationEnginePort {
     actor: string,
     note: string,
   ): Promise<boolean>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   checkDrift(registry: readonly any[], db: any): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   isDriftClean(diff: any): boolean;
   /** Boot schema-domain guard — dal-pg `assertEntitySchemaDomain`. Throws on violations. */
   assertEntitySchemaDomain?(entities: readonly unknown[], schemas: readonly string[]): void;
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export interface DbMigrationBootOptions {
   /** dal-pg migrations surface — `import * as m from "@primebrick/dal-pg"` satisfies this. */
   engine: DbMigrationEnginePort;
   /** Live pg pool — evaluated lazily right after `getDal()` ran. */
   pool: () => unknown;
-  /** Owning service schema (e.g. `env.DATABASE_SCHEMA`) — registry lives there. */
-  schema: () => string;
+  /**
+   * Owned schema list — the full domain, `[0]` = primary. Injected by
+   * createMicroservice from the service's declared `schemas` option —
+   * services never declare it on `dbPatches` (single source).
+   */
+  schemas: () => readonly string[];
+  /** Registry-owning schema — defaults to `schemas()[0]` (the primary). */
+  schema?: () => string;
   /** Directory containing the .sql patch files (usually `<svc>/db-meta/patches`). */
   patchesDir: string;
   /** db-meta dir with MANIFEST.json + keys.json — defaults to dirname(patchesDir). */
@@ -98,6 +98,16 @@ export interface DbMigrationBootOptions {
   /** Entity registry of this service — enables the post-apply drift check. */
   entityRegistry?: readonly unknown[];
 }
+
+/**
+ * What a service declares as `createMicroservice({ dbPatches })` — the
+ * resolved boot options MINUS the schema fields: `schemas` is injected
+ * from the top-level `schemas` option (single source — the service cannot
+ * declare a divergent list) and `schema` defaults to the primary.
+ */
+export type ServiceDbMigrationOptions = Omit<DbMigrationBootOptions, "schemas" | "schema"> & {
+  schema?: () => string;
+};
 
 export interface MigrationBootState {
   /** null when migrations never ran (option not set). */
@@ -122,7 +132,7 @@ export async function rerunMigrations(
 ): Promise<MigrationRunResultLike> {
   const result = await opts.engine.runMigrations({
     pool: opts.pool(),
-    schema: opts.schema(),
+    schema: opts.schema?.() ?? opts.schemas()[0]!,
     patchesDir: opts.patchesDir,
     dbMetaDir: opts.dbMetaDir,
     allowedTrust: opts.allowedTrust ?? ["release"],
@@ -168,12 +178,13 @@ export async function runDbMigrationStep(
     appliedCount: 0,
   };
   const pool = opts.pool();
-  const schema = opts.schema();
+  const schemas = opts.schemas();
+  const schema = opts.schema?.() ?? schemas[0]!;
 
   // Schema-domain guard BEFORE any migration/drift work: every registered
-  // entity must resolve inside DATABASE_SCHEMA — a cross-schema entity is a
-  // code bug, so it crashes the boot (outside try: never degraded-swallowed).
-  const { schemas } = assertDbEnv();
+  // entity must resolve inside the declared schema list — a cross-schema
+  // entity is a code bug, so it crashes the boot (outside try: never
+  // degraded-swallowed).
   if (opts.entityRegistry && opts.engine.assertEntitySchemaDomain) {
     opts.engine.assertEntitySchemaDomain(opts.entityRegistry, schemas);
   }

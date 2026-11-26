@@ -33,7 +33,7 @@ describe("computeETag", () => {
     expect(a).toBe(b);
   });
 
-  it("is stable for key-order-independent objects (JSON.stringify is order-sensitive, so this verifies order matters)", () => {
+  it("is stable for key-order-independent objects (stringify is order-sensitive, so this verifies order matters)", () => {
     const a = computeETag({ a: 1, b: 2 });
     const b = computeETag({ b: 2, a: 1 });
     // ext-json (json-bigint) preserves insertion order like JSON.stringify

@@ -350,6 +350,12 @@ describe("page_props.form — entity-form archetype declaration", () => {
       expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", [k]: "x" }] }), "system"))
         .toMatch(new RegExp(`'${k}' belongs on MetaColumn`));
     }
+    // kind/managed/audited/uid/hidden are served MetaColumn semantics —
+    // a placement declaring them authors column semantics in page layout.
+    for (const k of ["kind", "managed", "audited", "uid", "hidden"]) {
+      expect(validateNavDeclaration("job", formed({ fields: [{ key: "a", [k]: true }] }), "system"))
+        .toMatch(new RegExp(`'${k}' is served MetaColumn semantics`));
+    }
     expect(validateNavDeclaration("job", formed({ fields: [{ key: "a" }], validators: [42] }), "system"))
       .toMatch(/validators: must be an array of non-empty validator keys/);
   });

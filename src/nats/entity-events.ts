@@ -41,7 +41,7 @@ export interface EntityEventEnvelope {
   action: EntityWriteAction;
   entity: string;
   uuid: string;
-  version?: number;
+  version?: bigint;
 }
 export interface EntityEvent {
   event: EntityEventEnvelope;
@@ -100,7 +100,7 @@ export function makeNatsEntityEventPort(serviceCode: string): EntityEventPort {
         ...draft,
         event: { ...draft.event, service: serviceCode, subject },
       };
-      await NatsClient.jetstreamPublish(subject, event);
+      await NatsClient.publish(subject, event);
     },
   };
 }
@@ -228,7 +228,12 @@ function honestColumnFormat(col: MetaColumn, leafType: unknown): string | undefi
   if (col.type === "ref") return "uuid";
   if (leafType !== "string") return undefined;
   const hint = HONEST_FORMAT_HINTS.find((h) => h.re.test(col.key));
-  if (hint && !hint.formats.includes("uuid")) return hint.formats[0];
+  if (!hint) return undefined;
+  // `*_by` on a text column — `actor_token` is the honest claim
+  // (`system:<code>` and uuids are both legal actors); never `uuid`,
+  // which a varchar cannot keep.
+  if (hint.formats.includes("actor_token")) return "actor_token";
+  if (!hint.formats.includes("uuid")) return hint.formats[0];
   return undefined;
 }
 
@@ -244,6 +249,13 @@ export function entityEventPayloadSchema(meta?: EntityMeta): Record<string, unkn
   const deltaProps: Record<string, unknown> = {};
   for (const col of meta.columns) {
     if (!col.key || DAL_AUDIT_STAMPS.has(col.key)) continue;
+    // `kind:"virtual"` columns are post-query enrichments (counter
+    // projections, NATS lookups) attached by the service AFTER the fetch —
+    // the write-path snapshots (`before`/`after`/`delta`) carry physical
+    // rows only, so a virtual key in the schema would advertise a field
+    // the events never contain (and its name-vs-format hints can never be
+    // honored by a machine-state string).
+    if (col.kind === "virtual") continue;
     const leaf = columnEventJsonSchema(col);
     snapshot[col.key] = leaf;
     // `delta.<col>.{old,new}` typed by the same leaf — `$.delta.status.new`

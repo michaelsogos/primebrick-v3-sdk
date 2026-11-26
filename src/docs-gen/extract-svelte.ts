@@ -181,7 +181,7 @@ const WIDGET_TAGS = [
   "EntityTablePage", "EntityFormPage", "RemotePageMount",
 ];
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- recursive walk over the version-dependent svelte AST union: dynamic .type/.name/.attributes access across every node kind
 function walkTemplate(node: any, out: { widgets: SveltePageFacts["widgets"] }): void {
   if (!node || typeof node !== "object") return;
   if (Array.isArray(node)) { for (const c of node) walkTemplate(c, out); return; }
@@ -208,15 +208,14 @@ function walkTemplate(node: any, out: { widgets: SveltePageFacts["widgets"] }): 
 }
 
 function extractTemplateFacts(ast: unknown, raw: string, variant: "host" | "remote") {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const out: { widgets: SveltePageFacts["widgets"]; i18nKeys: string[] } = { widgets: [], i18nKeys: [] };
   // cheap regex pass for translation keys — reliable and readable.
   // host pages use $t('…'); remote sources use ctx.i18n.t(…), its t(…)
   // alias, or the ui-bound $t(…)/getT(…) via bindRemoteCtx.
   const re = variant === "host" ? /\$t\('([^']+)'/g : /(?:ctx\.i18n\.t|\$t|\bt)\('([^']+)'/g;
   for (const m of raw.matchAll(re)) out.i18nKeys.push(m[1]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const root = (ast as any).fragment ?? (ast as any).html;
+  const rootAst = ast as { fragment?: unknown; html?: unknown };
+  const root = rootAst.fragment ?? rootAst.html;
   walkTemplate(root, out);
   return out;
 }
@@ -224,8 +223,9 @@ function extractTemplateFacts(ast: unknown, raw: string, variant: "host" | "remo
 // ── public API ──────────────────────────────────────────────────────────
 
 function extractFacts(raw: string, route: string, variant: "host" | "remote", deps: ExtractDeps): SveltePageFacts {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ast = deps.svelte.parse(raw, { modern: true }) as any;
+  const ast = deps.svelte.parse(raw, { modern: true }) as {
+    instance?: { content: { start: number; end: number } };
+  };
   const scriptText = ast.instance ? raw.slice(ast.instance.content.start, ast.instance.content.end) : "";
   const sfacts = extractScriptFacts(scriptText, variant, deps.ts);
   const tfacts = extractTemplateFacts(ast, raw, variant);

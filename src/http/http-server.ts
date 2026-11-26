@@ -1,7 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { logger } from "../lifecycle/logger.js";
 import { logServiceStartup } from "../lifecycle/startup-logger.js";
-import { verifyClientIdentity } from "../service/service-identity.js";
+import { verifyEdgeRequest } from "../auth/edge-verification.js";
+import { SIGNING_HEADERS } from "../auth/http-signing.js";
+import { AuthError } from "../auth/verify.js";
 import { context, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { HealthCheck } from "./health-check.js";
 import { extJsonStringify } from "../json/ext-json.js";
@@ -19,18 +21,22 @@ export interface HttpServerOptions {
   /** Custom route handler — receives req/res, returns true if handled. */
   routeHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>;
   /**
-   * Client-identity gate (B11): when set, every non-/health request must
-   * carry a registry-listed `User-Agent` prefix + valid
-   * `x-primebrick-client-shield-key` before the route handler runs.
-   */
-  clientShieldRegistry?: import("../service/client-shield-registry.js").ClientShieldRegistry;
-  /**
-   * URL paths exempt from the client-identity gate — for services that
+   * URL paths exempt from the internal provenance gate — for services that
    * expose a genuinely public surface (e.g. the webhook ingress, whose
    * callers are external providers that cannot carry our identity headers).
    * `/health` is always public and does not need listing.
    */
   identityExemptPaths?: RegExp[];
+  /**
+   * Internal provenance enforcement (arch-internal-trust-and-transports):
+   *   "enforce"           — every non-exempt request MUST carry a valid
+   *                         proof-of-possession signature (US servers: internal-only);
+   *   "verify-if-present" — signed/identity-claiming traffic must verify, cleartext
+   *                         x-user-* is rejected as an injection attempt, plain
+   *                         public traffic passes to its own auth chain (BE edge);
+   *   "off"               — no verification (library default; tests).
+   */
+  internalProvenance?: "enforce" | "verify-if-present" | "off";
 }
 
 /**
@@ -134,42 +140,55 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
         return;
       }
 
-      // Client-identity gate — internal callers must identify themselves
-      // (User-Agent prefix + client key) before any route runs.
+      // Internal provenance verification (arch-internal-trust-and-transports):
+      // proof-of-possession signature on internal hops. The verified body is
+      // buffered once and re-armed for downstream routers; unsealed identity
+      // headers are merged back into req.headers by verifyEdgeRequest after
+      // stripping any cleartext injection attempt.
+      const provenanceMode = options.internalProvenance ?? "off";
       if (
-        options.clientShieldRegistry &&
+        provenanceMode !== "off" &&
         !options.identityExemptPaths?.some((re) => re.test(url.pathname))
       ) {
-        const registry = options.clientShieldRegistry;
-        const headerAdapter = {
-          headers: {
-            get: (name: string) => {
-              const v = req.headers[name.toLowerCase()];
-              return typeof v === "string" ? v : null;
-            },
-          },
-        };
-        const idResult = await verifyClientIdentity(headerAdapter, {
-          allowedPrefixes: registry.allowedPrefixes,
-          verifyKey: (prefix, key) => registry.verifyKey(prefix, key),
-        });
-        if (!idResult.ok) {
-          sendRfcError(
-            res,
-            idResult.status,
-            idResult.error === "UNKNOWN_CLIENT" ? "Unknown client" : "Unidentified client",
-            idResult.error === "UNKNOWN_CLIENT"
-              ? "User-Agent is not in the client registry allowlist"
-              : "Missing or invalid client identity headers",
-            {
-              internal_code: idResult.error,
+        const hasSignature = typeof req.headers[SIGNING_HEADERS.service] === "string";
+        const hasCleartextIdentity = Object.keys(req.headers).some((h) => h.startsWith("x-user-"));
+        if (!hasSignature) {
+          // unsigned traffic: enforce mode rejects everything; either mode
+          // rejects cleartext identity — it is an injection attempt by
+          // construction (legitimate internal callers always seal).
+          if (provenanceMode === "enforce" || hasCleartextIdentity) {
+            sendRfcError(res, 401, "Unauthorized", "Internal request missing proof-of-possession signature", {
+              internal_code: "AUTH_SIGNATURE_MISSING",
               instance: url.pathname,
-              severity: "MEDIUM",
-            },
-          );
-          return;
+              severity: "HIGH",
+            });
+            return;
+          }
+        } else {
+          try {
+            const verified = await verifyEdgeRequest(req, url);
+            // re-arm body iteration — downstream routers consume
+            // `for await (const chunk of req)`; the original stream is drained.
+            const bodyCopy = Buffer.from(verified.body);
+            (req as unknown as Record<symbol, unknown>)[Symbol.asyncIterator] = async function* () {
+              if (bodyCopy.length > 0) yield bodyCopy;
+            };
+          } catch (err) {
+            const code = err instanceof AuthError ? err.internal_code : "AUTH_SIGNATURE_INVALID";
+            sendRfcError(res, 401, "Unauthorized", "Internal request signature verification failed", {
+              internal_code: code,
+              instance: url.pathname,
+              severity: "HIGH",
+            });
+            return;
+          }
         }
       }
+
+      // The client-identity gate (shield registry) is gone — internal
+      // provenance verification above is strictly stronger: proof-of-possession
+      // of vault-derived keys, never a transmitted secret. The shield registry
+      // is gone entirely — publisher attribution on NATS is the sealed envelope.
 
       // Custom routes
       if (options.routeHandler) {

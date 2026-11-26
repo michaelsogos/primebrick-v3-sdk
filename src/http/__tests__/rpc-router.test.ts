@@ -7,6 +7,7 @@ import { serializeAuthUserToHeaders } from "../../auth/auth-user-serializer.js";
 import { AuthMode, type AuthConfig, type AuthUser } from "../../auth/types.js";
 import type { ApiKeyPort, ApiKeyRecord } from "../../auth/ports/api-key-port.js";
 
+import { extJsonStringify, extJsonParse } from '../../json/ext-json.js';
 const CFG: AuthConfig = {
   mode: AuthMode.GATEWAY,
   roles_path: "roles",
@@ -109,10 +110,10 @@ describe("makeRpcRouter — request pipeline", () => {
   it("dispatches by method+path — PUT/DELETE on a path shared with GET", async () => {
     const put = await call("/items/abc", { method: "PUT", headers: userHeaders(["test.write"]) });
     expect(put.status).toBe(200);
-    expect(await put.json()).toEqual({ updated: "abc" });
+    expect(await put.text().then((t) => extJsonParse<any>(t))).toEqual({ updated: "abc" });
     const del = await call("/items/abc", { method: "DELETE", headers: userHeaders(["test.write"]) });
     expect(del.status).toBe(200);
-    expect(await del.json()).toEqual({ deleted: "abc" });
+    expect(await del.text().then((t) => extJsonParse<any>(t))).toEqual({ deleted: "abc" });
   });
 
   it("405 only when NO route has the method — path exists for other methods", async () => {
@@ -128,28 +129,28 @@ describe("makeRpcRouter — request pipeline", () => {
   it("403 with valid auth but missing permission", async () => {
     const res = await call("/secure", { headers: userHeaders(["other.perm"]) });
     expect(res.status).toBe(403);
-    const body = await res.json();
+    const body = await res.text().then((t) => extJsonParse<any>(t));
     expect(body.internal_code).toBe("RBAC_PERMISSION_DENIED");
   });
 
   it("200 with valid auth + permission", async () => {
     const res = await call("/secure", { headers: userHeaders(["test.read"]) });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(await res.text().then((t) => extJsonParse<any>(t))).toEqual({ ok: true });
   });
 
   it("extracts :param path params", async () => {
     const res = await call("/items/abc-123", { headers: userHeaders(["test.read"]) });
-    expect(await res.json()).toEqual({ uuid: "abc-123" });
+    expect(await res.text().then((t) => extJsonParse<any>(t))).toEqual({ uuid: "abc-123" });
   });
 
   it("passes validated body to handler", async () => {
     const res = await call("/echo", {
       method: "POST",
       headers: { "content-type": "application/json", ...userHeaders(["test.write"]) },
-      body: JSON.stringify({ hello: "world" }),
+      body: extJsonStringify({ hello: "world" }),
     });
-    expect(await res.json()).toEqual({ hello: "world" });
+    expect(await res.text().then((t) => extJsonParse<any>(t))).toEqual({ hello: "world" });
   });
 
   it("400 when the body validator throws", async () => {
@@ -220,7 +221,7 @@ describe("makeRpcRouter — mfa step-up", () => {
     handler = router(async () => ({ ok: true, user_uuid: "u-1" }));
     const res = await call("/things", { method: "DELETE", headers: userHeaders(["test.write"]) });
     expect(res.status).toBe(403);
-    const body = await res.json();
+    const body = await res.text().then((t) => extJsonParse<any>(t));
     expect(body.extra.mfa_step_up_required).toBe(true);
     expect(body.extra.action).toBe("delete");
     expect(body.extra.target_resource).toBe("things");
@@ -233,7 +234,7 @@ describe("makeRpcRouter — mfa step-up", () => {
       headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ done: true });
+    expect(await res.text().then((t) => extJsonParse<any>(t))).toEqual({ done: true });
   });
 
   it("403 when the token was issued for a different user", async () => {
@@ -243,7 +244,7 @@ describe("makeRpcRouter — mfa step-up", () => {
       headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
     });
     expect(res.status).toBe(403);
-    const body = await res.json();
+    const body = await res.text().then((t) => extJsonParse<any>(t));
     expect(body.extra.mfa_step_up_required).toBe(true);
   });
 
@@ -254,7 +255,7 @@ describe("makeRpcRouter — mfa step-up", () => {
       headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
     });
     expect(res.status).toBe(403);
-    const body = await res.json();
+    const body = await res.text().then((t) => extJsonParse<any>(t));
     expect(body.internal_code).toBe("MFA_ACTION_TOKEN_ALREADY_USED");
     expect(body.extra.mfa_step_up_required).toBe(true);
   });
@@ -266,7 +267,7 @@ describe("makeRpcRouter — mfa step-up", () => {
       headers: { ...userHeaders(["test.write"]), "x-mfa-action-authorization": "tok" },
     });
     expect(res.status).toBe(503);
-    const body = await res.json();
+    const body = await res.text().then((t) => extJsonParse<any>(t));
     expect(body.internal_code).toBe("MFA_CONSUME_UNAVAILABLE");
     expect(body.extra?.mfa_step_up_required).toBeUndefined();
   });
@@ -311,8 +312,8 @@ describe("composeRouteHandlers", () => {
     const a = makeRpcRouter([{ method: "GET", path: "/a", auth: "public", handler: async () => "a" }]);
     const b = makeRpcRouter([{ method: "GET", path: "/b", auth: "public", handler: async () => "b" }]);
     handler = composeRouteHandlers(a, b);
-    expect(await (await call("/a")).json()).toBe("a");
-    expect(await (await call("/b")).json()).toBe("b");
+    expect(await (await call("/a")).text().then((t) => extJsonParse<any>(t))).toBe("a");
+    expect(await (await call("/b")).text().then((t) => extJsonParse<any>(t))).toBe("b");
     expect((await call("/c")).status).toBe(404);
   });
 });
@@ -342,8 +343,8 @@ describe("wildcard :param* routes", () => {
     }]);
     handler = router;
     const r1 = await call("/hook/email", { method: "POST", body: "{}" });
-    expect(await r1.json()).toEqual({ code: "email", intent: "", body: "{}" });
+    expect(await r1.text().then((t) => extJsonParse<any>(t))).toEqual({ code: "email", intent: "", body: "{}" });
     const r2 = await call("/hook/email/brevo/delivery", { method: "POST", body: "x" });
-    expect(await r2.json()).toEqual({ code: "email", intent: "brevo/delivery", body: "x" });
+    expect(await r2.text().then((t) => extJsonParse<any>(t))).toEqual({ code: "email", intent: "brevo/delivery", body: "x" });
   });
 });

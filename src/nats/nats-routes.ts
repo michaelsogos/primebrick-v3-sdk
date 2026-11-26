@@ -20,9 +20,10 @@
  */
 
 import { createInbox, headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
+import { jetstreamManager } from "@nats-io/jetstream";
+import { decodeInboundMessage, encodeOutboundMessage, messageWithInboundView } from "./message-codec.js";
 import { NatsClient, publishJobResultMessage } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
-import { verifyNatsPublisher } from "./service-shield.js";
 import { extJsonParse, extJsonStringify } from "../json/ext-json.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";
 import { enforceNatsRbac, RbacDeniedError } from "../auth/rbac-enforce.js";
@@ -72,7 +73,7 @@ export interface CallablePayloadContract<TReq = unknown> {
 export interface NatsRouteContext<TReq = unknown> {
   /**
    * Resolved caller (GATEWAY-RESOLVED headers). `undefined` for
-   * service-authenticated routes (`verify` shield check) — services have
+   * service-lane routes (`verify` service check) — services have
    * no AuthUser.
    */
   user?: AuthUser;
@@ -86,10 +87,22 @@ export interface NatsRouteContext<TReq = unknown> {
  * Custom caller verification. Replaces the default
  * verifyNatsMessage+enforceNatsRbac chain. Return:
  *   - `AuthUser`  → caller verified (user available in ctx.user)
- *   - `undefined` → caller verified, no user (service-to-BE shield identity)
+ *   - `undefined` → caller verified, no user (service-to-service lane identity)
  *   - `null`      → denied (auth error to the caller / drop for pub/sub)
  */
 export type NatsRouteVerify = (msg: Msg) => Promise<AuthUser | null | undefined>;
+
+/**
+ * Service-to-service lane verification: declares explicitly that the route
+ * carries no user context — the sealed A7 envelope (validated at the
+ * transport layer before any route logic runs) IS the provenance proof, and
+ * no user identity exists to resolve. Mount on routes that exist for
+ * service-to-service traffic only (service.register, config.get, …).
+ *
+ * Routes that MAY carry user context depending on the lane must instead
+ * deserialize opportunistically and decide inside the handler.
+ */
+export const serviceLaneVerify: NatsRouteVerify = async () => undefined;
 
 export interface NatsRoute<TReq = unknown> {
   /** NATS subject, e.g. "emailsender.send". */
@@ -104,14 +117,14 @@ export interface NatsRoute<TReq = unknown> {
   permissions: readonly string[];
   rbacMode?: "any" | "all";
   /**
-   * Service-identity verification (e.g. BE client-shield check) instead of
+   * Service-identity verification (service-lane check) instead of
    * the default AuthUser+RBAC chain. Use for service-to-BE subjects where
    * the caller is a service, not a user.
    */
   verify?: NatsRouteVerify;
   /**
    * Enrollment channel — the route's `verify` REPLACES the global Layer-1
-   * client-shield check entirely (it must do the equivalent check itself,
+   * caller-verification layer entirely (it must do the equivalent check itself,
    * typically with `allowNewPrefix`). Only legal on routes whose purpose
    * is first-time client enrollment (service.register): everywhere else a
    * skipped L1 is a security hole and the flag must never be set.
@@ -132,6 +145,16 @@ export interface NatsRoute<TReq = unknown> {
   /** i18n keys for the callable census entry (picker label/description). */
   label_key?: string;
   description_key?: string;
+  /**
+   * Durable work-item transport — the route is consumed through JetStream
+   * (at-least-once + systemic Redis dedupe) instead of lossy core pub/sub.
+   * The factory ensures the per-service workqueue stream `<SERVICECODE>`
+   * capturing exactly this subject and wires the same verify/RBAC/contract
+   * middleware — the declaration is identical, only the transport changes.
+   * THE default for state-carrying work items (durability doctrine);
+   * absence is legitimate only for the governed ephemeral exceptions.
+   */
+  durable?: boolean;
   /**
    * The ONE service call. An object the handler returns is carried onto
    * the `jobs.result.*` outcome message as `report` (same convention as
@@ -183,14 +206,6 @@ function isReplyError(x: unknown): x is NatsReplyError {
   return !!x && typeof x === "object" && "error" in x;
 }
 
-function encode(data: unknown): Uint8Array {
-  return new TextEncoder().encode(extJsonStringify(data));
-}
-
-function decode<T>(data: Uint8Array): T {
-  return extJsonParse(new TextDecoder().decode(data)) as T;
-}
-
 /** Contract-first validation: the payload_schema `parse` ALWAYS runs when
  *  a contract is declared (mandatory — the callable's own zod), then any
  *  extra `validate` hook. Failures surface as `VALIDATION_ERROR`, never
@@ -216,15 +231,14 @@ async function verifyAndAuthorize(
     enrollment?: boolean;
   },
 ): Promise<AuthUser | undefined> {
-  // Layer 1 — client shield: the publisher must be a registered client.
-  // Runs before everything else, on every governed route — EXCEPT the
-  // enrollment channel, where the route's own `verify` owns the whole
-  // identity check (a first-time registrant cannot satisfy the snapshot).
-  if (!route.enrollment && !(await verifyNatsPublisher(msg))) {
-    throw new AuthError("CLIENT_IDENTITY_DENIED", "client identity rejected");
-  }
+  // A7 — the client-shield publisher check is removed from the NATS user
+  // layer: a valid sealed envelope can only be produced by a service holding
+  // vault-derived message keys, so envelope validity IS the provenance proof
+  // (stronger than a cleartext stamp). Provenance verification stays at the
+  // HTTP edge, where the threat model is real. RBAC and route.verify are
+  // unchanged.
   // Layer 2 — caller verification: custom service-auth hook, or the
-  // default client-shield-secret + AuthUser + RBAC chain.
+  // default AuthUser + RBAC chain.
   if (route.verify) {
     const result = await route.verify(msg);
     if (result === null) throw new AuthError("SERVICE_AUTH_DENIED", "caller identity rejected");
@@ -238,6 +252,65 @@ async function verifyAndAuthorize(
 // ─── Fire-and-forget subscribers ────────────────────────────────────────────
 
 /**
+ * Durable work-item transport wiring — the same governance chain as the
+ * core path (verify/RBAC → contract parse → handler), consumed
+ * through JetStream so the message survives consumer downtime and the
+ * systemic dedupe in jetstreamSubscribe absorbs redeliveries.
+ *
+ * Stream topology: one workqueue stream per service (`<SERVICECODE>`),
+ * capturing exactly the service's durable subjects — capture is
+ * per-subject, so the publisher migrates independently and nothing is
+ * lost in the cutover window. Filter subjects are disjoint by
+ * construction (one route per subject), satisfying the workqueue
+ * single-consumer-group constraint.
+ */
+async function subscribeDurableRoute<TReq>(route: NatsRoute<TReq>, deps: NatsRouterDeps): Promise<void> {
+  const streamName = deps.serviceCode.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  // Union-merge with any existing capture set — a service registering
+  // durable routes in multiple makeNatsRoutes batches must not shrink
+  // the stream's subjects to the latest batch.
+  let subjects = [route.subject];
+  try {
+    const jsm = await jetstreamManager(await NatsClient.getConnection());
+    const info = await jsm.streams.info(streamName);
+    const existing = (info.config.subjects ?? []).filter((s) => s !== route.subject);
+    subjects = [...existing, route.subject];
+  } catch {
+    // Stream absent — first durable route creates it with this subject.
+  }
+  await NatsClient.ensureStream(streamName, subjects, { retention: "workqueue", syncSubjects: true });
+
+  const durableName = `${deps.serviceCode}-${route.subject.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  await NatsClient.jetstreamSubscribe<TReq>({
+    stream: streamName,
+    durable: durableName,
+    filterSubject: route.subject,
+    verify: async (m) => {
+      try {
+        return await verifyAndAuthorize(m as unknown as Msg, route);
+      } catch (err) {
+        // Auth/RBAC denial is TERMINAL — redelivery would re-deny the same
+        // caller identity forever (same policy as the webhook template).
+        if (err instanceof AuthError || err instanceof RbacDeniedError) return null;
+        throw err;
+      }
+    },
+    // A contract-validation failure can never succeed on redelivery — the
+    // payload is immutable. Terminal, not a nak-loop.
+    isTerminal: (err) => err instanceof ValidationError,
+    handler: async (data, jmsg) => {
+      const request = runContract(route, data);
+      return await route.handler({
+        user: jmsg.authUser,
+        request,
+        msg: { subject: jmsg.subject, headers: jmsg.headers } as unknown as Msg,
+      });
+    },
+  });
+  logger.info(`Subscribed to ${route.subject} (durable, stream ${streamName})`, { tags: ["nats-sub"] });
+}
+
+/**
  * Register governed pub/sub subscribers. Errors are logged, never thrown
  * into the message loop — fire-and-forget has no caller to answer to.
  */
@@ -249,6 +322,22 @@ export async function makeNatsRoutes<TReq = unknown>(
   const subs: Subscription[] = [];
 
   for (const route of routes) {
+    if (route.durable === true) {
+      if (route.payload_schema) {
+        recordCallable({
+          subject: route.subject,
+          kind: "pub",
+          permissions: route.permissions,
+          payload_schema: route.payload_schema.schema,
+          label_key: route.label_key,
+          description_key: route.description_key,
+        });
+      }
+      // Durable handles self-register in the lifecycle registry (hot-reload
+      // dedupe inside jetstreamSubscribe) — no core Subscription to return.
+      await subscribeDurableRoute(route, deps);
+      continue;
+    }
     const queue = route.queue === null ? undefined : (route.queue ?? deps.serviceCode);
     const sub = dedupedSubscribe(nc, route.subject, queue);
     subs.push(sub);
@@ -268,10 +357,11 @@ export async function makeNatsRoutes<TReq = unknown>(
       for await (const msg of sub) {
         const t0 = performance.now();
         try {
-          const user = await verifyAndAuthorize(msg, route);
-          const raw = decode(msg.data);
-          const request = runContract(route, raw);
-          const out = await route.handler({ user, request, msg });
+          const inbound = decodeInboundMessage(msg.data, msg.headers);
+          const view = messageWithInboundView(msg, inbound);
+          const user = await verifyAndAuthorize(view, route);
+          const request = runContract(route, inbound.data);
+          const out = await route.handler({ user, request, msg: view });
           await publishJobResultMessage(route.subject, msg.headers, {
             status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
@@ -339,15 +429,19 @@ export async function makeNatsRequestRoute<TReq = unknown, TRes = unknown>(
     (async () => {
       for await (const msg of sub) {
         const replyError = (code: string, message: string, extra?: Record<string, unknown>) => {
-          if (msg.reply) msg.respond(encode({ error: { code, message, ...(extra ? { extra } : {}) } }));
+          if (msg.reply) {
+            const outbound = encodeOutboundMessage({ error: { code, message, ...(extra ? { extra } : {}) } });
+            msg.respond(outbound.payload);
+          }
         };
         const t0 = performance.now();
         try {
-          const user = await verifyAndAuthorize(msg, route);
-          const raw = decode(msg.data);
-          const request = runContract(route, raw);
-          const result = await route.handler({ user, request, msg });
-          if (msg.reply) msg.respond(encode(result ?? null));
+          const inbound = decodeInboundMessage(msg.data, msg.headers);
+          const view = messageWithInboundView(msg, inbound);
+          const user = await verifyAndAuthorize(view, route);
+          const request = runContract(route, inbound.data);
+          const result = await route.handler({ user, request, msg: view });
+          if (msg.reply) msg.respond(encodeOutboundMessage(result ?? null).payload);
           await publishJobResultMessage(route.subject, msg.headers, {
             status: "succeeded",
             duration_ms: Math.round(performance.now() - t0),
@@ -410,7 +504,17 @@ export async function callNats<TRes = unknown>(
       for await (const msg of sub) {
         clearTimeout(timer);
         try {
-          const decoded = decode<unknown>(msg.data);
+          // NATS no-responder fast-fail: the server answers immediately with
+          // a headers-only empty reply carrying status code 503 when no
+          // subscriber exists for the subject (verified empirically against
+          // NATS 2.14 — 100 was the legacy informational shape). Without this
+          // check the decode yields null and callers crash on a cryptic
+          // null-deref — a boot race must name its real cause instead.
+          if (msg.headers && msg.headers.code === 503) {
+            reject(new Error(`no responders for ${subject}`));
+            continue;
+          }
+          const decoded = decodeInboundMessage<unknown>(msg.data, msg.headers).data;
           if (isReplyError(decoded)) {
             reject(new Error(`${decoded.error.code}: ${decoded.error.message}`));
           } else {
@@ -422,19 +526,21 @@ export async function callNats<TRes = unknown>(
       }
     })();
 
+    const outbound = encodeOutboundMessage(data, opts.headers);
     let hdrs;
-    if (opts.headers) {
+    const transportEntries = Object.entries(outbound.transportHeaders);
+    if (transportEntries.length > 0) {
       hdrs = natsHeaders();
-      for (const [k, v] of Object.entries(opts.headers)) hdrs.set(k, v);
+      for (const [k, v] of transportEntries) hdrs.set(k, v);
     }
-    // Stamp service identity (UA + shield key) — the BE's verifyPublisher
-    // check depends on it. Identity is applied AFTER caller headers so it
-    // can never be overridden. No-op until configureInternalClient() runs.
+    // Stamp service identity (User-Agent) — observability attribution on
+    // every hop. Identity is applied AFTER caller headers so it can never
+    // be overridden. No-op until configureInternalClient() runs.
     const identity = internalIdentityHeaders();
     if (identity) {
       hdrs ??= natsHeaders();
       for (const [name, value] of Object.entries(identity)) hdrs.set(name.toLowerCase(), value);
     }
-    nc.publish(subject, encode(data), { reply: inbox, headers: hdrs });
+    nc.publish(subject, outbound.payload, { reply: inbox, headers: hdrs });
   });
 }

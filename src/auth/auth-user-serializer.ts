@@ -7,13 +7,13 @@
  * queries, no ports, no cross-schema access.
  *
  * Header names are configurable via AuthConfig.gateway.headers, but default
- * to a standard set. The gateway secret header is always added for
- * anti-spoofing.
+ * to a standard set. Anti-spoofing is NOT a transmitted secret: the internal
+ * funnel seals these headers into the AES-GCM blob and signs the request
+ * proof-of-possession — no secret ever rides the wire.
  */
 
 import type { HeaderProvider } from "./header-provider.js";
 import type { AuthConfig, AuthUser } from "./types.js";
-import { currentClientShieldSecret } from "./client-shield-secret.js";
 
 /** Default header names for AuthUser fields. */
 const DEFAULT_HEADER_NAMES = {
@@ -32,8 +32,8 @@ const DEFAULT_HEADER_NAMES = {
 
 /**
  * Serialize a fully resolved AuthUser into a headers object for forwarding
- * to microservices (HTTP proxy or NATS). Also includes the gateway secret
- * header for anti-spoofing.
+ * to microservices (HTTP proxy or NATS). No secret is included — provenance
+ * is proof-of-possession, applied by the transport funnel.
  */
 export function serializeAuthUserToHeaders(
   user: AuthUser,
@@ -68,19 +68,17 @@ export function serializeAuthUserToHeaders(
   headers[names.is_system] = String(user.isSystem);
   if (user.locale) headers[names.locale] = user.locale;
 
-  // Gateway secret header for anti-spoofing — the rotating engine's current
-  // value wins over the static config fallback (see auth/client-shield-secret.ts).
-  const gwSecret = currentClientShieldSecret(config.gateway.secret);
-  if (config.gateway.secret_header_name && gwSecret) {
-    headers[config.gateway.secret_header_name] = gwSecret;
-  }
+  // No secret is stamped anymore — the internal funnel seals these headers
+  // into the AES-GCM blob and signs the request proof-of-possession; nothing
+  // sensitive travels cleartext and no secret ever rides the wire.
 
   return headers;
 }
 
 /**
  * Deserialize an AuthUser from headers (microservice side, GATEWAY-RESOLVED mode).
- * The gateway secret is verified separately by verifyAuthGatewayResolved().
+ * Anti-spoofing is the proof-of-possession provenance verified at the
+ * transport edge before this chain runs — there is no secret to verify.
  */
 export function deserializeAuthUserFromHeaders(
   headers: HeaderProvider,

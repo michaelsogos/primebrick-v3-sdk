@@ -4,7 +4,15 @@ import { jetstream, jetstreamManager, AckPolicy, JetStreamApiError } from "@nats
 import type { JetStreamClient, JetStreamManager, JsMsg } from "@nats-io/jetstream";
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { logger } from "../lifecycle/logger.js";
-import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
+import { extJsonStringify } from "../json/ext-json.js";
+import { MessageIntegrityViolationError, MessagePlaintextRejectedError } from "./message-envelope.js";
+import {
+  decodeInboundMessage,
+  encodeOutboundMessage,
+  messageWithInboundView,
+  peekEnvelopeGeneration,
+  type InboundMessagePayload,
+} from "./message-codec.js";
 import { natsCarrier, extractNatsContext } from "../telemetry/otel.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
 import { msgHeader } from "./msg-headers.js";
@@ -16,6 +24,19 @@ import {
   type JobResultMessage,
 } from "./job-contract.js";
 import { lifecycleRegistry } from "../lifecycle/process-registry.js";
+import { getRedisClient } from "../cache/redis-client.js";
+
+/**
+ * Systemic delivery-dedupe tuning for the JetStream consumption wrapper
+ * (durability doctrine: dedupe is a transport guarantee, never the
+ * consumer's job). Lease covers the in-flight processing window; the
+ * heartbeat refreshes it and pings `working()` so ackWait never expires
+ * under honest long-running handlers; DONE-TTL outlives any redelivery
+ * chain so completed-work stragglers are ack'd without re-execution.
+ */
+const DEDUPE_LEASE_MS = 30_000;
+const DEDUPE_HEARTBEAT_MS = 10_000;
+const DEDUPE_DONE_TTL_MS = 6 * 60 * 60 * 1000;
 import type { AuthUser } from "../auth/types.js";
 
 export { msgHeader };
@@ -39,7 +60,7 @@ function apiErrCode(error: unknown): number | undefined {
 }
 
 /**
- * Stamp the caller's service identity (User-Agent + client shield key)
+ * Stamp the caller's service identity (User-Agent)
  * onto outbound message headers — applied AFTER caller-supplied headers
  * so identity can never be overridden. Silent no-op until
  * `configureInternalClient()` runs at boot.
@@ -83,7 +104,7 @@ export async function publishJobResultMessage(
   const trigger_uuid = msgHeader(headers, JOB_TRIGGER_ID_HEADER) ?? undefined;
   if (run_id === undefined && schedule_subject === undefined) return;
   try {
-    await NatsClient.jetstreamPublish(jobResultSubject(subject), {
+    await NatsClient.publish(jobResultSubject(subject), {
       ...result,
       run_id,
       schedule_subject,
@@ -206,30 +227,34 @@ export class NatsClient {
 
 
   /**
-   * Publish a message with automatic Ext-JSON serialization.
+   * LOSSY fire-and-forget publish — core NATS, no persistence, no redelivery.
+   * If the consumer is down, busy or mid-restart, the message is silently
+   * gone. For this platform's reliability doctrine NO payload is
+   * non-mission-critical, so this primitive is legitimate ONLY for the
+   * governed exceptions of the 4-class doctrine (see nats-client.mdx):
+   * ephemeral presence (self-superseding), invalidation hints whose
+   * consumers re-pull truth on a TTL, and request/reply traffic.
+   * Everything else must use `publish()` (JetStream-durable).
+   * The name is deliberately deterrent — writing it should feel wrong.
+   * Lint `no-fnf-nats-publish` bans call sites outside sanctioned paths.
+   *
    * The data object is serialized with extJsonStringify (BigInt-safe)
    * and encoded as UTF-8 before publishing.
    *
-   * @param subject - NATS subject (e.g. "emailsender.send", "customer.created")
+   * @param subject - NATS subject
    * @param data - Any serializable object (bigint values are preserved)
-   * @param headers - Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode)
-   *
-   * Example:
-   *   await NatsClient.publish("customer.created", { entity_id: 42n, action: "CREATED" });
-   *   await NatsClient.publish("emailsender.send", request, authHeaders);
+   * @param hdrs - Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode)
    */
-  static async publish(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
+  static async publishEphemeralLossy(subject: string, data: unknown, hdrs?: Record<string, string>): Promise<void> {
     const nc = await NatsClient.getConnection();
-    const payload = new TextEncoder().encode(extJsonStringify(data));
+    const outbound = encodeOutboundMessage(data, hdrs);
     const natsHeaders = headers();
-    if (hdrs) {
-      for (const [key, value] of Object.entries(hdrs)) {
-        natsHeaders.set(key, value);
-      }
+    for (const [key, value] of Object.entries(outbound.transportHeaders)) {
+      natsHeaders.set(key, value);
     }
     injectIdentity(natsHeaders);
     injectInto(natsHeaders);
-    nc.publish(subject, payload, { headers: natsHeaders });
+    nc.publish(subject, outbound.payload, { headers: natsHeaders });
   }
 
   /**
@@ -280,10 +305,9 @@ export class NatsClient {
         await context.with(trace.setSpan(parentCtx, span), async () => {
           const t0 = performance.now();
           try {
-            const text = new TextDecoder().decode(msg.data);
-            // Empty payload — skip parsing, call handler with null
-            const data = text === "" ? (null as T) : extJsonParse<T>(text);
-            const out = await handler(data, msg);
+            const inbound = decodeInboundMessage<T>(msg.data, msg.headers);
+            const view = messageWithInboundView(msg, inbound);
+            const out = await handler(inbound.data, view);
             await publishJobResultMessage(subject, msg.headers, {
               status: "succeeded",
               duration_ms: Math.round(performance.now() - t0),
@@ -341,6 +365,10 @@ export class NatsClient {
       maxMsgsPerSubject?: number;
       /** Discard policy on limits — "old" = FIFO eviction (default server-side). */
       discard?: "old" | "new";
+      /** Retention policy — "workqueue" removes a message on first ack
+       *  (exact work-item semantics); "limits" (server default) keeps it
+       *  for replay within the age/count bounds. */
+      retention?: "limits" | "workqueue";
     },
   ): Promise<void> {
     const nc = await NatsClient.getConnection();
@@ -354,6 +382,7 @@ export class NatsClient {
         ? { max_msgs_per_subject: opts.maxMsgsPerSubject }
         : {}),
       ...(opts?.discard ? { discard: opts.discard } : {}),
+      ...(opts?.retention ? { retention: opts.retention } : {}),
     };
     try {
       await jsm.streams.add(config);
@@ -385,28 +414,30 @@ export class NatsClient {
   }
 
   /**
-   * Publish a message to JetStream and await the PubAck (durable write
-   * confirmed server-side). Same Ext-JSON serialization and header
-   * propagation as `publish()`.
+   * Publish a message — THE publish primitive of the platform. JetStream-durable
+   * by construction: the write is confirmed server-side via PubAck before
+   * returning, the message survives consumer downtime, and delivery is
+   * at-least-once. This is the default and ONLY sanctioned way to publish
+   * state-carrying traffic; the lossy core-NATS variant exists only for the
+   * governed ephemeral exceptions as `publishEphemeralLossy`.
+   * Same Ext-JSON serialization and header propagation everywhere.
    *
    * @returns The stream sequence number assigned by JetStream.
    */
-  static async jetstreamPublish(
+  static async publish(
     subject: string,
     data: unknown,
     hdrs?: Record<string, string>,
   ): Promise<bigint> {
     const js = NatsClient.getJetStream();
-    const payload = new TextEncoder().encode(extJsonStringify(data));
+    const outbound = encodeOutboundMessage(data, hdrs);
     const natsHeaders = headers();
-    if (hdrs) {
-      for (const [key, value] of Object.entries(hdrs)) {
-        natsHeaders.set(key, value);
-      }
+    for (const [key, value] of Object.entries(outbound.transportHeaders)) {
+      natsHeaders.set(key, value);
     }
     injectIdentity(natsHeaders);
     injectInto(natsHeaders);
-    const ack = await js.publish(subject, payload, { headers: natsHeaders });
+    const ack = await js.publish(subject, outbound.payload, { headers: natsHeaders });
     return BigInt(ack.seq);
   }
 
@@ -445,6 +476,15 @@ export class NatsClient {
       subject?: string;
       headers?: MsgHdrs;
     }) => Promise<AuthUser | null | undefined>;
+    /**
+     * Terminal-error predicate — when the handler throws and this returns
+     * true, the message is `term()`inated (no redelivery) instead of
+     * `nak()`ed. Poison messages (schema-validation failures: the payload
+     * will NEVER become valid) must be terminal, or they redeliver
+     * forever. Handler/coding errors stay transient — redelivery is the
+     * point of durability.
+     */
+    isTerminal?: (error: unknown) => boolean;
     handler: (
       data: T,
       msg: {
@@ -500,10 +540,55 @@ export class NatsClient {
         parentCtx,
       );
       await context.with(trace.setSpan(parentCtx, span), async () => {
+        // Hoisted above the try — the catch path releases the lease and
+        // stops the heartbeat for messages whose processing failed, so
+        // both must be visible in either block.
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
+        let dedupeKey: string | undefined;
+        let dedupeAcquired = false;
         try {
+          let inbound: InboundMessagePayload<T>;
+          try {
+            inbound = decodeInboundMessage<T>(m.data, m.headers);
+          } catch (decryptError) {
+            if (decryptError instanceof MessageIntegrityViolationError || decryptError instanceof MessagePlaintextRejectedError) {
+              // Security evidence FIRST, before anything else: the term()+return
+              // below bypasses the outer error logger, so without this log a
+              // tampered/foreign message on a non-job-correlated subject would
+              // vanish silently. Metadata only — never payload, ciphertext,
+              // sensitive headers or key material.
+              span.recordException(decryptError);
+              span.setStatus({ code: SpanStatusCode.ERROR });
+              logger.error("NATS terminal message rejection — terminating without delivery", {
+                tags: ["nats", "security"],
+                security_event: decryptError instanceof MessagePlaintextRejectedError ? "nats_message_plaintext_rejected" : "nats_message_integrity_violation",
+                subject,
+                stream: opts.stream,
+                durable: opts.durable,
+                stream_sequence: m.seq,
+                key_generation: peekEnvelopeGeneration(m.data),
+                error_code: decryptError instanceof MessagePlaintextRejectedError ? "MESSAGE_PLAINTEXT_REJECTED" : "MESSAGE_INTEGRITY_VIOLATION",
+              });
+              await publishJobResultMessage(subject, m.headers, {
+                status: "failed",
+                error_code: decryptError instanceof MessagePlaintextRejectedError ? "MESSAGE_PLAINTEXT_REJECTED" : "MESSAGE_INTEGRITY_VIOLATION",
+                error_detail: decryptError.message,
+                fire_seq: m.seq,
+              });
+              m.term();
+              return;
+            }
+            await publishJobResultMessage(subject, m.headers, {
+              status: "failed",
+              error_code: "MESSAGE_DECRYPT_FAILED",
+              error_detail: decryptError instanceof Error ? decryptError.message : String(decryptError),
+              fire_seq: m.seq,
+            });
+            throw decryptError;
+          }
           let authUser: AuthUser | undefined;
           if (opts.verify) {
-            const result = await opts.verify(m);
+            const result = await opts.verify({ subject, headers: inbound.headers });
             if (result === null) {
               // Terminal denial — term() prevents pointless redelivery.
               // Correlate best-effort: job-lane envelopes declare their
@@ -512,15 +597,14 @@ export class NatsClient {
               // vanishing (uncorrelated refusals used to be a silent
               // no-op — a denied due left zero trace anywhere).
               let fallback: { schedule_subject?: string } | undefined;
-              try {
-                const decoded = extJsonParse<Record<string, unknown>>(
-                  new TextDecoder().decode(m.data),
-                );
-                if (typeof decoded?.schedule_subject === "string") {
-                  fallback = { schedule_subject: decoded.schedule_subject };
-                }
-              } catch {
-                // Not an envelope-shaped payload — stay uncorrelated.
+              if (
+                typeof inbound.data === "object" &&
+                inbound.data !== null &&
+                typeof (inbound.data as { schedule_subject?: unknown }).schedule_subject === "string"
+              ) {
+                fallback = {
+                  schedule_subject: (inbound.data as unknown as { schedule_subject: string }).schedule_subject,
+                };
               }
               await publishJobResultMessage(
                 subject,
@@ -533,14 +617,58 @@ export class NatsClient {
             }
             authUser = result;
           }
-          const text = new TextDecoder().decode(m.data);
-          const data = text === "" ? (null as T) : extJsonParse<T>(text);
+          // ── Systemic dedupe gate (Redis) ─────────────────────────────
+          // At-least-once means redeliveries HAPPEN; dedupe is the
+          // transport's responsibility, never the handler's. Keyed on
+          // stream+sequence — transport-native, no payload-contract
+          // dependency. Three states: absent → acquire and process;
+          // WACK-fresh → a live worker owns it, defer (nak with lease
+          // delay — never term, never blind-ack: if the owner crashes the
+          // lease expires and the deferred copy takes over); DONE →
+          // completed-work straggler, ack without re-executing.
+          // Redis erroring = transient infrastructure failure → throw
+          // into the outer nak path (fail-closed, the message is safe in
+          // the stream). Redis absent (service never initialized it) →
+          // process without dedupe, logged once below.
+          dedupeKey = `natsjs:dedupe:${opts.stream}:${m.seq}`;
+          const redis = getRedisClient();
+          let dedupeAcquired = false;
+          if (redis !== null) {
+            const acquired = await redis.set(dedupeKey, String(Date.now()), {
+              NX: true,
+              PX: DEDUPE_LEASE_MS,
+            });
+            if (acquired === null) {
+              const state = await redis.get(dedupeKey);
+              if (state === "DONE") {
+                m.ack();
+                return;
+              }
+              m.nak(DEDUPE_LEASE_MS);
+              return;
+            }
+            dedupeAcquired = true;
+          } else if (!(process as unknown as { dedupeWarned?: boolean }).dedupeWarned) {
+            (process as unknown as { dedupeWarned?: boolean }).dedupeWarned = true;
+            logger.warn(
+              `JetStream dedupe inactive on ${opts.stream}/${opts.durable} — no Redis client initialized; redeliveries may re-execute`,
+              { tags: ["nats"] },
+            );
+          }
+          heartbeat = setInterval(() => {
+            m.working();
+            if (dedupeAcquired) {
+              getRedisClient()
+                ?.set(dedupeKey!, String(Date.now()), { PX: DEDUPE_LEASE_MS, XX: true })
+                .catch(() => {});
+            }
+          }, DEDUPE_HEARTBEAT_MS);
           const t0 = performance.now();
           let out: unknown;
           try {
-            out = await opts.handler(data, {
+            out = await opts.handler(inbound.data, {
               subject,
-              headers: m.headers,
+              headers: inbound.headers,
               info: { redeliveryCount: m.info.deliveryCount, streamSequence: m.seq },
               authUser,
             });
@@ -553,6 +681,20 @@ export class NatsClient {
               fire_seq: m.seq,
               duration_ms: Math.round(performance.now() - t0),
             });
+            if (opts.isTerminal?.(handlerError) === true) {
+              // Poison message — redelivery can never succeed, so terminate
+              // instead of nak-looping. The lease is released: nothing will
+              // ever reprocess this key, and DONE must not be written (the
+              // work did NOT complete — terminal ≠ success).
+              clearInterval(heartbeat);
+              if (dedupeAcquired) {
+                await getRedisClient()
+                  ?.del(dedupeKey!)
+                  .catch(() => {});
+              }
+              m.term();
+              return;
+            }
             throw handlerError;
           }
           await publishJobResultMessage(subject, m.headers, {
@@ -561,8 +703,28 @@ export class NatsClient {
             duration_ms: Math.round(performance.now() - t0),
             report: typeof out === "object" && out !== null ? out : undefined,
           });
+          // DONE before ack — a straggler redelivery after this point
+          // short-circuits at the gate without re-executing. If we crash
+          // between DONE and ack the straggler still finds DONE; if we
+          // crash before DONE the lease expires and the copy takes over —
+          // the residual at-least-once window shrinks to the crash-exact
+          // instant, which no transport-level mechanism can close.
+          if (dedupeAcquired) {
+            await getRedisClient()
+              ?.set(dedupeKey, "DONE", { PX: DEDUPE_DONE_TTL_MS, XX: true })
+              .catch(() => {});
+          }
+          clearInterval(heartbeat);
           m.ack();
         } catch (error) {
+          clearInterval(heartbeat);
+          // Failure path — release the lease so redelivery reprocesses
+          // fresh instead of deferring against a dead worker's key.
+          if (dedupeAcquired) {
+            await getRedisClient()
+              ?.del(dedupeKey!)
+              .catch(() => {});
+          }
           span.recordException(error as Error);
           span.setStatus({ code: SpanStatusCode.ERROR });
           logger.error(`Error processing JetStream message on "${subject}"`, { tags: ["nats"], error: error });

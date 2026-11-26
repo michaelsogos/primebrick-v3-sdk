@@ -21,6 +21,7 @@
 
 import {
   makeEntityRouter,
+  opPermissions,
   type EntityCustomOp,
   type EntityAction,
   type EntityRouterConfig,
@@ -42,6 +43,7 @@ import {
   type RouteHandler,
 } from "./rpc-router.js";
 import { validateActionChrome, resolveDisplayTemplate, type BulkCustomAction, type RowCustomAction } from "@primebrick/core";
+import { builtinEntityDecls, builtinRpcRoutes } from "./builtin-entities.js";
 
 /** Entity declaration for `makeServiceRoutes`. `spec` only shapes the
  *  generated OpenAPI block — the router ignores it. Operation set is
@@ -73,6 +75,12 @@ export type ServiceRoutesHandler = RouteHandler & {
 export interface ServiceRoutesInput {
   /** OpenAPI document info — title is required, version recommended. */
   info: { title: string; version: string; description?: string };
+  /**
+   * The service's declared schema list (code const — [0] = owned schema).
+   * Carried into the builtin decl context so platform surfaces resolve
+   * their owned namespace from service identity, never env.
+   */
+  schemas: readonly string[];
   /** Emitted as `servers[0].url` when present. */
   serverUrl?: string;
   /** Extra top-level OpenAPI tags. */
@@ -92,20 +100,16 @@ export interface ServiceRoutesInput {
 //   auto-assigned unless declared). `meta` additionally requires `cfg.meta`.
 const OP_ORDER: EntityAction[] = [
   "meta", "list", "export", "get", "create", "update", "delete",
-  "purge", "restore", "audit", "duplicate", "bulkDelete", "bulkRestore",
+  "purge", "restore", "audit", "duplicate", "bulkDelete", "bulkRestore", "bulkUpdate",
 ];
 const ACTION_TO_SPEC_OP: Partial<Record<EntityAction, EntityCrudOp>> = {
   bulkDelete: "bulk_delete",
   bulkRestore: "bulk_restore",
+  bulkUpdate: "bulk_update",
 };
 
 function specOpsFor(cfg: EntityRouterConfig): EntityCrudOp[] {
-  const enabled = (a: EntityAction): boolean => {
-    if (a === "duplicate") {
-      return cfg.duplicate !== false && cfg.service.clonable === true;
-    }
-    return cfg.permissions[a] !== undefined;
-  };
+  const enabled = (a: EntityAction): boolean => opPermissions(cfg, a) !== undefined;
   const ops: EntityCrudOp[] = [];
   for (const a of OP_ORDER) {
     if (a === "meta" && !cfg.meta) continue;
@@ -133,12 +137,30 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
   //   - row_custom_actions/bulk_custom_actions action_name without a
   //     declared op → boot error (dead CTA is a config bug, not a runtime
   //     501 surprise)
-  const entityDecls = input.entities ?? [];
+  // Built-in entity surfaces are mounted BY CONSTRUCTION — they arrive
+  // from registered providers (dal-pg), never from a module's `entities`.
+  // A consumer decl colliding with a builtin name is a boot error:
+  // builtins may only ever exist through this mount.
+  const builtins = builtinEntityDecls(input.schemas);
+  const builtinNames = new Set(builtins.map((d) => d.entityName));
+  for (const d of input.entities ?? []) {
+    if (builtinNames.has(d.entityName)) {
+      throw new Error(
+        `makeServiceRoutes: entity "${d.entityName}" is a platform builtin — ` +
+          `it is mounted by construction and must not be declared in the module`,
+      );
+    }
+  }
+  const entityDecls = [...builtins, ...(input.entities ?? [])];
+  /** Builtin RPC routes mount through the same `rpc` contract as
+   *  module-authored ones — entity_op binding, OpenAPI and mounting
+   *  behave identically. */
+  const allRpc = [...builtinRpcRoutes(input.schemas), ...(input.rpc ?? [])];
   const customOps = new Map<string, EntityCustomOp[]>();
   // CTA chrome derived from each op route — synthesized into the served
   // `meta.table.row_custom_actions`/`bulk_custom_actions` below.
   const ctaByOp = new Map<string, { cta?: EntityOpCta; route: RpcRoute }>();
-  for (const entry of input.rpc ?? []) {
+  for (const entry of allRpc) {
     const routes = Array.isArray(entry) ? entry : entry.routes;
     for (const r of routes) {
       if (!r.entity_op) continue;
@@ -162,6 +184,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
         ...(cta?.translation_key ? { label_key: cta.translation_key } : {}),
         ...(cta?.icon ? { icon: cta.icon } : {}),
         ...(cta?.color ? { color: cta.color } : {}),
+        ...(cta?.variant ? { variant: cta.variant } : {}),
         ...(cta?.confirm_key ? { confirm_key: cta.confirm_key } : {}),
         ...(cta?.busy_key ? { busy_key: cta.busy_key } : {}),
       });
@@ -231,7 +254,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
       const required_permission = permissionDisplay(op.permissions);
       // Icon↔color contract at declaration construction — a route CTA
       // can never smuggle an invalid color or a divergent semantic pair.
-      const chromeErr = validateActionChrome(cta.icon, cta.color);
+      const chromeErr = validateActionChrome(cta.icon, cta.color, cta.variant);
       if (chromeErr) throw new Error(`entity_op "${decl.entityName}.${op.op}" cta: ${chromeErr}`);
       if (placement === "row") {
         row.push({
@@ -239,6 +262,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
           translation_key,
           icon: cta.icon,
           color: cta.color,
+          variant: cta.variant,
           disabled_when_deleted: cta.disabled_when_deleted,
           required_permission,
           row_key: cta.row_key ?? uid,
@@ -250,6 +274,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
           translation_key,
           icon: cta.icon,
           color: cta.color,
+          variant: cta.variant,
           required_permission,
           requires_selection: cta.requires_selection ?? false,
           require_step_up: cta.require_step_up ?? !!bound?.route.mfa,
@@ -294,7 +319,7 @@ export function makeServiceRoutes(input: ServiceRoutesInput): ServiceRoutesHandl
     );
   }
 
-  for (const entry of input.rpc ?? []) {
+  for (const entry of allRpc) {
     const routes = Array.isArray(entry) ? entry : entry.routes;
     const deps = Array.isArray(entry) ? {} : (entry.deps ?? {});
     handlers.push(makeRpcRouter(routes, deps));

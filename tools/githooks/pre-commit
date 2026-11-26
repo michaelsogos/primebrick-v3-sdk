@@ -1,0 +1,26 @@
+#!/bin/sh
+# Primebrick governed pre-commit — hard enforcement of docs/gitflow.md.
+# Installed repo-wide via `core.hooksPath` (set by `gitflow install-hooks`).
+#
+# main/develop are MERGE-ONLY: nobody commits on them — all work lands
+# through a work branch (feature/release/hotfix). A commit that concludes
+# a merge (MERGE_HEAD exists = conflict resolution inside `git flow` /
+# `gitflow finish` closes) is still a merge and stays legal.
+
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+case "$branch" in
+  main|develop)
+    gitdir=$(git rev-parse --git-dir)
+    if [ -f "$gitdir/MERGE_HEAD" ]; then
+      exit 0
+    fi
+    echo "" >&2
+    echo "gitflow: *** COMMIT BLOCKED — '$branch' is MERGE-ONLY ***" >&2
+    echo "gitflow: direct commits on $branch are FORBIDDEN — all work lands" >&2
+    echo "gitflow: through a work branch: git flow feature start <slug>" >&2
+    echo "gitflow: READ docs/gitflow.md — the governed lifecycle is the law." >&2
+    echo "" >&2
+    exit 1
+    ;;
+esac
+exit 0

@@ -55,14 +55,13 @@
  */
 
 import { logger } from "../lifecycle/logger.js";
-import { ClientShieldRegistry } from "../service/client-shield-registry.js";
-import { setNatsShieldRegistry } from "../nats/service-shield.js";
-import { SecretProvider, startSecretProvider, refreshSecretWithRetry } from "../secrets/rotating-secret.js";
-import { CLIENT_SHIELD_SECRET_REF } from "../auth/client-shield-secret.js";
+import { SecretVaultReader, MESSAGE_KEY_MATERIAL_REF, VAULT_SUBJECTS, type SqlPoolPort } from "../secrets/secret-vault.js";
+import { MessageKeyProvider, setMessageKeyProvider } from "../nats/message-key-provider.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
+import { mergeBuiltinNav } from "../http/builtin-entities.js";
 import { entityEventPayloadSchema } from "../nats/entity-events.js";
 import type { EntityRouteDecl } from "../http/service-routes.js";
 import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
@@ -77,6 +76,7 @@ import {
   HealthCheck,
   requireEnv,
   assertDbEnv,
+  assertValidSchemaList,
   type DbEnv,
   initAuthConfig,
   invalidateAuthConfig,
@@ -106,9 +106,7 @@ import {
   resolveServiceCode,
   setCurrentServiceCode,
   buildUserAgent,
-  deriveClientKey,
   logModuleStartup,
-  CLIENT_SHIELD_KEY_HEADER,
   isFactoryRouteHandler,
   brandRouteHandler,
 } from "../index.js";
@@ -120,6 +118,7 @@ import {
   rerunMigrations,
   makeRunOnceInit,
   type DbMigrationBootOptions,
+  type ServiceDbMigrationOptions,
   type MigrationBootState,
 } from "./db-migration-step.js";
 import { makeDbMigrationRouteHandler, MIGRATION_ROUTE_PREFIX } from "../http/migration-routes.js";
@@ -128,12 +127,25 @@ import {
   mountPartitionMaintenanceJob,
   type PartitionMaintenanceJob,
 } from "./partition-maintenance-job.js";
+import {
+  mountSequenceReviveJob,
+  type SequenceReviveJob,
+} from "./sequence-revive-job.js";
 
 // ─── Options ───────────────────────────────────────────────────────────────
 
 export interface MicroserviceOptions {
   /** Service name for logging and health endpoint (e.g. "emailsender"). */
   serviceName: string;
+  /**
+   * Owned PG schema list — declaration order, `[0]` = the primary/owned
+   * schema. This is the service's schema identity AS CODE (typically the
+   * service's `OWNED_SCHEMAS` const): it feeds the service_registry
+   * ownership claim, the entity schema-domain assert, and the migration
+   * boot step. It is deliberately NOT env-configurable — a mutated schema
+   * silently bifurcates the database.
+   */
+  schemas: readonly string[];
   /** Human-readable name shown in service registry (e.g. "Email Sender"). */
   serviceDisplayName?: string;
   /** Service description for service registry. */
@@ -171,6 +183,15 @@ export interface MicroserviceOptions {
    * Typically `async () => { await getDal().close(); }`.
    */
   dalClose: () => Promise<void>;
+
+  /**
+   * Lazy accessor for the consumer-owned pg pool — REQUIRED, enforced by
+   * construction: the fabric message-key provider reads vault material
+   * through direct DAL (never NATS), so every microservice must expose
+   * its pool. Typically `() => getDal().getPool()`. Lazy because initDal
+   * has not run yet when the options object is built.
+   */
+  dalPool: () => SqlPoolPort;
 
   /**
    * Factory for ConfigRepositoryPort — called after initDal.
@@ -222,6 +243,13 @@ export interface MicroserviceOptions {
    * external providers). Everything else is gated by default.
    */
   identityExemptPaths?: RegExp[];
+  /**
+   * Internal provenance mode — defaults to "enforce" (internal-only services).
+   * The BE edge passes "verify-if-present": browser traffic is unsigned by
+   * nature, but cleartext identity injection is rejected and signed internal
+   * traffic is verified. Never set "off" outside tests.
+   */
+  internalProvenance?: "enforce" | "verify-if-present" | "off";
 
   /**
    * Auth dependency setters — called after auth config is loaded.
@@ -303,8 +331,10 @@ export interface MicroserviceOptions {
    * them before registration. A critical failure boots the service in
    * DEGRADED mode: only `/health` + the db-migration admin routes answer,
    * domain traffic gets 503, heartbeat reports `db_migration.ok=false`.
+   * `schemas` is injected from the top-level `schemas` option (the service
+   * cannot declare a divergent list); `schema` defaults to the primary.
    */
-  dbPatches?: DbMigrationBootOptions;
+  dbPatches?: ServiceDbMigrationOptions;
 
   /**
    * Partition/retention maintenance — the shared system job produced by
@@ -316,6 +346,18 @@ export interface MicroserviceOptions {
    * declared through the governed materialize route.
    */
   partitionMaintenance?: PartitionMaintenanceJob;
+
+  /**
+   * Shared sequence-revive job wiring — produced by dal-pg's
+   * `makeSequenceReviveJob()`. The builtin `sequences` table mounts
+   * unconditionally, so the `<svc>.sequence_revive` callable mounts on
+   * every dal-backed service inside the deferred on-ready init
+   * (post-NATS, post-migrations); the system trigger is declared
+   * through the governed materialize route. The revive ALGORITHM lives
+   * once in dal-pg (`dal.sequenceRevive`) — the service only hosts the
+   * executor.
+   */
+  sequenceRevive?: SequenceReviveJob;
 
   /**
    * Callback fired after everything is wired (NATS subscriptions, business
@@ -391,11 +433,16 @@ export async function createMicroservice(
   //    directly AND throw for the caller's catch).
   let env: Record<string, string | undefined>;
   let dbEnv: DbEnv;
+  let schemas: readonly string[];
   try {
-    // Closed-set contract: DATABASE_URL + DATABASE_SCHEMA are the ONLY
-    // env vars a service may consume. Any violation crashes the boot.
+    // Closed-set contract: DATABASE_URL is the ONLY env var a service may
+    // consume (DATABASE_SCHEMA is rejected — schema identity is code).
+    // Any violation crashes the boot.
     dbEnv = assertDbEnv();
     env = requireEnv(options.envSchema);
+    // The declared schema list is service identity — validate it with the
+    // same strictness as the env contract (boot crash on malformed names).
+    schemas = assertValidSchemaList(options.schemas);
   } catch (error) {
     const envFile = join(process.cwd(), ".env");
     const missing = (error as Error).message;
@@ -409,6 +456,16 @@ export async function createMicroservice(
     );
     throw error;
   }
+
+  // Resolved migration boot options — `schemas` is injected from the
+  // service's declared schema list (single source; services cannot
+  // declare it on dbPatches), `schema` defaults to the primary unless the
+  // service overrides it explicitly.
+  const dbPatches: DbMigrationBootOptions | undefined = options.dbPatches && {
+    schemas: () => schemas,
+    schema: () => schemas[0]!,
+    ...options.dbPatches,
+  };
 
   // 2. DAL init (consumer callback — DB-agnostic; may be async when the
   // service wires dal event emission — `wireEntityEventEmission` awaits
@@ -442,9 +499,27 @@ export async function createMicroservice(
   //     The engine reads its own mode from <schema>.config_entries; if a
   //     patch touched preloaded state, post-apply reads see fresh data by
   //     construction (ConfigLoader has not run yet).
-  const migrationState: MigrationBootState = options.dbPatches
-    ? await runDbMigrationStep(options.dbPatches)
+  const migrationState: MigrationBootState = dbPatches
+    ? await runDbMigrationStep(dbPatches)
     : { result: null, degraded: false, lastError: null, appliedCount: 0 };
+
+  // 2.6 Fabric message-key provider (WP-A6) — the vault reader goes through
+  //     direct DAL, NEVER NATS. Boot refresh is tolerant: on a fresh database
+  //     the BE may not have provisioned the vault yet — the reactive
+  //     debounced self-heal in the provider (plus the rotation-hint
+  //     subscription wired after the NATS connect) closes the gap on first
+  //     traffic instead of walling the boot.
+  const vaultReader = new SecretVaultReader({ pool: options.dalPool(), schema: "system" });
+  const messageKeyProvider = new MessageKeyProvider(() => vaultReader.readGenerations(MESSAGE_KEY_MATERIAL_REF));
+  try {
+    await messageKeyProvider.refresh();
+  } catch (error) {
+    logger.warn("fabric message-key material not readable yet — reactive self-heal will retry on first traffic", {
+      tags: ["core"],
+      error,
+    });
+  }
+  setMessageKeyProvider(messageKeyProvider);
 
   // Deferred boot init — assigned once ctx exists (step 10). Any recovery
   // path that unlatches degraded (admin route or heartbeat auto-retry)
@@ -453,14 +528,14 @@ export async function createMicroservice(
   let deferredOnReady: (() => Promise<void>) | undefined;
   let recoveryInFlight = false;
   const attemptMigrationRecovery = async () => {
-    if (recoveryInFlight || !options.dbPatches || !deferredOnReady) return;
+    if (recoveryInFlight || !dbPatches || !deferredOnReady) return;
     recoveryInFlight = true;
     try {
       if (migrationState.degraded) {
         const actor = `auto-remediation:${options.serviceName}`;
-        const flipped = await options.dbPatches.engine.retryFailedPatches(
-          options.dbPatches.pool(),
-          options.dbPatches.schema(),
+        const flipped = await dbPatches.engine.retryFailedPatches(
+          dbPatches.pool(),
+          dbPatches.schema?.() ?? schemas[0]!,
           actor,
         );
         if (flipped > 0) {
@@ -468,7 +543,7 @@ export async function createMicroservice(
             tags: ["db-migration"],
           });
         }
-        const result = await rerunMigrations(options.dbPatches, migrationState, actor);
+        const result = await rerunMigrations(dbPatches, migrationState, actor);
         if (result.degraded) return;
         logger.done(
           "db-migration: auto-remediation cleared degraded state — completing boot init",
@@ -492,7 +567,7 @@ export async function createMicroservice(
   const configLoader = new ConfigLoader(options.configRepositoryAdapter());
   try {
     const loaded = await configLoader.load();
-    logger.done(`Module configuration loaded — ${Object.keys(loaded).length} keys found (${dbEnv.schemas[0]}.config_entries)`, { tags: ["core"] });
+    logger.done(`Module configuration loaded — ${Object.keys(loaded).length} keys found (${schemas[0]}.config_entries)`, { tags: ["core"] });
   } catch (error) {
     logger.error("Failed to load config (non-fatal — table may be empty)", { tags: ["core"], error: error });
   }
@@ -556,10 +631,10 @@ export async function createMicroservice(
   // Internal HTTP client (B11): all service-to-service fetches go through
   // `internalFetch` — identity headers are injected automatically and can
   // never be forgotten or overridden by the caller. MUST run before any
-  // callNats (config.get, service.register): the BE's shield check reads
-  // these headers.
+  // callNats (config.get, service.register): the BE's provenance verification readsads
+  // the provenance headers of every call.
   // Resolve service coordinates EARLY — the identity closure below captures
-  // serviceCode; every callNats (client_shield_registry.get, secret.get, register)
+  // serviceCode; every callNats (config.get, secret.get, register)
   // invokes it, so these must be initialized before the first NATS call.
   // serviceCode is STATIC identity: package.json "service_code" or the
   // `primebrick-<code>` name derivation — never runtime-editable config.
@@ -568,6 +643,12 @@ export async function createMicroservice(
   const selfIdentity = detectPackageIdentity();
   const serviceCode = resolveServiceCode(selfIdentity, configLoader.get("service_code"));
   setCurrentServiceCode(serviceCode);
+
+  // Builtin nav mount — entity-registry leaves contributed by registered
+  // providers (dal-pg sequences today) merge into the module's nav BY
+  // CONSTRUCTION, appended LAST inside their sibling. Same invariant as
+  // the route mount: module-authored collisions are a boot error.
+  const nav = mergeBuiltinNav(options.nav, schemas);
 
   // Docs emit — the service documents itself from THIS options object
   // (nav + the route handler's .entityDecls/.spec brands), never a
@@ -591,10 +672,10 @@ export async function createMicroservice(
     const emitResult = await emitServiceDocs({
       service_root: process.cwd(),
       service_code: serviceCode,
-      ...(options.nav ? { nav: options.nav } : {}),
+      ...(nav ? { nav } : {}),
       ...(branded?.entityDecls ? { entity_decls: branded.entityDecls } : {}),
       ...(branded?.spec ? { spec: branded.spec } : {}),
-      own_schemas: dbEnv.schemas,
+      own_schemas: [...schemas],
       pack_dir: docsPackDir,
       check: emitCheck,
     });
@@ -606,70 +687,28 @@ export async function createMicroservice(
 
   const baseUrl = configLoader.require("service_base_url");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
-  const clientKey = configLoader.get("service_client_shield_key");
-  const keyDerivationSecret = configLoader.get("service_key_derivation_secret");
-  const uaPrefix = `${selfIdentity.name}/${serviceVersion}`;
-  /**
-   * Shared acked-generation slot (B14): the registrar writes the generation
-   * of each successful register; the header closure keeps deriving it until
-   * the post-rotation handshake lands — during a rotation the old
-   * (grace-windowed) key keeps outbound calls alive while the new one is
-   * being enrolled. Zero-gap.
-   */
-  const generationSlot: { value?: number } = {};
-  const outboundClientKey = (): string | null => {
-    if (keyDerivationSecret) {
-      const generation = generationSlot.value ?? clientShieldRegistry.generationFor(uaPrefix);
-      return deriveClientKey(keyDerivationSecret, uaPrefix, generation);
+  // Internal identity is observability metadata only — the User-Agent stamps
+  // name+version+runtime for logs and traces. No key material is ever
+  // transmitted: trust on internal hops is proof-of-possession (HTTP signing
+  // provenance / NATS sealed envelope), never a shared secret on the wire.
+  // The client-shield registry, key enrollment, and rotating-secret engine
+  // are gone (arch-internal-trust-and-transports, WP-5).
+  configureInternalClient(() => ({
+    "User-Agent": buildUserAgent(selfIdentity, serviceCode),
+  }));
+
+  // Vault rotation hints (WP-A6) — metadata-only broadcast on the DEDICATED
+  // subject: the correct consumer reaction is a direct-DAL re-read, never a
+  // secret.get fetch. Unqueued broadcast: every instance must refresh its
+  // key window. Hint loss is irrelevant by construction — the provider's
+  // reactive debounced self-heal re-reads on the first message that meets
+  // a generation it does not know.
+  await NatsClient.subscribe(VAULT_SUBJECTS.ROTATED, async (payload) => {
+    const hint = payload as { scope?: string; name?: string };
+    if (hint.scope === MESSAGE_KEY_MATERIAL_REF.scope && hint.name === MESSAGE_KEY_MATERIAL_REF.name) {
+      await messageKeyProvider.refresh();
     }
-    return clientKey;
-  };
-  configureInternalClient(() => {
-    const key = outboundClientKey();
-    return {
-      "User-Agent": buildUserAgent(selfIdentity, serviceCode),
-      ...(key ? { [CLIENT_SHIELD_KEY_HEADER]: key } : {}),
-    };
   });
-  if (clientKey || keyDerivationSecret) {
-    logger.done(`The service ${selfIdentity.name}/${selfIdentity.version ?? "?"} shield key enrolled`, { tags: ["core"] });
-  }
-
-  // Client-identity registry (B11): drives BOTH the HTTP client gate and
-  // the NATS publisher shield (verifyNatsPublisher). Must start before any
-  // shielded NATS subscription — fail-closed: an unavailable registry
-  // means every internal call is rejected, loudly.
-  const clientShieldRegistry = new ClientShieldRegistry();
-  setNatsShieldRegistry(clientShieldRegistry);
-  try {
-    await clientShieldRegistry.start();
-  } catch (error) {
-    logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
-      tags: ["core"],
-      error,
-    });
-  }
-
-  // Rotating secrets: provision `service_client_shield_secret` (global scope) from the BE
-  // owner via the governed `secret.get` correlation route, and keep the
-  // in-memory slot fresh on every `secret.rotated` broadcast. The slot feeds
-  // BOTH sides of the wire — outbound header stamping and inbound verify —
-  // so the shared secret never lives in config_entries or on disk.
-  const secretProvider = new SecretProvider();
-  try {
-    await startSecretProvider(secretProvider);
-    await secretProvider.get(CLIENT_SHIELD_SECRET_REF);
-  } catch (error) {
-    logger.warn("The secret engine is unreachable — falling back to the static client-shield secret from config", {
-      tags: ["core"],
-      error,
-    });
-    // Self-heal: without the rotating secret every shield-verified inbound
-    // call is rejected — a boot-time miss must not become a permanent wall.
-    // Same unbounded retry the secret.rotated consumer path uses (deduped:
-    // a broadcast landing mid-retry coalesces into this loop).
-    void refreshSecretWithRetry(secretProvider, CLIENT_SHIELD_SECRET_REF);
-  }
 
   try {
     // The BE registers its `config.get` responder after NATS connect — a
@@ -755,8 +794,8 @@ export async function createMicroservice(
   }
   // Module nav self-declaration — verbatim object (not a URL path): the BE
   // merges endpoints.nav into module meta + routes census.
-  if (options.nav) {
-    registrarEndpoints.nav = options.nav;
+  if (nav) {
+    registrarEndpoints.nav = nav;
   }
 
   // Module emitted-event self-declaration — verbatim object riding the same
@@ -838,14 +877,6 @@ export async function createMicroservice(
       is_behind_scaler: options.isBehindScaler ?? false,
       icon: options.icon,
       icon_type: options.iconType,
-      // Per-service client key from module config (never env).
-      clientKey: configLoader.get("service_client_shield_key") ?? undefined,
-      // Derived-key mode (B14): `service_key_derivation_secret` — the service
-      // derives its key as HMAC(secret, ua_prefix:generation); a BE rotate
-      // bumps the generation and this registrar re-enrolls automatically.
-      keyDerivationSecret: keyDerivationSecret ?? undefined,
-      registryGeneration: () => clientShieldRegistry.generationFor(uaPrefix),
-      generationSlot,
       // API gateway endpoint — shown as a log tag on register/heartbeat.
       // Required module config: it is also the identity of the only public
       // ingress this service talks to; a missing value is a misconfigured
@@ -854,22 +885,14 @@ export async function createMicroservice(
       // Docs pack lives next to the service entry (dist/docs-pack at the
       // service root) — present → docs_pack capability auto-declared.
       docsPackDir,
-      // Schema ownership claim — the validated DATABASE_SCHEMA list from
-      // the env contract (step 2). The BE enforces one-module-one-schema.
-      schemas: dbEnv.schemas,
+      // Schema ownership claim — the service's declared schema list
+      // (code constant, step 1). The BE enforces one-module-one-schema.
+      schemas: [...schemas],
       // Static code provenance — the BE re-derives `derived` codes and
       // rejects mismatches; `override` = explicit package.json service_code.
       codeSource: selfIdentity.service_code ? "override" : "derived",
     },
     registrarHealthCheckFn,
-  );
-
-  // Derived-key rotation (B14): when the BE bumps this service's
-  // key_generation (rotate endpoint), the registry reload notifies the
-  // registrar → re-register with the newly derived key. Until the ack
-  // lands, outbound calls keep using the acked (grace-windowed) key.
-  clientShieldRegistry.addChangeListener(() =>
-    registrar.onRegistryChanged(clientShieldRegistry.generationFor(uaPrefix)),
   );
 
   // 8. HTTP server + HealthCheck
@@ -903,9 +926,9 @@ export async function createMicroservice(
   // db_patch system module — always mounted when migrations are configured
   // (status surface for the FE admin page, and the ONLY reachable surface
   // when the service is degraded).
-  if (options.dbPatches) {
+  if (dbPatches) {
     const migrationHandler = makeDbMigrationRouteHandler(
-      options.dbPatches,
+      dbPatches,
       migrationState,
       async () => {
         await deferredOnReady?.();
@@ -929,7 +952,7 @@ export async function createMicroservice(
   // traffic. Everything except the remediation surface answers 503. The
   // flag is read live per request: a successful remediation (admin route
   // or heartbeat auto-recovery) reopens traffic without a restart.
-  if (options.dbPatches && routeHandler) {
+  if (dbPatches && routeHandler) {
     const inner = routeHandler;
     routeHandler = brandRouteHandler(async (req, res, url) => {
       if (!migrationState.degraded || url.pathname.startsWith(MIGRATION_ROUTE_PREFIX)) {
@@ -937,7 +960,6 @@ export async function createMicroservice(
       }
       res.writeHead(503, { "content-type": "application/problem+json" });
       res.end(
-        // standards-exempt: ext-json — RFC7807 problem+json is plain JSON by spec
         JSON.stringify({
           type: "https://primebrick.io/errors/db_migration_failed",
           title: "Service Unavailable",
@@ -957,8 +979,8 @@ export async function createMicroservice(
     serviceVersion,
     serviceUrl: baseUrl,
     routeHandler,
-    clientShieldRegistry,
     identityExemptPaths: options.identityExemptPaths,
+    internalProvenance: options.internalProvenance ?? "enforce",
   });
 
   // 8b. Register AFTER the HTTP server is listening — the BE discovers
@@ -1018,6 +1040,17 @@ export async function createMicroservice(
     } else if (options.partitionMaintenance) {
       logger.info(
         "partition_maintenance: no maintained surface in entity registry — job not declared",
+        { tags: ["jobs"] },
+      );
+    }
+    // Shared sequence-revive job — same mount contract: the callable is
+    // registered in the same payload-schema census; `needed` gates on
+    // sequence-surface ownership.
+    if (options.sequenceRevive?.needed) {
+      await mountSequenceReviveJob(options.sequenceRevive);
+    } else if (options.sequenceRevive) {
+      logger.info(
+        "sequence_revive: no sequence surface in entity registry — job not declared",
         { tags: ["jobs"] },
       );
     }

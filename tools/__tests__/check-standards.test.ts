@@ -23,7 +23,7 @@ const T = 30_000; // bun cold-start per spawn
 interface LintResult { code: number | null; out: string }
 
 /** Build a fixture repo, run the tool inside it, return exit code + output. */
-function runLint(files: Record<string, string>, config?: Record<string, unknown>): LintResult {
+function runLint(files: Record<string, string>, config?: Record<string, unknown>, profile = "consumer"): LintResult {
   const repo = mkdtempSync(join(tmpdir(), "cs-e2e-"));
   try {
     for (const [rel, src] of Object.entries(files)) {
@@ -35,7 +35,7 @@ function runLint(files: Record<string, string>, config?: Record<string, unknown>
       mkdirSync(join(repo, ".devin"), { recursive: true });
       writeFileSync(join(repo, ".devin", "check-standards.json"), JSON.stringify(config));
     }
-    const r = spawnSync("bun", [TOOL, "src"], { cwd: repo, encoding: "utf8" });
+    const r = spawnSync("bun", [TOOL, "src", `--profile=${profile}`], { cwd: repo, encoding: "utf8" });
     return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
   } finally {
     rmSync(repo, { recursive: true, force: true });
@@ -137,10 +137,10 @@ describe("check-standards — dal-access hardening", () => {
 
   it("standards-exempt still works on NON-governance rules", () => {
     const r = runLint({
-      "services/x.ts": '// standards-exempt: ext-json — sanctioned stringify for cache blob\nexport const s = JSON.stringify({ a: 1 });\n',
+      "services/x.ts": '// standards-exempt: column-flag-defaults — legacy flag read\nexport const s = c.default_visible !== false;\n',
     });
     expect(r.code).toBe(0);
-    expect(r.out).not.toContain("[ext-json]");
+    expect(r.out).not.toContain("[column-flag-defaults]");
   }, T);
 
   it("layer-repo-import is default-on: controllers flagged, elsewhere clean", () => {
@@ -498,5 +498,265 @@ describe("check-standards — i18n namespace boundary", () => {
     );
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("[i18n-sql-key-ref]");
+  }, T);
+});
+
+describe("check-standards — suppress-no-reason", () => {
+  it("bare eslint-disable tags flag", () => {
+    const r = runLint({
+      "x.ts": "// eslint-disable-next-line @typescript-eslint/no-explicit-any\nconst a: any = 1;\nexport { a };\n",
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[suppress-no-reason]");
+  }, T);
+
+  it("` -- <reason>` tail satisfies the rule", () => {
+    const r = runLint({
+      "x.ts": "// eslint-disable-next-line @typescript-eslint/no-explicit-any -- port boundary: dal-pg types cannot be named here\nconst a: any = 1;\nexport { a };\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+
+  it("svelte-ignore with an adjacent explanatory comment passes; alone it flags", () => {
+    const explained = runLint({
+      "C.svelte": "<script>\n  let { v } = $props();\n  // svelte-ignore state_referenced_locally\n  // local draft — snapshots once, remounts re-read\n  let d = $state(v);\n</script>\n",
+    });
+    expect(explained.out).not.toContain("[suppress-no-reason]");
+    const bare = runLint({
+      "C.svelte": "<script>\n  let { v } = $props();\n\n  // svelte-ignore state_referenced_locally\n\n  let d = $state(v);\n</script>\n",
+    });
+    expect(bare.out).toContain("[suppress-no-reason]");
+  }, T);
+
+  it("@ts-ignore/@ts-expect-error need reasons too", () => {
+    const r = runLint({
+      "x.ts": "// @ts-ignore\nconst a = 1;\nexport { a };\n",
+    });
+    expect(r.out).toContain("[suppress-no-reason]");
+    const ok = runLint({
+      "x.ts": "// @ts-expect-error -- upstream lib ships wrong overload\nconst a = 1;\nexport { a };\n",
+    });
+    expect(ok.out).not.toContain("[suppress-no-reason]");
+  }, T);
+
+  it("an HTML-comment close `-->` does NOT count as a reason", () => {
+    const r = runLint({
+      "C.svelte": "<p>x</p>\n\n<!-- eslint-disable-next-line svelte/no-at-html-tags -->\n{@html h}\n",
+    });
+    expect(r.out).toContain("[suppress-no-reason]");
+  }, T);
+
+  it("block-form disable with reason + enable passes", () => {
+    const r = runLint({
+      "x.ts": "/* eslint-disable @typescript-eslint/no-explicit-any -- port boundary */\nconst a: any = 1;\nexport { a };\n/* eslint-enable @typescript-eslint/no-explicit-any */\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+});
+
+describe("check-standards — suppress-no-reason multi-line explanations", () => {
+  it("a multi-line HTML comment ending just above the tag counts as explained", () => {
+    const r = runLint({
+      "C.svelte": "<!-- listbox pattern: the column owns the tab stop and arrow\n     stepping — options are not individually focusable. -->\n<!-- svelte-ignore a11y_click_events_have_key_events -->\n<div onclick={() => {}} role=\"option\"></div>\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+
+  it("a multi-line block comment above a ts tag counts as explained", () => {
+    const r = runLint({
+      "x.ts": "/* the registry is heterogeneous —\n   each entry declares its own props. */\n// eslint-disable-next-line @typescript-eslint/no-explicit-any\nconst a: any = 1;\nexport { a };\n",
+    });
+    expect(r.out).not.toContain("[suppress-no-reason]");
+  }, T);
+});
+
+describe("check-standards — no-native-dialog", () => {
+  const FE = "fe";
+
+  it("flags bare confirm()/alert()/prompt() expression calls", () => {
+    const r = runLint({
+      "src/a.svelte": "const x = confirm(t(key));\nconst y = alert('msg');\nconst z = !prompt('?');\n",
+    }, undefined, FE);
+    expect(r.code).toBe(1);
+    expect((r.out.match(/no-native-dialog/g) ?? []).length).toBe(3);
+  }, T);
+
+  it("flags window. / globalThis.-prefixed natives", () => {
+    const r = runLint({
+      "src/a.ts": "window.confirm('x');\nglobalThis.alert('y');\n",
+    }, undefined, FE);
+    expect(r.code).toBe(1);
+    expect((r.out.match(/no-native-dialog/g) ?? []).length).toBe(2);
+  }, T);
+
+  it("method calls and identifier suffixes are NOT native calls", () => {
+    const r = runLint({
+      "src/a.ts": [
+        "dialog.confirm(row);",
+        "host.confirm(x);",
+        "const ok = confirmDelete(row);",
+        "const p = promptForName(x);",
+        "alertBox.show();",
+      ].join("\n"),
+    }, undefined, FE);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+
+  it("local function declarations + no-arg calls don't fire", () => {
+    const r = runLint({
+      "src/a.svelte": "function confirm() { return true; }\nconst ok = confirm();\n",
+    }, undefined, FE);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+
+  it("comment bodies never fire", () => {
+    const r = runLint({
+      "src/a.ts": "// guard calls confirm() natively — migrated\nconst x = 1;\n",
+    }, undefined, FE);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+
+  it("standards-exempt CANNOT suppress it — the tag itself is flagged", () => {
+    const r = runLint({
+      "src/a.svelte": "// standards-exempt: no-native-dialog — legacy gate\nconst x = confirm(t(key));\n",
+    }, undefined, FE);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("exempt-governance");
+    expect(r.out).toContain("no-native-dialog");
+  }, T);
+
+  it("fe/src remote surfaces inside consumer repos inherit the rule", () => {
+    const r = runLintRepo({
+      "src/x.ts": "export const x = 1;\n",
+      "fe/src/lib/Page.svelte": "const y = confirm('del?');\n",
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("no-native-dialog");
+    expect(r.out).toContain("Page.svelte");
+  }, T);
+
+  it("consumer profile does NOT scan server src for natives (browser rule)", () => {
+    const r = runLint({
+      "src/a.ts": "const x = confirm(t);\n",
+    });
+    expect(r.out).not.toContain("no-native-dialog");
+  }, T);
+});
+
+describe("check-standards — ext-json codec boundary", () => {
+  it("flags raw JSON.stringify/JSON.parse", () => {
+    const r = runLint({
+      "services/x.ts": 'export const a = JSON.stringify({ a: 1 });\nexport const b = JSON.parse("{}");\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+  }, T);
+
+  it("flags argument-less .json() wire reads", () => {
+    const r = runLint({
+      "services/x.ts": 'export async function f(res: Response) { return res.json(); }\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+  }, T);
+
+  it("does NOT flag .json(arg) — express/body senders keep working", () => {
+    const r = runLint({
+      "controllers/x.ts": 'export function g(res: any, body: unknown) { res.json(body); }\n',
+    });
+    expect(r.out).not.toContain("[ext-json]");
+  }, T);
+
+  it("standards-exempt CANNOT suppress ext-json — governance finding", () => {
+    const r = runLint({
+      "services/x.ts": '// standards-exempt: ext-json — sanctioned stringify\nexport const s = JSON.stringify({ a: 1 });\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+    expect(r.out).toContain("[exempt-governance]");
+  }, T);
+
+  it("config allowPaths exempts the codec implementation only", () => {
+    const r = runLint(
+      {
+        "ext-json.ts": 'export const p = JSON.parse("{}");\n',
+        "services/x.ts": 'export const s = JSON.parse("{}");\n',
+      },
+      { rules: { "ext-json": { allowPaths: ["ext-json.ts"] } } },
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).not.toContain("ext-json.ts");
+    expect(r.out).toContain("services/x.ts");
+    expect(r.out).toContain("[ext-json]");
+  }, T);
+
+  it("scans test files even without --tests (wire contracts hold in tests)", () => {
+    const r = runLint({
+      "services/__tests__/x.test.ts": 'const d = JSON.parse("{}");\n',
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+    expect(r.out).toContain("x.test.ts");
+  }, T);
+
+  it("fe profile flags raw JSON in browser code", () => {
+    const r = runLint(
+      { "lib/x.ts": 'export const s = JSON.stringify({});\nexport async function f(r: Response) { return r.json(); }\n' },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[ext-json]");
+  }, T);
+
+  it("e2e-wait-budget flags wait timeouts >5s in e2e specs (fe)", () => {
+    const r = runLint(
+      {
+        "e2e/x.spec.ts":
+          'await expect(l).toBeVisible({ timeout: 10_000 });\nawait w(url, { timeout: 20_000 });\nawait l.waitFor({ timeout: 6000 });\n',
+      },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out.match(/\[e2e-wait-budget\]/g)?.length).toBe(3);
+    expect(r.out).toContain("e2e-browser-session.md");
+  }, T);
+
+  it("e2e-wait-budget passes: 5s boundary, sub-5s, suite budgets, named/variable budgets", () => {
+    const r = runLint(
+      {
+        "e2e/x.spec.ts":
+          'await expect(l).toBeVisible({ timeout: 5_000 });\nawait l.waitFor({ timeout: 900 });\ntest.describe.configure({ timeout: 600_000 });\ntest.describe.configure({ timeout: 90_000, mode: "serial" });\nawait poll({ timeout: timeoutMs });\nawait w({ timeout: LH_TIMEOUT_MS });\n',
+      },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(0);
+  }, T);
+
+  it("e2e-wait-budget does not scan non-e2e paths", () => {
+    const r = runLint(
+      { "lib/__tests__/x.test.ts": 'const o = { timeout: 60_000 };\n' },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(0);
+  }, T);
+
+  it("e2e-wait-budget is NO_EXEMPT — standards-exempt on it is itself flagged", () => {
+    const r = runLint(
+      {
+        "e2e/x.spec.ts": '// standards-exempt: e2e-wait-budget — padded wait\nawait expect(l).toBeVisible({ timeout: 10_000 });\n',
+      },
+      undefined,
+      "fe",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[exempt-governance]");
+    expect(r.out).toContain("[e2e-wait-budget]");
   }, T);
 });

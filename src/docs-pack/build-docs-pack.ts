@@ -102,7 +102,6 @@ export async function buildDocsPack(opts: BuildDocsPackOptions): Promise<DocsPac
 
   let hasOpenapi = false;
   if (openapi) {
-    // standards-exempt: ext-json — openapi.json is consumed by external OpenAPI tooling (plain JSON spec)
     writeFileSync(join(outDir, "openapi.json"), JSON.stringify(openapi, null, 2), "utf-8");
     hasOpenapi = true;
   } else if (openapiPath && existsSync(openapiPath)) {

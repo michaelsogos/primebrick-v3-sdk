@@ -6,7 +6,7 @@
  * `x-mfa-action-authorization` header. Signature can be verified offline,
  * but single-use enforcement lives in `public.mfa_action_authorizations`
  * (BE-owned schema) — so the US delegates the consume to the BE via the
- * governed correlation route `auth.mfa.consume` (client-shield only, the
+ * governed correlation route `auth.mfa.consume` (service-lane only, the
  * caller is a service not a user).
  *
  * Usage (rpc route):

@@ -50,8 +50,8 @@ export interface ServiceHeartbeatPayload {
   icon_type?: 'url' | 'base64' | 'icon';
   /**
    * Package name from the service's package.json — with `service_version`
-   * it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-   * system.client_shield_registry, service_registry.pkg_name, log messages).
+   * it forms the canonical identity `{pkg_name}/{version}`
+   * (service_registry.pkg_name, log messages).
    */
   pkg_name?: string;
 }
@@ -85,22 +85,6 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    */
   label_key?: string;
   /**
-   * sha256 of the service's client shield key (module config
-   * `service_client_shield_key`). The raw key NEVER travels — the BE
-   * stores only this hash in client_shield_registry and verifies inbound
-   * `x-primebrick-client-shield-key` by hashing+comparing.
-   */
-  client_key_hash?: string;
-  /**
-   * Key-rotation contract (B14): `key_mode='derived'` means the hash was
-   * produced from `HMAC(derivation_secret, ua_prefix:key_generation)` — the
-   * BE stores `key_generation` on the row and a rotate endpoint bumps it,
-   * triggering re-registration with the next derived key. 'static' rows
-   * carry a service-configured key and rotate only by admin action.
-   */
-  key_mode?: "static" | "derived";
-  key_generation?: number;
-  /**
    * Capabilities declared in the service's package.json
    * (`"capabilities": [...]`, snake_case lowercase) — e.g.
    * `llm_orchestrator`, `vectorizing_engine`. Persisted by the BE in
@@ -109,12 +93,13 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    */
   capabilities?: string[];
   /**
-   * PG schema ownership claim — the service's `DATABASE_SCHEMA` env list
-   * (validated by `assertDbEnv`). The first schema is the owned one.
+   * PG schema ownership claim — the service's declared schema list
+   * (code constant, validated by `assertValidSchemaList`). The first
+   * schema is the owned one.
    * Persisted in `service_registry.schemas`: the BE rejects registration
    * when a claimed schema is owned by a different code, or is one of the
-   * platform schemas (the BE's own `DATABASE_SCHEMA`, e.g.
-   * public/system/custom). The claim survives offline/stale rows and is
+   * platform schemas (the BE's own declared list, e.g.
+   * system/public/custom). The claim survives offline/stale rows and is
    * released only by `service.unregister` or admin purge.
    */
   schemas?: string[];
