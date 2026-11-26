@@ -53,6 +53,28 @@ logServiceStartup("emailsender", "1.4.0", "http://localhost:3002");
 | `serviceVersion` | `string` | no | Service version in the `/health` response (default `"unknown"`) |
 | `serviceUrl` | `string` | no | Base URL in the `/health` response |
 | `routeHandler` | `(req, res, url) => Promise<boolean>` | no | Custom routes. Return `true` if handled, `false` to fall through to 404. **Inside `createMicroservice` the handler MUST come from an approved factory** (`makeRpcRouter` / `makeOpenApiHandler` / `composeRouteHandlers`) — arbitrary functions are rejected at startup. See [RPC Router](rpc-router). |
+| `internalProvenance` | `"enforce" \| "verify-if-present" \| "off"` | no | Internal request-signature enforcement. `"enforce"` rejects unsigned requests with `401` (microservice default inside `createMicroservice`); `"verify-if-present"` verifies signatures when present but tolerates unsigned traffic; `"off"` (library default) skips verification. See below. |
+| `identityExemptPaths` | `string[]` | no | Path prefixes exempt from provenance enforcement — genuinely public ingress such as webhook receivers. `/health` is always exempt. |
+
+## Internal provenance verification
+
+When `internalProvenance` is not `"off"`, every request outside the exempt
+paths is verified before routing: the exact body bytes are buffered, the
+per-service HMAC signature over method+path+timestamp+nonce+body-hash is
+checked, the sealed identity blob is opened, any cleartext sensitive headers
+(`x-user-*`) are stripped, and the verified identity headers are re-injected
+for downstream handlers. Write methods additionally pass nonce replay
+protection.
+
+Failures are RFC 7807 `401` responses with a grep-able `internal_code`:
+`AUTH_SIGNATURE_MISSING` (no signature headers), `AUTH_SIGNATURE_INVALID`
+(forgery or tampering), `AUTH_SIGNATURE_SKEW` (timestamp outside the window),
+`AUTH_NONCE_REPLAY` (replayed nonce).
+
+Downstream handlers are unaffected: they read identity headers exactly as
+before — but those headers are now proven rather than asserted. See
+[Internal provenance & transport trust](client-shield-and-secrets.mdx).
+
 
 ## The `HealthCheck` class
 

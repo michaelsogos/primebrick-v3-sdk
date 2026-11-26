@@ -26,9 +26,9 @@ degraded-mode contract documented there.
 
 ## The one non-obvious fact: call via the gateway
 
-Every microservice enforces client-shield identity **before** any route:
-direct calls to the service port fail with `403 UNKNOWN_CLIENT`
-(`User-Agent is not in the client registry allowlist`) or
+Every microservice enforces internal provenance **before** any route:
+direct unsigned calls to the service port fail with
+`401 AUTH_SIGNATURE_MISSING` or
 `401 UNIDENTIFIED_CLIENT`. Admin routes are reached through the BE
 gateway, which injects the service identity for you:
 

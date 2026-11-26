@@ -100,7 +100,7 @@ await createMicroservice({
 
 Mandatory `config_entries` keys (seeded via `db-meta/patches`):
 `nats_url`, `service_code`, `http_port`, `service_base_url`,
-`be_base_url`, `service_client_shield_key` — `createMicroservice`
+`be_base_url` — `createMicroservice`
 `configLoader.require`s them at boot and crashes when missing.
 
 ## Verify the health endpoint

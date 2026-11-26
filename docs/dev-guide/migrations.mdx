@@ -80,8 +80,8 @@ cleanup) is documented in
 before itself — and whatever it reads, it re-reads after applying ≥1
 patch.** Concretely today: the engine re-reads `db_migration.mode` from
 `<schema>.config_entries` post-apply (a patch may have changed it) and
-logs the effective next-run mode. Everything else (ConfigLoader, shield
-registries, translations) runs after the step and sees fresh state by
+logs the effective next-run mode. Everything else (ConfigLoader, provenance
+wiring, translations) runs after the step and sees fresh state by
 construction.
 
 Any future boot-stage read added *before* the migration step must

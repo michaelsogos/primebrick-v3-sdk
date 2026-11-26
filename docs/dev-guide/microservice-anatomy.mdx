@@ -7,7 +7,7 @@ description: "createMicroservice end to end — the boot sequence, the two authe
 
 `microservice/create-microservice.ts` is the facade every Primebrick
 service boots through. It sequences ~12 wired stages — env, DAL, config,
-auth, NATS, shield, HTTP, registration, health, shutdown — so a service is
+auth, NATS, provenance, HTTP, registration, health, shutdown — so a service is
 declared by its **options**, not by handwritten infrastructure.
 
 ## Boot sequence
@@ -20,9 +20,8 @@ ConfigLoader.load()           → <schema>.config_entries via ConfigRepositoryPo
 initAuthConfig + loadAuthConfig → auth resolved from config (ports, not env)
 apiKeyPort? / healthCheckPort / authDependencySetters
 NatsClient.getConnection(nats_url)  → joins the fabric
-client-registry + secret provider   → identity + shield slot warm
-setNatsShieldRegistry + shields     → inbound verification armed
-HTTP server (routeHandler)          → client-identity gate → auth → RBAC → validate → handler
+configureInternalClient               → every outbound internalFetch signed+sealed by construction
+HTTP server (routeHandler)          → provenance verify (enforce) → auth → RBAC → validate → handler
 ServiceRegistrar.register + heartbeat → announces to the BE registry
 docs-pack manifest check            → capabilities += "docs_pack"
 onReady(ctx)                      → service-specific wiring (subscribers, jobs)
@@ -37,11 +36,11 @@ wire the service's own logic.
 
 <Mermaid chart={`flowchart LR
   FE[Frontend] -->|HTTPS| BE[Backend gateway]
-  BE -->|/svc/:code/* proxy<br/>resolved identity + shield| US[Microservice HTTP]
+  BE -->|/svc/:code/* proxy<br/>signed + sealed identity| US[Microservice HTTP]
   BE <-->|NATS pub/sub| BUS[(NATS fabric)]
-  US <-->|register · heartbeat · secret.get| BUS
+  US <-->|register · heartbeat · config.get| BUS
   US --> PG[(own DB schema)]
-  US --> R[(Redis<br/>secrets slot · cache · rate limits)]
+  US --> R[(Redis<br/>nonce cache · cache · rate limits)]
 `} />
 
 A microservice never answers public HTTP. Its HTTP surface exists only to
@@ -54,11 +53,10 @@ Every inbound call clears two distinct walls:
 
 | Layer | Question | Mechanism | Details |
 |---|---|---|---|
-| **L1 — client/network** | *Is the caller a trusted client?* | `x-client-shield-secret` (rotating) + client-identity gate (User-Agent vs `client-registry`) | [client-shield-and-secrets](./client-shield-and-secrets.mdx) |
+| **L1 — provenance** | *Does the caller hold the vault-derived keys?* | per-service HMAC signature on HTTP / sealed envelope on NATS — proof-of-possession, nothing reusable on the wire | [client-shield-and-secrets](./client-shield-and-secrets.mdx) |
 | **L2 — user/RBAC** | *May this user do this?* | resolved `AuthUser` → `permissions[]` on the `RpcRoute`, `defaultDeny` | [authentication](./authentication.mdx), [rpc-router](./rpc-router.mdx) |
 
-The same split applies on NATS: `verifyNatsPublisher` + `subscribeShielded`
-(L1) before any subject handler runs.
+On NATS the L1 proof is the sealed envelope, validated at the transport layer before any subject handler runs; service-to-service routes declare the lane explicitly with `serviceLaneVerify`.
 
 ## The NATS fabric
 
@@ -67,9 +65,6 @@ The same split applies on NATS: `verifyNatsPublisher` + `subscribeShielded`
 | `service.register` / `service.unregister` / `service.heartbeat` | US → BE | lifecycle announcements the registry consumes |
 | `service.gateway_online` | BE → all | "the gateway is back" — triggers re-registration and re-pulls |
 | `config.get` | US → BE | governed config lookups |
-| `secret.get` | US → BE | correlation-route request for the shield slot (allowlisted) |
-| `secret.rotated` | BE → all | shield rotation broadcast — consumers refresh their slot |
-| `client_shield_registry.get` | US → BE | known-client lookups for the identity gate |
 | `webhook.<code>.received` | webhook US → target US | JetStream stream for durable webhook delivery |
 
 Pub/sub is the default; JetStream only where durability/replay matters.
@@ -101,5 +96,5 @@ dal-pg dev-guide → *Schema domain* for the full contract.
 - Entity CRUD factory → `entity-router.mdx`
 - Spec from routes → `openapi-generation.mdx`
 - Docs to the KB → `docs-pack.mdx`
-- Secrets & shield → `client-shield-and-secrets.mdx`
+- Internal provenance & transport trust → `client-shield-and-secrets.mdx`
 - NATS client → `nats-client.mdx`; SSE → `sse-standard.mdx`
