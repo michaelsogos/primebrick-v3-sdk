@@ -33,6 +33,7 @@ import { makeServiceRoutes } from "../service-routes.js";
 import type { RpcRoute } from "../rpc-router.js";
 import type { EntityServiceLike } from "../entity-router.js";
 
+import { extJsonParse } from '../../json/ext-json.js';
 function stubRes(chunks?: string[], status?: { code: number }): ServerResponse {
   return {
     writeHead: (code: number) => { if (status) status.code = code; return stubRes(chunks, status); },
@@ -63,7 +64,7 @@ async function servedMeta(
   );
   expect(handled).toBe(true);
   expect(status.code === 0 || status.code === 200).toBe(true);
-  return JSON.parse(chunks[0]!);
+  return extJsonParse<any>(chunks[0]!);
 }
 
 const entityDecl = () => ({
@@ -113,6 +114,7 @@ const opRoutes: RpcRoute[] = [
 describe("entity_op → served meta CTA synthesis", () => {
   it("synthesizes row CTAs from entity_op.cta — meta.table is NOT required", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -134,6 +136,7 @@ describe("entity_op → served meta CTA synthesis", () => {
 
   it("infers bulk placement for *_all ops + carries sentinel permissions as FE names", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -152,6 +155,7 @@ describe("entity_op → served meta CTA synthesis", () => {
 
   it("defaults: row placement, row_key = meta.uid, translation_key = <ns>.actions.<op>", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -168,6 +172,7 @@ describe("entity_op → served meta CTA synthesis", () => {
 
   it("meta.actions exposes the ops enabled with endpoint + permissions", async () => {
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [entityDecl()],
       rpc: [opRoutes],
@@ -189,6 +194,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       ],
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [opRoutes],
@@ -225,6 +231,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       },
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [],
@@ -264,6 +271,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       },
     ];
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [rpc],
@@ -274,6 +282,47 @@ describe("entity_op → served meta CTA synthesis", () => {
       confirm_key: "job.entities.job_schedule.actions.disable_confirm",
       busy_key: "job.entities.job_schedule.actions.disabling",
       endpoint: { path: "/api/v1/actions/disable-schedule" },
+    });
+  });
+
+  it("entity_op.cta chrome reaches meta.actions on a pure custom op — the confirm gate reads it", async () => {
+    const decl = entityDecl();
+    const rpc: RpcRoute[] = [
+      {
+        method: "POST",
+        path: "/api/v1/actions/schedule-set",
+        entity_op: {
+          entity: "job_schedule",
+          op: "schedule_set",
+          cta: {
+            icon: "sequence-numeric-right",
+            confirm_key: "job.entities.job_schedule.actions.set_confirm",
+            busy_key: "job.entities.job_schedule.actions.setting",
+          },
+        },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+    ];
+    const h = makeServiceRoutes({
+      schemas: ["test"],
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [rpc],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as {
+      op: string;
+      icon?: string;
+      confirm_key?: string;
+      busy_key?: string;
+    }[];
+    // `runEntityOp` gates on `meta.actions[op].confirm_key` — a CTA that
+    // only lands in `table.row_custom_actions` would dispatch unconfirmed.
+    expect(actions.find((a) => a.op === "schedule_set")).toMatchObject({
+      icon: "sequence-numeric-right",
+      confirm_key: "job.entities.job_schedule.actions.set_confirm",
+      busy_key: "job.entities.job_schedule.actions.setting",
     });
   });
 
@@ -301,6 +350,7 @@ describe("entity_op → served meta CTA synthesis", () => {
     ];
     expect(() =>
       makeServiceRoutes({
+        schemas: ["test"],
         info: { title: "T", version: "0.0.0" },
         entities: [decl],
         rpc: [rpc],
@@ -315,6 +365,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       permissions: { ...entityDecl().permissions, duplicate: ["p"] },
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [],
@@ -336,6 +387,7 @@ describe("entity_op → served meta CTA synthesis", () => {
       "duplicate.bulk": { color: "info", icon: "files" },
     };
     const h = makeServiceRoutes({
+      schemas: ["test"],
       info: { title: "T", version: "0.0.0" },
       entities: [decl],
       rpc: [],
@@ -346,5 +398,64 @@ describe("entity_op → served meta CTA synthesis", () => {
       color: "info",
       icon: "files",
     });
+  });
+
+  it("export served chrome defaults to primary + outline (secondary affordance)", async () => {
+    const decl = {
+      ...entityDecl(),
+      permissions: { ...entityDecl().permissions, export: ["p"] },
+    };
+    const h = makeServiceRoutes({
+      schemas: ["test"],
+      info: { title: "T", version: "0.0.0" },
+      entities: [decl],
+      rpc: [],
+    });
+    const meta = await servedMeta(h, "job_schedule");
+    const actions = meta.actions as { op: string; enabled: boolean; color?: string; variant?: string }[];
+    expect(actions.find((a) => a.op === "export")).toMatchObject({
+      enabled: true,
+      color: "primary",
+      variant: "outline",
+    });
+  });
+
+  it("actions_overrides variant:'outline' without color is a construction error", () => {
+    const decl = entityDecl();
+    decl.meta.actions_overrides = {
+      "export": { variant: "outline" },
+    };
+    expect(() =>
+      makeServiceRoutes({
+        schemas: ["test"],
+        info: { title: "T", version: "0.0.0" },
+        entities: [decl],
+        rpc: [],
+      }),
+    ).toThrow(/outline.*color|variant.*outline/i);
+  });
+
+  it("entity_op.cta variant:'outline' without color is a construction error", () => {
+    const rpc: RpcRoute[] = [
+      {
+        method: "POST",
+        path: "/api/v1/actions/report",
+        entity_op: {
+          entity: "job_schedule",
+          op: "report",
+          cta: { variant: "outline" },
+        },
+        permissions: ["p"],
+        handler: async () => ({}),
+      },
+    ];
+    expect(() =>
+      makeServiceRoutes({
+        schemas: ["test"],
+        info: { title: "T", version: "0.0.0" },
+        entities: [entityDecl()],
+        rpc: [rpc],
+      }),
+    ).toThrow(/outline.*color|variant.*outline/i);
   });
 });

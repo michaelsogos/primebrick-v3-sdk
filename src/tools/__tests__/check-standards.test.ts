@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { extJsonStringify } from '../../json/ext-json.js';
 // check-standards is a CLI: `node tools/check-standards.ts <srcDir>
 // --profile=fe`, config read from <cwd>/.devin/check-standards.json. Each
 // case builds a throwaway repo dir (os.tmpdir — never inside a repo) with a
@@ -30,7 +31,7 @@ interface Fixture {
 function repo(files: Record<string, string>): Fixture {
   const root = mkdtempSync(join(tmpdir(), "stdfix-"));
   mkdirSync(join(root, ".devin"), { recursive: true });
-  writeFileSync(join(root, ".devin", "check-standards.json"), JSON.stringify(CONFIG, null, 2));
+  writeFileSync(join(root, ".devin", "check-standards.json"), extJsonStringify(CONFIG,2));
   for (const [name, src] of Object.entries(files)) {
     const p = join(root, "src", PANEL_DIR, name);
     mkdirSync(dirname(p), { recursive: true });

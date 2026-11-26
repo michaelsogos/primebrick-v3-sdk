@@ -45,6 +45,10 @@ export function getAuthConfig(): AuthConfig {
   return cached;
 }
 
+export function getLoadedAuthConfig(): AuthConfig | null {
+  return cached;
+}
+
 /** Invalidate the cache so the next loadAuthConfig() re-reads from the port. */
 export function invalidateAuthConfig(): void {
   cached = null;

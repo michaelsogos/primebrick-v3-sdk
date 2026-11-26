@@ -7,6 +7,7 @@ import { initAuthConfig, loadAuthConfig } from "../../auth/auth-config-cache.js"
 import { serializeAuthUserToHeaders } from "../../auth/auth-user-serializer.js";
 import { AuthMode, type AuthConfig, type AuthUser } from "../../auth/types.js";
 
+import { extJsonParse } from '../../json/ext-json.js';
 const CFG: AuthConfig = {
   mode: AuthMode.GATEWAY,
   roles_path: "roles",
@@ -104,7 +105,7 @@ describe("makeEntityRouter — relation facet in served meta", () => {
       headers: serializeAuthUserToHeaders(user, CFG),
     });
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.text().then((t) => extJsonParse<any>(t));
     expect(body.relation).toEqual(RELATION);
     expect(body.display_name).toBeNull();
     expect(body.display_field).toBeUndefined();
@@ -148,7 +149,7 @@ describe("makeEntityRouter — non-relation entities stay untouched", () => {
       headers: serializeAuthUserToHeaders(user, CFG),
     });
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.text().then((t) => extJsonParse<any>(t));
     expect(body.display_name).toBe("${name}");
     expect(body.relation).toBeUndefined();
   });

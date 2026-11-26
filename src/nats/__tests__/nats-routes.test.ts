@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
 import { makeNatsRoutes, makeNatsRequestRoute, callNats } from "../nats-routes.js";
 import { initAuthConfig, loadAuthConfig } from "../../auth/auth-config-cache.js";
 import { buildNatsAuthHeaders } from "../../auth/verify-nats.js";
 import { AuthMode, type AuthConfig, type AuthUser } from "../../auth/types.js";
-import { extJsonStringify } from "../../json/ext-json.js";
+import { extJsonStringify, extJsonParse } from '../../json/ext-json.js';
+import { isEnvelope, openEnvelope, sealEnvelope } from "../message-envelope.js";
+import { MessageKeyProvider, setMessageKeyProvider, deriveMessageKey, MESSAGE_KEY_PART_A } from "../message-key-provider.js";
 
 const CFG: AuthConfig = {
   mode: AuthMode.GATEWAY,
@@ -25,12 +27,13 @@ const USER: AuthUser = {
 
 function fakeMsg(body: unknown, opts: { auth?: boolean; reply?: string } = {}): Msg {
   const h = natsHeaders();
+  const sensitiveHeaders: Record<string, string> = {};
   if (opts.auth !== false) {
-    for (const [k, v] of Object.entries(buildNatsAuthHeaders(USER, CFG))) h.set(k, v);
+    for (const [k, v] of Object.entries(buildNatsAuthHeaders(USER, CFG))) sensitiveHeaders[k] = v;
   }
   const responses: Uint8Array[] = [];
   return {
-    data: new TextEncoder().encode(extJsonStringify(body)),
+    data: new TextEncoder().encode(sealEnvelope(TEST_KEY, TEST_GENERATION, body, sensitiveHeaders)),
     headers: h,
     reply: opts.reply,
     respond: (d?: Uint8Array) => { if (d) responses.push(d); return true; },
@@ -60,9 +63,30 @@ function fakeConnection(msgs: Msg[]) {
   return { conn, subsOpts, published };
 }
 
+function openResponse(bytes: Uint8Array): { payload: unknown; headers: Record<string, string> } {
+  return openEnvelope(extJsonParse(new TextDecoder().decode(bytes)) as never, (g) => (g === TEST_GENERATION ? TEST_KEY : null));
+}
+const TEST_GENERATION = 7;
+const TEST_KEY = deriveMessageKey(MESSAGE_KEY_PART_A, "test-partb-material", TEST_GENERATION);
+async function readyProvider(): Promise<MessageKeyProvider> {
+  const provider = new MessageKeyProvider(async () => ({
+    generation: 7,
+    generations: { "7": "test-partb-material" },
+  }));
+  await provider.refresh();
+  return provider;
+}
+
 beforeAll(async () => {
   initAuthConfig({ load: async () => CFG });
   await loadAuthConfig();
+});
+
+beforeEach(async () => {
+  setMessageKeyProvider(await readyProvider());
+});
+afterEach(() => {
+  setMessageKeyProvider(null);
 });
 
 describe("makeNatsRoutes", () => {
@@ -122,7 +146,7 @@ describe("makeNatsRequestRoute (correlation reply)", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(msg._responses).toHaveLength(1);
-    expect(JSON.parse(new TextDecoder().decode(msg._responses[0]))).toEqual({ pong: { q: "ping" } });
+    expect(openResponse(msg._responses[0]).payload).toEqual({ pong: { q: "ping" } });
   });
 
   it("replies with an error envelope on RBAC denial", async () => {
@@ -133,8 +157,56 @@ describe("makeNatsRequestRoute (correlation reply)", () => {
       { serviceCode: "svc", connection: conn },
     );
     await new Promise((r) => setTimeout(r, 20));
-    const res = JSON.parse(new TextDecoder().decode(msg._responses[0]));
+    const res = openResponse(msg._responses[0]).payload as { error: { code: string } };
     expect(res.error.code).toBe("RBAC_PERMISSION_DENIED");
+  });
+
+  it("decrypts requests before auth and encrypts the correlation reply", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    expect(current).not.toBeNull();
+    const allAuthHeaders = buildNatsAuthHeaders(USER, CFG);
+    const sensitiveHeaders = Object.fromEntries(
+      Object.entries(allAuthHeaders).filter(([name]) => name.toLowerCase().startsWith("x-user-")),
+    );
+    const outer = natsHeaders();
+    for (const [name, value] of Object.entries(allAuthHeaders)) {
+      if (!name.toLowerCase().startsWith("x-user-")) outer.set(name, value);
+    }
+    const responses: Uint8Array[] = [];
+    const msg = {
+      data: new TextEncoder().encode(sealEnvelope(current!.key, current!.generation, { q: "ping" }, sensitiveHeaders)),
+      headers: outer,
+      reply: "_INBOX.encrypted",
+      respond: (d?: Uint8Array) => { if (d) responses.push(d); return true; },
+      subject: "svc.get",
+      sid: 0,
+    } as unknown as Msg;
+    const { conn } = fakeConnection([msg]);
+    const spy = vi.fn();
+
+    await makeNatsRequestRoute(
+      [{
+        subject: "svc.get",
+        permissions: ["test.do"],
+        handler: async ({ user, request }) => {
+          spy(user?.id, request);
+          return { pong: "reply-secret" };
+        },
+      }],
+      { serviceCode: "svc", connection: conn },
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(spy).toHaveBeenCalledWith("u-1", { q: "ping" });
+    expect(responses).toHaveLength(1);
+    const wireText = new TextDecoder().decode(responses[0]);
+    expect(wireText).not.toContain("reply-secret");
+    const parsed = extJsonParse(wireText);
+    expect(isEnvelope(parsed)).toBe(true);
+    const opened = openEnvelope(parsed as never, (generation) => provider.keyForGeneration(generation));
+    expect(opened.payload).toEqual({ pong: "reply-secret" });
   });
 });
 
@@ -165,7 +237,7 @@ describe("payload_schema contract ({schema, parse})", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(spy).not.toHaveBeenCalled();
-    const res = JSON.parse(new TextDecoder().decode(msg._responses[0]));
+    const res = openResponse(msg._responses[0]).payload as { error: { code: string } };
     expect(res.error.code).toBe("VALIDATION_ERROR");
   });
 
@@ -231,7 +303,7 @@ describe("callNats", () => {
         // responder replies on the inbox
         setTimeout(() => {
           inboxSub?.({
-            data: new TextEncoder().encode(extJsonStringify({ ok: true })),
+            data: new TextEncoder().encode(sealEnvelope(TEST_KEY, TEST_GENERATION, { ok: true }, {})),
             headers: natsHeaders(),
             reply: "",
           } as Msg);
@@ -245,7 +317,7 @@ describe("callNats", () => {
   });
 
   it("rejects on responder error envelope", async () => {
-    const errMsg = new TextEncoder().encode(extJsonStringify({ error: { code: "RBAC_PERMISSION_DENIED", message: "nope" } }));
+    const errMsg = new TextEncoder().encode(sealEnvelope(TEST_KEY, TEST_GENERATION, { error: { code: "RBAC_PERMISSION_DENIED", message: "nope" } }, {}));
     const conn = {
       subscribe: (_s: string, _o?: unknown) => ({
         [Symbol.asyncIterator]() {
@@ -259,5 +331,80 @@ describe("callNats", () => {
       publish: () => {},
     } as unknown as NatsConnection;
     await expect(callNats("svc.get", {}, { connection: conn })).rejects.toThrow("RBAC_PERMISSION_DENIED");
+  });
+
+  it("rejects with a speaking error on the no-responder fast-fail (status 503)", async () => {
+    // The server answers a request with no subscriber as a headers-only
+    // empty reply carrying status code 503 — the classic boot-race shape.
+    const noResponderHeaders = natsHeaders(503, "No Responders");
+    const conn = {
+      subscribe: (_s: string, _o?: unknown) => ({
+        [Symbol.asyncIterator]() {
+          let done = false;
+          return {
+            next: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: { data: new Uint8Array(0), headers: noResponderHeaders, reply: "" } as Msg }),
+          };
+        },
+        unsubscribe: () => {},
+      }) as unknown as Subscription,
+      publish: () => {},
+    } as unknown as NatsConnection;
+    await expect(callNats("jobs.ctl.triggers.materialize", {}, { connection: conn })).rejects.toThrow(
+      "no responders for jobs.ctl.triggers.materialize",
+    );
+  });
+
+  it("seals the outbound request, keeps routing headers outside, and opens the sealed reply", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    expect(current).not.toBeNull();
+    let inboxResolve: ((msg: Msg) => void) | null = null;
+    const inboxMessage = new Promise<Msg>((resolve) => { inboxResolve = resolve; });
+    const published: { data: Uint8Array; headers?: import("@nats-io/transport-node").MsgHdrs }[] = [];
+    const conn = {
+      subscribe: (_s: string, _o?: unknown) => ({
+        [Symbol.asyncIterator]() {
+          let done = false;
+          return {
+            next: async () => {
+              if (done) return { done: true, value: undefined };
+              done = true;
+              return { done: false, value: await inboxMessage };
+            },
+          };
+        },
+        unsubscribe: () => {},
+      }) as unknown as Subscription,
+      publish: (_subject: string, data: Uint8Array, opts?: { headers?: import("@nats-io/transport-node").MsgHdrs }) => {
+        published.push({ data, headers: opts?.headers });
+        setTimeout(() => {
+          inboxResolve?.({
+            data: new TextEncoder().encode(sealEnvelope(current!.key, current!.generation, { ok: true, reply_secret: "reply-secret" }, {})),
+            headers: natsHeaders(),
+            reply: "",
+          } as Msg);
+        }, 0);
+      },
+    } as unknown as NatsConnection;
+
+    const res = await callNats<{ ok: boolean; reply_secret: string }>(
+      "svc.get",
+      { q: "request-secret" },
+      { connection: conn, headers: { "x-user-id": "u-1", "x-job-run-id": "run-reqrep" } },
+    );
+
+    expect(res).toEqual({ ok: true, reply_secret: "reply-secret" });
+    expect(published).toHaveLength(1);
+    const requestWire = new TextDecoder().decode(published[0].data);
+    expect(requestWire).not.toContain("request-secret");
+    expect(requestWire).not.toContain("u-1");
+    expect(published[0].headers?.get("x-user-id")).toBe("");
+    expect(published[0].headers?.get("x-job-run-id")).toBe("run-reqrep");
+    const parsed = extJsonParse(requestWire);
+    expect(isEnvelope(parsed)).toBe(true);
+    const opened = openEnvelope(parsed as never, (generation) => provider.keyForGeneration(generation));
+    expect(opened.payload).toEqual({ q: "request-secret" });
+    expect(opened.headers["x-user-id"]).toBe("u-1");
   });
 });

@@ -32,8 +32,8 @@
  * row is NEVER resurrected.
  */
 
-import { makeNatsRoutes } from "../nats/nats-routes.js";
-import { subscribeShielded } from "../nats/service-shield.js";
+import { makeNatsRoutes, serviceLaneVerify } from "../nats/nats-routes.js";
+import { NatsClient } from "../nats/nats-client.js";
 import { declareSystemJobs } from "../nats/system-jobs.js";
 import { setProcessInterval } from "../lifecycle/process-registry.js";
 import { SERVICE_SUBJECTS } from "../service/service-lifecycle-subjects.js";
@@ -98,15 +98,18 @@ export async function mountPartitionMaintenanceJob(
   const i18nNs = job.i18nNs();
 
   // The callable route — the actual executor, inside this process. A
-  // work item (queue `<svc>`): exactly one replica runs each fire. No
-  // user context rides a system-lane dispatch — `permissions: []` leaves
-  // the L1 client-shield as the only gate (primebrick-job publishes).
+  // work item (queue `<svc>`): exactly one replica runs each fire. A
+  // system-lane dispatch carries NO user context (run_as:"system"
+  // arms headers-free), so `verify: serviceLaneVerify` replaces the default
+  // verifyNatsMessage L2 chain: the sealed-envelope provenance is the gate,
+  // exactly as `dueLaneVerify("system")` defines the lane.
   await makeNatsRoutes(
     [
       {
         subject,
         queue: svc,
         permissions: [],
+        verify: serviceLaneVerify,
         payload_schema: { schema: PAYLOAD_JSON_SCHEMA, parse: parsePayload },
         label_key: `${i18nNs}.callable.partition_maintenance.label`,
         description_key: `${i18nNs}.callable.partition_maintenance.desc`,
@@ -162,5 +165,5 @@ export async function mountPartitionMaintenanceJob(
   setProcessInterval(`${svc}-partition-materialize-retry`, ARM_RETRY_MS, () => {
     void tryDeclare("interval");
   });
-  await subscribeShielded(SERVICE_SUBJECTS.GATEWAY_ONLINE, () => tryDeclare("gateway_online"));
+  await NatsClient.subscribe(SERVICE_SUBJECTS.GATEWAY_ONLINE, () => tryDeclare("gateway_online"));
 }

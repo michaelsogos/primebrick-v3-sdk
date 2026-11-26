@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mapDalError } from "../dal-error-mapper.js";
 
+import { extJsonStringify } from '../../json/ext-json.js';
 describe("mapDalError", () => {
   it("maps ERR01 → 409 with bulk extra.issues", () => {
     const err = Object.assign(new Error("stale"), {
@@ -36,7 +37,7 @@ describe("mapDalError", () => {
   it("maps ERR04 → 409 with uuid/constraint extras", () => {
     const err = Object.assign(new Error("dup"), {
       code: "ERR04",
-      detail: JSON.stringify({ uuid: "u1", constraint: "email", entity: "CustomerEntity" }),
+      detail: extJsonStringify({ uuid: "u1", constraint: "email", entity: "CustomerEntity" }),
     });
     const mapped = mapDalError(err);
     expect(mapped!.status).toBe(409);
@@ -95,7 +96,7 @@ describe("mapDalError", () => {
   it("maps ERR10 → 412 identity conflict with match extras", () => {
     const err = Object.assign(new Error("mismatch"), {
       code: "ERR10",
-      detail: JSON.stringify({ table: "public.dal_test_simple", match: { id: 5, uuid: "u2" } }),
+      detail: extJsonStringify({ table: "public.dal_test_simple", match: { id: 5, uuid: "u2" } }),
     });
     const mapped = mapDalError(err);
     expect(mapped!.status).toBe(412);

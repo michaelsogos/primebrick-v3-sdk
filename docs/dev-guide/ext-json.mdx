@@ -102,6 +102,41 @@ becomes `bigint` on the receiver. This is intentional — it makes every
 integer `bigint` everywhere, so consumers never write `number | bigint` union
 types. If you send a `number` integer, expect a `bigint` back.
 
+### Consuming bigint at a `number` boundary
+
+Every wire integer arrives as `bigint` — including fields your contract
+declares `number` (the `as number` cast compiles but lies at runtime).
+APIs that require a real `number` — `Math.*`, `new Date()`, arithmetic,
+`Number.isSafeInteger`-gated logic, zod `z.number()` schemas — throw
+`TypeError` on bigint operands. Coerce **at the consumption boundary**,
+never weaken the codec:
+
+```ts
+// Contractually-number fields → coerce where the number is consumed
+const page = Number(meta.table.default_page_size ?? 25);      // Math.min(page, MAX)
+const expires = Number(session.expires_at);                   // Date.now() comparisons
+schema.min(Number(rules.min.value));                          // zod length check
+
+// Precision-sensitive fields → stay bigint
+const version = BigInt(row.version);                          // entity versions, >2^53 ids
+```
+
+Validation schemas whose declared contract is `number` use
+`z.preprocess((v) => (typeof v === "bigint" ? Number(v) : v), z.number())`
+on that field only — strictness is preserved for everything else.
+
+### Import per context
+
+The canonical codec is `@primebrick/core`'s `src/ext-json.ts`; each layer
+re-exports it — pick the entry point for your runtime, never a second codec:
+
+| Context | Import |
+|---------|--------|
+| Microservice / BE code | `@primebrick/sdk` (or `@primebrick/sdk/json` sub-path) |
+| FE production (`src/`) | `$lib/api-ext` (wraps `@primebrick/ui` re-export) |
+| Embedded mini-FE (`<svc>/fe/src/`) | `@primebrick/ui` |
+| Node contexts — Playwright e2e, CLI tools, scripts | `@primebrick/core/ext-json` (sub-path; the `@primebrick/ui` root pulls `.svelte` and is not node-safe) |
+
 ### Express middleware (BE)
 
 ```ts

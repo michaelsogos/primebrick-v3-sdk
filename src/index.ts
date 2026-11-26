@@ -70,22 +70,14 @@ export * from "./currency/index.js";
 export { type IServiceRegistry } from "./service/service-registry.js";
 export { ServiceRegistrar, type ServiceRegistrarConfig, type HealthCheckFn } from "./service/service-registrar.js";
 export {
-  CLIENT_SHIELD_KEY_HEADER,
-  clientKeyHash,
-  deriveClientKey,
-  verifyRowKey,
   detectPackageIdentity,
   resolveServiceCode,
   setCurrentServiceCode,
   currentServiceCode,
   buildUserAgent,
-  identityHeaders,
-  verifyClientIdentity,
   type PackageIdentity,
-  type ClientIdentityResult,
-  type ClientKeyMaterial,
 } from "./service/service-identity.js";
-export { ClientShieldRegistry, CLIENT_SHIELD_REGISTRY_SUBJECTS, type ClientShieldRegistryRow } from "./service/client-shield-registry.js";
+
 export {
   validateNavDeclaration,
   accessNamespace,
@@ -114,7 +106,17 @@ export {
   type GeneratedDoc,
 } from "./docs-pack/build-docs-pack.js";
 export { docsPackRouteHandler, DOCS_PACK_ROUTE } from "./docs-pack/serve-docs-pack.js";
-export { fetchDocsPack, DOCS_PACK_SHIELD_HEADER } from "./docs-pack/docs-pack-client.js";
+export { fetchDocsPack } from "./docs-pack/docs-pack-client.js";
+export {
+  signInternalRequest,
+  verifyInternalRequest,
+  isSensitiveInternalHeader,
+  SIGNING_HEADERS,
+  SIGNATURE_SKEW_MS,
+  type VerifiedProvenance,
+} from "./auth/http-signing.js";
+export { verifyEdgeRequest, type EdgeVerifiedRequest } from "./auth/edge-verification.js";
+export { isNonceReplay } from "./auth/nonce-cache.js";
 export {
   extractHostFacts,
   extractRemoteFacts,
@@ -199,6 +201,15 @@ export { setProcessInterval } from "./lifecycle/process-registry.js";
 // NATS
 export { NatsClient, msgHeader } from "./nats/nats-client.js";
 export {
+  MessageKeyProvider,
+  setMessageKeyProvider,
+  getMessageKeyProvider,
+  deriveMessageKey,
+  MESSAGE_KEY_PART_A,
+  type MessageKeyMaterial,
+  type MessageKeyMaterialReader,
+} from "./nats/message-key-provider.js";
+export {
   ENTITY_EVENTS_FILTER,
   ENTITY_EVENTS_MAX_AGE_SECS,
   ENTITY_EVENTS_MAX_MSGS_PER_SUBJECT,
@@ -217,6 +228,7 @@ export {
   makeNatsRoutes,
   makeNatsRequestRoute,
   callNats,
+  serviceLaneVerify,
   type CallablePayloadContract,
   type NatsRoute,
   type NatsRequestRoute,
@@ -224,14 +236,6 @@ export {
   type NatsRouteVerify,
   type NatsRouterDeps,
 } from "./nats/nats-routes.js";
-export {
-  setNatsShieldRegistry,
-  getNatsShieldRegistry,
-  verifyNatsPublisher,
-  serviceShieldVerify,
-  subscribeShielded,
-  type ShieldRegistryLike,
-} from "./nats/service-shield.js";
 export {
   dueLaneVerify,
   forwardAuthHeaders,
@@ -252,25 +256,21 @@ export {
   jobResultSubject,
   type JobResultMessage,
 } from "./nats/job-contract.js";
+
 export {
-  RotatingSecretEngine,
-  SecretProvider,
-  startSecretProvider,
-  SECRET_SUBJECTS,
-  SECRET_DEFAULTS,
-  type RotatingSecretRef,
-  type SecretGetRequest,
-  type SecretGetResponse,
-} from "./secrets/rotating-secret.js";
-export {
-  setClientShieldSecretSlot,
-  getClientShieldSecretSlot,
-  currentClientShieldSecret,
-  validClientShieldSecrets,
-  humanizeMs,
-  CLIENT_SHIELD_SECRET_REF,
-  type ClientShieldSecretSlot,
-} from "./auth/client-shield-secret.js";
+  SecretVault,
+  SecretVaultReader,
+  MESSAGE_KEY_MATERIAL_REF,
+  MESSAGE_KEY_MATERIAL_POLICY,
+  type VaultSecretRef,
+  type VaultEntryPolicy,
+  type VaultGenerations,
+  type SqlPoolPort,
+  type SqlClientPort,
+  type SqlQueryResult,
+  VAULT_SUBJECTS,
+} from "./secrets/secret-vault.js";
+
 
 // HTTP
 export { createHttpServer, resolveHttpBindHost, type HttpServerOptions } from "./http/http-server.js";
@@ -388,10 +388,18 @@ export {
   type PartitionMaintenanceJob,
 } from "./microservice/partition-maintenance-job.js";
 
+// Sequence-revive system job — the `<svc>.sequence_revive` callable +
+// system-trigger materialize, produced by dal-pg's makeSequenceReviveJob.
+export {
+  mountSequenceReviveJob,
+  type SequenceReviveJob,
+} from "./microservice/sequence-revive-job.js";
+
 // DB migration boot step + db_patch remediation surface (step 2.5)
 export {
   runDbMigrationStep,
   type DbMigrationBootOptions,
+  type ServiceDbMigrationOptions,
   type DbMigrationEnginePort,
   type MigrationBootState,
   type MigrationRunResultLike,
@@ -404,7 +412,7 @@ export {
 
 // Env validation
 export { validateEnv, requireEnv, type EnvSchema, type EnvValidationResult } from "./env/env-validator.js";
-export { assertDbEnv, type DbEnv } from "./env/db-env.js";
+export { assertDbEnv, assertValidSchemaList, type DbEnv } from "./env/db-env.js";
 
 // Ext-JSON — BigInt-safe JSON serialization/deserialization (BE/US only, NOT for FE)
 export {

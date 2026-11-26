@@ -7,7 +7,7 @@ description: "The self-contained documentation artifact every service ships — 
 
 A docs pack is the self-contained artifact by which a service publishes its
 end-user documentation and its API surface to the AI knowledge base. It is
-built at build time, served over a shielded route, and pulled by the AI
+built at build time, served over a provenance-guarded route, and pulled by the AI
 microservice on lifecycle events — the KB always mirrors the set of
 currently-live services.
 
@@ -61,8 +61,8 @@ docsPackRouteHandler(join(process.cwd(), "dist", "docs-pack"))
 Produces an `RouteHandler` for `composeRouteHandlers` serving
 `GET /api/v1/system/docs/pack` (payload: manifest + all docs + spec). The
 route is `auth: "public"` in route-table terms because the real wall is the
-**client-identity gate** — the request must carry the client-shield secret,
-which only services (and the BE proxy) possess.
+**provenance gate** — the request must carry a valid per-service HMAC
+signature, which only vault key holders can produce.
 
 ## Auto-capability — `ServiceRegistrar`
 
@@ -77,7 +77,7 @@ manual configuration.
 const payload = await fetchDocsPack(baseUrl);
 ```
 
-Wraps `internalFetch` (identity headers + client-shield secret) — the only
+Wraps `internalFetch` (signed + sealed identity) — the only
 caller today is the AI ingestion subscriber, which validates the payload
 with `parseDocsPackPayload` before ingesting.
 
@@ -87,7 +87,7 @@ with `parseDocsPackPayload` before ingesting.
 service build → generate:docs → dist/docs-pack (docs + openapi.json)
      │ boot
      ├─ ServiceRegistrar detects manifest → capabilities += "docs_pack"
-     ├─ GET /api/v1/system/docs/pack live (client-shield gated)
+     ├─ GET /api/v1/system/docs/pack live (provenance-gated)
      └─ service.register broadcast
               │
               ▼

@@ -7,9 +7,9 @@
  *     RoleMappingPort. Needs AuthPorts.
  *
  *   GATEWAY-RESOLVED (microservices):
- *     Verifies the gateway secret header (anti-spoofing), then deserializes
- *     the pre-resolved AuthUser from headers. NO ports needed. The BE already
- *     did all the work; the microservice just trusts the result.
+ *     Deserializes the pre-resolved AuthUser from headers — anti-spoofing is the
+ *     transport-edge provenance (sealed envelope on NATS, proof-of-possession on
+ *     HTTP). NO ports needed — there is no shared secret to verify.
  */
 
 import type { HeaderProvider } from "./header-provider.js";
@@ -19,7 +19,6 @@ import { verifyAccessToken } from "./oidc-verifier.js";
 import { normalizeIdpToken, coerceRoles, buildAuthUser } from "./token-normalizer.js";
 import { expandPermissions } from "./permissions.js";
 import { deserializeAuthUserFromHeaders } from "./auth-user-serializer.js";
-import { validClientShieldSecrets, SECRET_DEFAULTS } from "./client-shield-secret.js";
 import type { ResolveInput } from "./ports/user-resolver-port.js";
 
 /** Ports needed ONLY by BE (STANDALONE mode). Microservices do NOT provide these. */
@@ -54,14 +53,21 @@ export async function verifyAuth(
 
 /**
  * Verify auth in GATEWAY-RESOLVED mode (microservices).
- * NO ports needed. Just verifies gateway secret + deserializes AuthUser from headers.
+ * NO ports needed. Deserializes the AuthUser from headers — anti-spoofing is the transport-edge provenance, not a shared secret.
  */
 export async function verifyAuthGatewayResolved(
   headers: HeaderProvider,
   config: AuthConfig,
 ): Promise<AuthUser> {
-  verifyClientShieldSecret(headers, config);
-  return deserializeAuthUserFromHeaders(headers, config);
+  const user = deserializeAuthUserFromHeaders(headers, config);
+  // This mode exists to resolve a USER context the caller vouches for with a
+  // valid provenance signature. A completely absent identity is an
+  // authentication failure (401), not an authorization one — the empty user
+  // must never flow downstream as a confused deputy.
+  if (!user.id) {
+    throw new AuthError("AUTH_USER_CONTEXT_MISSING", "No user identity in the verified request — user context is required on this route");
+  }
+  return user;
 }
 
 // --- STANDALONE mode (BE only) ---
@@ -111,7 +117,6 @@ async function verifyGatewayWithPorts(
   config: AuthConfig,
   ports: AuthPorts,
 ): Promise<AuthUser> {
-  verifyClientShieldSecret(headers, config);
 
   const { headers: headerNames } = config.gateway;
   const idpCode = headers.getHeader(headerNames.idp_code!);
@@ -154,22 +159,10 @@ async function verifyGatewayWithPorts(
   return user;
 }
 
-// --- Shared gateway secret verification ---
-
-function verifyClientShieldSecret(headers: HeaderProvider, config: AuthConfig): void {
-  const { secret, secret_header_name } = config.gateway;
-  // Rotating secret engine: when a slot is provisioned, `current` AND the
-  // in-grace `previous` are valid. Falls back to the static config secret
-  // for pre-engine paths (unit tests, mixed-version windows).
-  const valid = validClientShieldSecrets(SECRET_DEFAULTS.graceMs, secret);
-  if (!secret_header_name || valid.length === 0) {
-    throw new AuthError("AUTH_GATEWAY_NOT_CONFIGURED", "Gateway secret not configured");
-  }
-  const provided = headers.getHeader(secret_header_name);
-  if (typeof provided !== "string" || !valid.includes(provided)) {
-    throw new AuthError("AUTH_CLIENT_SHIELD_SECRET_INVALID", "Client-shield authentication failed");
-  }
-}
+// The shared client-shield secret verification is gone — internal provenance
+// (proof-of-possession signature verified at the transport edge) is strictly
+// stronger than a transmitted secret, and the edge gate covers every request
+// before this chain runs.
 
 // --- Error class ---
 

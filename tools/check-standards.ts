@@ -219,12 +219,16 @@ type RuleId =
   | "panel-toolbar-tools"
   | "panel-chrome-class"
   | "native-control"
+  | "display-coerce"
   | "no-native-dialog"
+  | "no-raw-dialog"
   | "field-stock-chrome"
   | "i18n-entity-fallback"
   | "page-scaffold-ownership"
   | "icon-no-fallback"
-  | "event-bus-ownership";
+  | "e2e-wait-budget"
+  | "event-bus-ownership"
+  | "no-fnf-nats-publish";
 
 interface Rule {
   id: RuleId;
@@ -288,6 +292,39 @@ const LINE_RULES: Rule[] = [
     pattern: /(?<![\w$.])(?<!function\s)(?:confirm|alert|prompt)\s*\([^)]|(?:\bwindow\.|\bglobalThis\.)(?:confirm|alert|prompt)\s*\([^)]/,
     hint: "native dialog call — entity confirms use the governed invoker (DeleteDialog/BulkDeleteDialog anatomy), notices use pushNotification; never window.confirm/alert/prompt",
   },
+  // no-raw-dialog — the only legal dialog surface is `BorderedDialog`
+  // (two families: animated top strip, `tone="soft"` security border). The
+  // pattern bans surface-CREATING anatomy only: `Dialog.Root/Content/
+  // Portal/Trigger/Overlay` member access, `AlertDialog*`, and
+  // `DialogRoot/Content/Portal/Overlay/Trigger` named imports, plus `Dialog`
+  // imported straight from the vendored bits-ui path (bypasses the ui
+  // wrapper). `Dialog.(Close|Header|Title|Description|Footer)` are content
+  // parts that render INSIDE a BorderedDialog — legal everywhere and
+  // deliberately not matched. Designated owners (the vendored parts dir,
+  // the bordered wrapper, the command-palette composite) are exempt by
+  // path. NO_EXEMPT — the dialog surface is anatomy, not taste.
+  {
+    id: "no-raw-dialog",
+    pattern: /\bDialog\.(?:Root|Content|Portal|Trigger|Overlay)\b|\bAlertDialog\b|\bDialog(?:Root|Content|Portal|Overlay|Trigger)\b|import\s*\{[^}\n]*\bDialog\b[^}\n]*\}\s*from\s*['"][^'"\n]*bits-ui/,
+    hint: "raw dialog anatomy — the only legal dialog surface is BorderedDialog (top-strip family; tone=\"soft\" is the reserved security family). Dialog.Close/Header/Title/Description/Footer parts are legal inside it",
+    allowPaths: /(?:^|\/)lib\/components\/(?:dialog|sheet)\/|(?:^|\/)(?:dialog-bordered|command-dialog)\.svelte$/,
+  },
+  // e2e-wait-budget — 5 seconds is the expectation budget for every wait
+  // (docs/ai/e2e-browser-session.md "Determinism — evidence, not sleeps"):
+  // a `timeout: N` literal >5s in an e2e spec is an unjustified wait — it
+  // hides problems instead of surfacing them. `describe.configure`/`setTimeout`
+  // lines are suite/test budgets (the total phase envelope, not a poll slot)
+  // and are excluded by construction; `timeout: <variable>` is a named budget
+  // declaration and slips the literal check by design. Declared long-poll
+  // phases (e.g. AI model download/inference) live in
+  // .devin/check-standards.json allowPaths — the reviewable declaration.
+  {
+    id: "e2e-wait-budget",
+    pattern: /^(?![^\n]*\bconfigure\b)[^\n]*\btimeout\s*:\s*(?:\d{5,}|\d{2,}_\d{3}|\d_\d{3}_\d{3}|[6-9]_?\d_?\d_?\d|5_?(?:[1-9]\d{2}|0[1-9]\d|00[1-9]))/,
+    hint: "wait budget is 5s per step (docs/ai/e2e-browser-session.md — 'Determinism: evidence, not sleeps') — a wait needing >5s is a problem to diagnose, not to pad; declared long-poll phases live in .devin/check-standards.json allowPaths",
+    appliesTo: /^e2e\//,
+    alsoTests: true,
+  },
 ];
 
 // Config-gated rules — populated from `.devin/check-standards.json` (repo
@@ -300,9 +337,9 @@ const GATED_RULE_IDS = new Set<RuleId>([
   "panel-switch", "panel-search-clearable", "panel-raw-input",
   "panel-footer-chrome", "panel-footer-start", "panel-footer-cta", "panel-toolbar-tools",
   "panel-chrome-class",
-  "field-stock-chrome",
+  "field-stock-chrome", "display-coerce",
   "i18n-entity-fallback", "page-scaffold-ownership", "icon-no-fallback",
-  "event-bus-ownership",
+  "e2e-wait-budget", "event-bus-ownership", "no-fnf-nats-publish",
 ]);
 const GATED_LINE_RULES: Rule[] = [
   { id: "dal-access", pattern: /\b(?:initDal|getDal|resetDal)\s*\(|\bimport\s+(?:type\s+)?\{[^}]*\b(?:initDal|getDal|resetDal)\b/, hint: "data access via this.dal/this.svc (DomainService) — getDal()/initDal()/resetDal() only inside the declared allowlist" },
@@ -312,6 +349,15 @@ const GATED_LINE_RULES: Rule[] = [
   // another module's vocabulary. Cross-service reactions live as
   // job_triggers rows (data, JH-dispatched), never as code subscriptions.
   { id: "event-bus-ownership", pattern: /\b(?:subscribe\w*|filter_?[Ss]ubject)\s*[:(]?\s*["'`]events\./, hint: "entity-domain events are consumed ONLY by job-handler (durable ENTITY_EVENTS) — cross-service reactions are job_triggers rows, never direct subscriptions" },
+  // no-fnf-nats-publish — the lossy core-NATS primitive is legitimate ONLY for
+  // the governed ephemeral exceptions of the durability doctrine (presence
+  // heartbeats, self-superseding lifecycle beats, invalidation hints whose
+  // consumers re-pull truth on a TTL). Every sanctioned call site is a
+  // reviewable allowPaths entry; everything else uses NatsClient.publish
+  // (JetStream-durable by construction). The deterrent name is the point:
+  // a new match means someone chose silent message loss — it must be a
+  // deliberate, documented decision, never an accident.
+  { id: "no-fnf-nats-publish", pattern: /\bpublishEphemeralLossy\s*\(/, hint: "fire-and-forget publish — silent message loss if the consumer is down; use NatsClient.publish (JetStream-durable) or justify the ephemeral exception in allowPaths" },
   { id: "layer-repo-import", pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'][^"']*[-_](?:dal|repo|repository)(?:\.js|\.ts)?["']/, hint: "transport/dispatch layers must call services — never import *-dal/*-repo modules" },
   // Single-line `import { …Switch… } from '@primebrick/ui'` — \b after
   // "Switch" never matches SwitchField. Multi-line import lists are caught
@@ -371,6 +417,13 @@ const GATED_LINE_RULES: Rule[] = [
   // `border-ring` produced the blue focus border beside neutral ghost rings.
   { id: "field-stock-chrome", pattern: /\bbg-input\b|\bborder-ring\b/, hint: "stock vendored-kit tokens — field chrome is bg-background/bg-transparent + foreground/* or border-primary-gradient + ring-ring/50 (input-anatomy); never the kit's tinted fill / blue focus border" },
   { id: "i18n-entity-fallback", pattern: /\$t\([^)]*\|\|/, hint: "no entity-specific i18n fallback inside shared entity-list code — label_key resolves or the raw key shows" },
+  // display-coerce — .svelte-only syntactic approximation: markup has no
+  // type coverage in the typed pass (check-stringify.ts scans .ts), and
+  // record/index access in templates is dominantly wire data. In .ts the
+  // typed pass owns the precise eslint `no-base-to-string` semantics —
+  // String() stays legal on typed values (docs/ai/display-coercion.md).
+  { id: "display-coerce", pattern: /\bString\s*\(\s*[A-Za-z_$][\w$?!]*\s*[.[(]/, appliesTo: /\.svelte$/, hint: "member/call/index coercion — String(x) silently renders \"[object Object]\"/\"null\" on wire objects; display coercion goes through toDisplayString (@primebrick/ui) — docs/ai/display-coercion.md" },
+  { id: "display-coerce", pattern: /\$\{(?!toDisplayString)[^}]*\[[^\]]+\]/, appliesTo: /\.svelte$/, hint: "index-access interpolation — record values render via toDisplayString, never raw ${x[y]} — docs/ai/display-coercion.md" },
 ];
 
 interface StandardsConfig {
@@ -909,16 +962,16 @@ const CONSUMER_RULES = new Set<RuleId>([
 const NO_EXEMPT_RULES = new Set<RuleId>([
   "dal-access", "dal-construct", "dal-member-write", "dal-member-access", "pg-import", "pg-pool",
   "raw-query", "raw-sql", "new-repository", "withClient", "pool-ping", "upsert",
-  "no-native-dialog", "ext-json",
+  "no-native-dialog", "no-raw-dialog", "ext-json", "e2e-wait-budget",
 ]);
-const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control", "no-native-dialog"]);
+const LIB_RULES = new Set<RuleId>(["ext-json", "entity-nullable-explicit", "column-flag-defaults", "native-control", "no-native-dialog", "no-raw-dialog"]);
 // `fe` — browser SPA: no server-side contracts apply; `no-native-dialog`
 // is the one always-on base rule (native confirm/alert/prompt are anatomy
 // violations in browser code); `ext-json` is always-on too (extJson* is the
 // only sanctioned codec — raw JSON.* and argument-less .json() reads are
 // wire corruption / bigint-loss vectors). Other gated rules activate via
 // .devin/check-standards.json.
-const FE_RULES = new Set<RuleId>(["no-native-dialog", "ext-json"]);
+const FE_RULES = new Set<RuleId>(["no-native-dialog", "no-raw-dialog", "ext-json", "e2e-wait-budget"]);
 /** Rules that scan test files even without --tests (alsoTests flag). */
 const ALSO_TESTS_RULES = new Set<RuleId>(LINE_RULES.filter((r) => r.alsoTests).map((r) => r.id));
 
@@ -2068,7 +2121,10 @@ for (const [id, opts] of Object.entries(cfg.rules ?? {})) {
   const rule = GATED_LINE_RULES.find((r) => r.id === rid) ?? LINE_RULES.find((r) => r.id === rid);
   if (!rule) continue;
   rule.allowPaths = scope.allowPaths;
-  rule.appliesTo = scope.appliesTo;
+  // Code-level appliesTo is the rule's own domain (e.g. `.svelte`-only
+  // display-coerce, `e2e/`-only wait-budget): config may NARROW it, never
+  // erase it — `undefined` must mean "repo did not restrict", not "wipe".
+  rule.appliesTo = scope.appliesTo ?? rule.appliesTo;
   if (!LINE_RULES.includes(rule)) LINE_RULES.push(rule);
   rules.add(rule.id);
   cfgEnabled.add(rule.id);

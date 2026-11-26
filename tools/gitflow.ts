@@ -7,9 +7,23 @@
  *   merges --no-ff into the base → pushes the base → deletes the branch
  *   locally AND on origin → audits the final state.
  *
+ * NOTE on `git flow` binaries (verified empirically 2026-11-20):
+ * upstream nvie 0.4.2 fast-forwards linear feature merges; the AVH
+ * edition 1.12.3 (installed in ~/bin) defaults to --no-ff except for
+ * single-commit features — fixed via repo config
+ * `gitflow.feature.finish.no-ff=true`. `git flow` stays usable for
+ * start/publish/track helpers, but closing is NEVER delegated to it:
+ * native finish neither pushes the base, nor deletes the remote branch,
+ * nor audits the end state — the governed close lives here.
+ *
  * Invariants (enforced by `audit`, exit 1 on violation):
  *   - at most ONE open branch across feature/*, release/*, hotfix/*
  *     (zero is clean — /develop + /main only)
+ *   - main/develop are MERGE-ONLY — nobody commits on them, ever; all
+ *     work lands through a work branch. Consequently an open work branch
+ *     must CONTAIN every commit of its base: a base that moved while a
+ *     work branch is open is PROOF of a violation (direct base commit or
+ *     an illicit close), not drift to tolerate
  *   - an open feature/release/hotfix fully merged into its base is an
  *     ORPHAN — it should have been closed; reported, never silently fixed
  *   - remote carries at most main + develop + the one open branch
@@ -19,9 +33,14 @@
  * Usage:
  *   bun tools/gitflow.ts audit
  *   bun tools/gitflow.ts finish            # closes the open feature/release/hotfix
+ *   bun tools/gitflow.ts install-hooks     # wires core.hooksPath → the shared
+ *                                          # governed hooks (pre-commit blocks
+ *                                          # direct commits on main/develop)
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 const git = (args: string[]): { code: number; out: string } => {
   const r = spawnSync("git", args, { encoding: "utf8" });
@@ -45,8 +64,8 @@ const aheadOf = (base: string, branch: string) =>
   Number(lines(git(["rev-list", "--count", `${base}..${branch}`]).out)[0] ?? "0");
 const exists = (ref: string) => git(["rev-parse", "--verify", "--quiet", ref]).code === 0;
 
-const WIP = /^((?:feature|release|hotfix)\/.+)$/;
-const BASE: Record<string, string> = { feature: "develop", release: "main", hotfix: "main" };
+const WIP = /^((?:feature|release|hotfix|arch)\/.+)$/;
+const BASE: Record<string, string> = { feature: "develop", arch: "develop", release: "main", hotfix: "main" };
 
 function audit(): number {
   const cur = current();
@@ -66,9 +85,27 @@ function audit(): number {
   }
   for (const b of open) {
     const kind = b.split("/")[0];
-    if (exists(BASE[kind]) && aheadOf(BASE[kind], b) === 0) {
+    // ORPHAN = landed-but-never-closed: every commit is in the base AND the
+    // tip is a strict ancestor (a finished base always grows a merge commit
+    // past it). A branch sitting AT the base tip is fresh work, not an orphan.
+    const sameTip = exists(BASE[kind])
+      ? git(["rev-parse", b]).out.trim() === git(["rev-parse", BASE[kind]]).out.trim()
+      : false;
+    if (exists(BASE[kind]) && !sameTip && aheadOf(BASE[kind], b) === 0) {
       bad++;
       console.log(`  ✗ ORPHAN: ${b} is fully merged into ${BASE[kind]} — it should have been closed via gitflow finish. STOP and report.`);
+    }
+    // STALE BASE — main/develop are merge-only, so while a work branch is
+    // open its base can only move through the governed close of THAT
+    // branch. Base commits missing from the work branch are proof of a
+    // violation: a direct commit on the base, or an illicit close.
+    const stale = exists(BASE[kind]) ? aheadOf(b, BASE[kind]) : 0;
+    if (stale > 0) {
+      bad++;
+      console.log(
+        `  ✗ STALE BASE: ${BASE[kind]} has ${stale} commit(s) not in ${b} — bases are merge-only, ` +
+          `so it can only have advanced through a direct ${BASE[kind]} commit or an illicit close. STOP and report.`,
+      );
     }
   }
   const remoteOpen = remotes.filter((b) => WIP.test(b));
@@ -79,12 +116,39 @@ function audit(): number {
   for (const b of ["main", "develop", ...open]) {
     if (!exists(b)) continue;
     const [behind, ahead] = (git(["rev-list", "--left-right", "--count", `origin/${b}...${b}`]).out.trim() || "0\t0").split(/\s+/).map(Number);
-    if (ahead > 0) console.log(`  ! ${b} is ${ahead} commit(s) AHEAD of origin — push required (commit ⇒ push)`);
+    if (ahead > 0) {
+      bad++;
+      console.log(`  ✗ ${b} is ${ahead} commit(s) AHEAD of origin — unpushed work (commit ⇒ push — origin must stay aligned)`);
+    }
     if (behind > 0) console.log(`  ! ${b} is ${behind} commit(s) behind origin — sync needed`);
   }
   if (git(["status", "--porcelain"]).out.trim()) console.log("  ! uncommitted changes present");
+  // The merge-only rule is enforced by the shared pre-commit hook — if it
+  // is not wired, nothing physically stops a base commit (docs alone
+  // never stopped anyone). Missing hook wiring is itself a violation.
+  const hooksPath = git(["config", "core.hooksPath"]).out.trim();
+  if (hooksPath !== "../primebrick-v3-sdk/tools/githooks") {
+    bad++;
+    console.log(
+      `  ✗ core.hooksPath is "${hooksPath || "(unset)"}" — expected "../primebrick-v3-sdk/tools/githooks". ` +
+        `Run: bun ../primebrick-v3-sdk/tools/gitflow.ts install-hooks`,
+    );
+  }
   if (bad === 0) console.log("  ✓ clean — develop + main (+ at most one open work branch)");
   return bad ? 1 : 0;
+}
+
+function installHooks(): number {
+  // Relative to the worktree root (where hooks run): the canonical shared
+  // hooks dir inside the sibling sdk repo — ONE copy, every repo wired.
+  const HOOKS = "../primebrick-v3-sdk/tools/githooks";
+  const top = git(["rev-parse", "--show-toplevel"]).out.trim();
+  if (!top) die("cannot resolve worktree root");
+  if (!existsSync(resolve(top, HOOKS, "pre-commit")))
+    die(`hook file not found at ${resolve(top, HOOKS, "pre-commit")} — is the sdk repo checked out at ../primebrick-v3-sdk?`);
+  if (git(["config", "core.hooksPath", HOOKS]).code !== 0) die("cannot set core.hooksPath");
+  console.log(`gitflow: core.hooksPath → ${HOOKS} — direct commits on main/develop now blocked by the governed pre-commit`);
+  return 0;
 }
 
 function finish(name?: string): number {
@@ -111,7 +175,7 @@ function finish(name?: string): number {
   }
 
   // release/hotfix also tag main and back-merge into develop
-  if (kind !== "feature") {
+  if (kind === "release" || kind === "hotfix") {
     const version = br.split("/")[1];
     if (!version) die(`${br}: cannot derive tag from branch name`);
     if (git(["tag", version]).code !== 0) die(`tag ${version} failed`);
@@ -136,4 +200,5 @@ function finish(name?: string): number {
 const cmd = process.argv[2];
 if (cmd === "audit") process.exit(audit());
 if (cmd === "finish") process.exit(finish(process.argv[3]));
-die("usage: gitflow audit | gitflow finish [branch]");
+if (cmd === "install-hooks") process.exit(installHooks());
+die("usage: gitflow audit | gitflow finish [branch] | gitflow install-hooks");

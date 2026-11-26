@@ -33,7 +33,7 @@ export function makeDbMigrationRouteHandler(
   onRecovered?: () => Promise<void>,
 ): RouteHandler {
   const pool = () => boot.pool();
-  const schema = () => boot.schema();
+  const schema = () => boot.schema?.() ?? boot.schemas()[0]!;
 
   const rerun = async (actor: string) => {
     const wasDegraded = state.degraded;

@@ -25,6 +25,7 @@ import { inspect } from "node:util";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { extJsonParse } from "../json/ext-json.js";
+import { setCoreLogTransport } from "@primebrick/core";
 
 export type LogLevel = "debug" | "info" | "done" | "warn" | "error";
 export type LogFormat = "pretty" | "json";
@@ -381,8 +382,16 @@ function stringifyArg(v: unknown): string {
  * Idempotent. Skipped under vitest (VITEST env) so test output is unaffected.
  */
 export function installConsoleBridge(): void {
-  if (bridgeInstalled) return;
   if (process.env.VITEST) return;
+  // Wire the core-log floor into this pipeline: libraries under the SDK
+  // (dal-pg) emit through core/logger, and their entries must never fall
+  // back to the bare default once a host runtime exists. Idempotent by
+  // replacement; runs before the bridgeInstalled early-return so watch-mode
+  // re-invocations keep the wiring even when the console rebind is skipped.
+  setCoreLogTransport((entry) => {
+    emit(entry.level, entry.msg, entry.meta);
+  });
+  if (bridgeInstalled) return;
   bridgeInstalled = true;
 
   console.log = (...args: unknown[]) => {

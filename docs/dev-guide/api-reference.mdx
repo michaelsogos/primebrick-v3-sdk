@@ -102,52 +102,6 @@ Find an API key by its SHA-256 hash. Returns null if not found.
 |-----------|------|-------------|
 | hash | `string` |  |
 
-### `ClientShieldRegistry`
-
-#### `ClientShieldRegistry.start(): Promise<void>`
-
-Subscribe to invalidation events first, then keep retrying the snapshot
-until the BE answers — the BE may be down at boot (same stateless-retry
-model as service.register). Non-blocking: until the first snapshot lands
-the allowlist is empty and every internal call is rejected (fail-closed).
-
-#### `ClientShieldRegistry.addChangeListener(cb)`
-
-Register a callback fired after a reload that actually changed row
-material — the service registrar hooks this to re-register when its own
-`key_generation` was bumped by a BE rotation.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| cb | `() => void` |  |
-
-#### `ClientShieldRegistry.refresh(): Promise<boolean>`
-
-Public forced re-fetch — the `ShieldRegistryLike.refresh` hook used by
-`verifyNatsPublisher`'s stale-snapshot recovery: a verified denial may
-simply be a cache that missed its `changed` broadcast (fire-and-forget
-core pub — no redelivery). One reload + retry closes that window;
-a genuinely unknown client still fails closed on the retry.
-
-#### `ClientShieldRegistry.generationFor(uaPrefix): number`
-
-The generation the BE issued for `uaPrefix` — a derived-mode service
-re-derives its key as `HMAC(secret, prefix:generation)`. Returns 0 for
-unknown/static rows (matches the DB default).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| uaPrefix | `string` |  |
-
-#### `ClientShieldRegistry.verifyKey(uaPrefix, presentedKey): boolean`
-
-Current-hash or grace-windowed previous-hash comparison for the matched prefix.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| uaPrefix | `string` |  |
-| presentedKey | `string` |  |
-
 ### `ConfigLoader`
 
 Dictionary-style config loader backed by a config table.
@@ -340,6 +294,35 @@ Adapter for raw Node.js HTTP IncomingMessage (microservices using createHttpServ
 |-----------|------|-------------|
 | name | `string` |  |
 
+### `MessageKeyProvider`
+
+#### `MessageKeyProvider(reader, partA, refreshDebounceMs)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| reader | `MessageKeyMaterialReader` |  |
+| partA | `string` |  |
+| refreshDebounceMs | `number` | reactive self-heal throttle — a miss never re-reads PG more than once per window |
+
+#### `MessageKeyProvider.refresh(): Promise<void>`
+
+Re-read the material row and re-derive the live generation window.
+
+#### `MessageKeyProvider.ready(): boolean`
+
+#### `MessageKeyProvider.currentKey(): { key: Buffer; generation: number } \| null`
+
+Publishers seal ONLY with the current generation.
+
+#### `MessageKeyProvider.keyForGeneration(generation): Buffer<ArrayBufferLike> \| null`
+
+Consumers open with whatever generation the message was sealed with —
+ any generation inside the retained window (7-day cap, autowired).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| generation | `number` |  |
+
 ### `MfaConsumeUnavailableError`
 
 The BE consume route could not be reached — transient, NOT a denial.
@@ -428,17 +411,27 @@ the connection was never established.
 
 #### `NatsClient.close(): Promise<void>`
 
-#### `NatsClient.publish(subject, data, hdrs): Promise<void>`
+#### `NatsClient.publishEphemeralLossy(subject, data, hdrs): Promise<void>`
 
-Publish a message with automatic Ext-JSON serialization.
+LOSSY fire-and-forget publish — core NATS, no persistence, no redelivery.
+If the consumer is down, busy or mid-restart, the message is silently
+gone. For this platform's reliability doctrine NO payload is
+non-mission-critical, so this primitive is legitimate ONLY for the
+governed exceptions of the 4-class doctrine (see nats-client.mdx):
+ephemeral presence (self-superseding), invalidation hints whose
+consumers re-pull truth on a TTL, and request/reply traffic.
+Everything else must use `publish()` (JetStream-durable).
+The name is deliberately deterrent — writing it should feel wrong.
+Lint `no-fnf-nats-publish` bans call sites outside sanctioned paths.
+
 The data object is serialized with extJsonStringify (BigInt-safe)
 and encoded as UTF-8 before publishing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| subject | `string` | NATS subject (e.g. "emailsender.send", "customer.created") |
+| subject | `string` | NATS subject |
 | data | `unknown` | Any serializable object (bigint values are preserved) |
-| hdrs | `Record<string, string>` |  |
+| hdrs | `Record<string, string>` | Optional NATS headers (e.g. auth headers for GATEWAY-RESOLVED mode) |
 
 #### `NatsClient.subscribe(subject, handler, opts): Promise<Subscription>`
 
@@ -467,13 +460,17 @@ enabled (`nats -js`).
 | subjects | `string[]` | Subjects bound to the stream (e.g. ["webhook.&#62;"]). For
   scheduled-message streams BOTH the schedule subjects AND the fire
   targets must be covered (ADR-51). |
-| opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean; maxAgeSecs: number; maxMsgsPerSubject: number; discard: "old" \| "new" }` |  |
+| opts | `{ allowMsgSchedules: boolean; syncSubjects: boolean; maxAgeSecs: number; maxMsgsPerSubject: number; discard: "old" \| "new"; retention: "limits" \| "workqueue" }` |  |
 
-#### `NatsClient.jetstreamPublish(subject, data, hdrs): Promise<bigint>`
+#### `NatsClient.publish(subject, data, hdrs): Promise<bigint>`
 
-Publish a message to JetStream and await the PubAck (durable write
-confirmed server-side). Same Ext-JSON serialization and header
-propagation as `publish()`.
+Publish a message — THE publish primitive of the platform. JetStream-durable
+by construction: the write is confirmed server-side via PubAck before
+returning, the message survives consumer downtime, and delivery is
+at-least-once. This is the default and ONLY sanctioned way to publish
+state-carrying traffic; the lossy core-NATS variant exists only for the
+governed ephemeral exceptions as `publishEphemeralLossy`.
+Same Ext-JSON serialization and header propagation everywhere.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -502,7 +499,7 @@ messages (concurrency), `maxDeliver` bounds retries.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number; streamSequence: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
+| opts | `{ stream: string; durable: string; filterSubject: string; consumer: { batch: number; fetchExpiresMs: number; ackWaitMs: number; maxDeliver: number; maxAckPending: number }; verify: (msg: { subject: string; headers: MsgHdrs }) => Promise<AuthUser \| null \| undefined>; isTerminal: (error: unknown) => boolean; handler: (data: T, msg: { subject: string; headers: MsgHdrs; info: { redeliveryCount: number; streamSequence: number }; authUser: AuthUser }) => Promise<unknown> }` |  |
 
 ### `NatsHeaderProvider`
 
@@ -702,56 +699,65 @@ No-op if no marker exists.
 | entityType | `string` |  |
 | entityUuid | `string` |  |
 
-### `RotatingSecretEngine`
+### `SecretVault`
 
-#### `RotatingSecretEngine(redis, opts)`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| redis | `RedisClientType` |  |
-| opts | `{ rotationMs: number; graceMs: number }` |  |
-
-#### `RotatingSecretEngine.get(ref): Promise<ClientShieldSecretSlot>`
-
-Read the slot; generate on cold start (TTL-expired or first boot).
+#### `SecretVault(deps)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
+| deps | `{ pool: SqlPoolPort; schema: string; policies: typeOperator; publishHint: (ref: VaultSecretRef, meta: { generation: number; rotated_at: number }) => Promise<void> }` |  |
 
-#### `RotatingSecretEngine.rotate(ref): Promise<ClientShieldSecretSlot>`
+#### `SecretVault.rotateIfNeeded(policy): Promise<{ rotated: boolean; generation: number \| null }>`
 
-Rotate `ref`: previous := current, current := fresh random. Serialized by a
-NX lock so concurrent owners (BE replicas, get-vs-timer races) rotate once.
+Rotate-if-needed: allocate the next generation when the ref has no
+material yet (boot self-healing) or the current generation is older
+than the policy cadence. Trimming of expired generations happens in
+the SAME transaction either way.
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
-
-#### `RotatingSecretEngine.startAutoRotation(ref)`
-
-Interval driver — ensure existence now, then rotate every rotationMs.
- Idempotent per ref: a lifecycle re-run (e.g. after a NATS outage)
- must not stack a second interval on the same rotation.
+Critical-section discipline (ratified):
+  BEGIN → pg_advisory_xact_lock → RE-READ state → maybe INSERT →
+  DELETE expired → COMMIT → hint broadcast AFTER commit.
+The lock is transaction-scoped: released automatically on
+commit/rollback/crash — no TTL, no orphan locks, no second infra.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
+| policy | `VaultEntryPolicy` |  |
 
-### `SecretProvider`
+#### `SecretVault.ensureAll(): Promise<void>`
 
-#### `SecretProvider.get(ref): Promise<ClientShieldSecretSlot>`
+Boot provisioning — ensure every owned ref has live material.
+
+#### `SecretVault.startAutoRotation()`
+
+Interval driver — ensure now, then check every policy cadence.
+ Idempotent per ref: a lifecycle re-run must not stack intervals.
+
+#### `SecretVault.stop()`
+
+Stop all cadence timers (shutdown/tests).
+
+### `SecretVaultReader`
+
+Read-only access to the vault generations of a ref. Services consume this
+through direct DAL — never over NATS. No policy knowledge required: rows
+older than the retention window no longer exist, so everything present
+belongs to the live key window.
+
+#### `SecretVaultReader(deps)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
+| deps | `{ pool: SqlPoolPort; schema: string }` |  |
 
-#### `SecretProvider.invalidate(scope, name)`
+#### `SecretVaultReader.readGenerations(ref): Promise<VaultGenerations \| null>`
+
+null when the ref has no material yet (pre-boot or after a wipe — the
+ owning writer self-heals it; consumers stay unavailable and retry).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| scope | `string` |  |
-| name | `string` |  |
+| ref | `VaultSecretRef` |  |
 
 ### `ServiceRegistrar`
 
@@ -775,16 +781,10 @@ health status (HTTP + NATS + custom checks).
 
 #### `ServiceRegistrar.register(): Promise<void>`
 
-#### `ServiceRegistrar.onRegistryChanged(currentGeneration)`
-
-Derived-key mode (B14): invoked by the client-shield registry after a
-reload that changed row material. `currentGeneration` is the generation
-the BE snapshot now advertises for this service — when the BE bumped it
-(rotate endpoint), re-register with the newly derived key.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| currentGeneration | `number` |  |
+Register with the BE via NATS request/reply (`service.register` is a
+correlation-reply endpoint). Stateless by design: retries every 5s until
+the BE acknowledges — a service that never registers does not exist to
+the system, so this method only resolves on ack.
 
 #### `ServiceRegistrar.sendHeartbeat(): Promise<void>`
 
@@ -1016,6 +1016,7 @@ UI configuration for a selection-aware bulk CTA (endpoint-backed op
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
 | color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
+| variant | `ActionVariant` | CTA shape — `default` or `outline` (CTA-only axis, never dialogs). |
 | required_permission | `string \| string[]` | Permission required to see/use the action. |
 | requires_selection | `boolean` | When true, the CTA is enabled only with rows selected and the body
  receives `selected_uuids`; false = fires with an empty body
@@ -1101,39 +1102,6 @@ undeclarable (enforcement over verification; no lint needed).
 |-------|------|-------------|
 | partial | `boolean` | `partial: true` — update semantics: only present keys validated,
  absent required fields skipped. Default false (create semantics). |
-
-### `ClientKeyMaterial`
-
-Row-shaped key material for verification (subset of
-`system.client_shield_registry` used by both the SDK consumer cache and the
-BE publisher-identity verifier).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| client_key_hash | `string` |  |
-| previous_key_hash | `string \| null` |  |
-| previous_valid_until | `string \| Date \| null` |  |
-
-### `ClientShieldRegistryRow`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| ua_prefix | `string` |  |
-| client_key_hash | `string` |  |
-| is_enabled | `boolean` |  |
-| key_generation | `number` | Key-rotation state (B14). `key_generation` is the BE-issued generation a
-derived-mode service must use to re-derive its key; `previous_*` carries
-the old hash during the grace window. |
-| previous_key_hash | `string \| null` |  |
-| previous_valid_until | `string \| Date \| null` | ISO string on the wire; Date when the BE passes rows in-process. |
-
-### `ClientShieldSecretSlot`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| current | `string` |  |
-| previous | `string \| null` |  |
-| rotated_at | `number` | Epoch ms of the last rotation. |
 
 ### `CollaborationMeta`
 
@@ -1226,6 +1194,15 @@ Only `unsigned: true` activates unsigned behavior. |
 | email | `ValidationRuleEmail` | Email format validation. |
 | regex | `ValidationRuleRegex` | Regex pattern validation (for string/text/secret/url/email/phone). |
 
+### `CoreLogEntry`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| level | `CoreLogLevel` |  |
+| msg | `string` |  |
+| meta | `Record<string, unknown>` |  |
+| at | `string` | UTC ISO-8601 timestamp of emission. |
+
 ### `CurrencyInfo`
 
 ISO 4217 currency metadata.
@@ -1245,7 +1222,10 @@ ISO 4217 currency metadata.
 |-------|------|-------------|
 | engine | `DbMigrationEnginePort` | dal-pg migrations surface — `import * as m from "@primebrick/dal-pg"` satisfies this. |
 | pool | `() => unknown` | Live pg pool — evaluated lazily right after `getDal()` ran. |
-| schema | `() => string` | Owning service schema (e.g. `env.DATABASE_SCHEMA`) — registry lives there. |
+| schemas | `() => typeOperator` | Owned schema list — the full domain, `[0]` = primary. Injected by
+createMicroservice from the service's declared `schemas` option —
+services never declare it on `dbPatches` (single source). |
+| schema | `() => string` | Registry-owning schema — defaults to `schemas()[0]` (the primary). |
 | patchesDir | `string` | Directory containing the .sql patch files (usually `<svc>/db-meta/patches`). |
 | dbMetaDir | `string` | db-meta dir with MANIFEST.json + keys.json — defaults to dirname(patchesDir). |
 | allowedTrust | `typeOperator` | Manifest signature trust levels accepted by this deploy. Default ["release"]. |
@@ -1366,6 +1346,14 @@ One file of pack content — wire format.
 
 ### `DocsPgClient`
 
+### `EdgeVerifiedRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| provenance | `VerifiedProvenance` |  |
+| body | `Buffer` | The exact body bytes the signature was verified against — downstream
+ body parsing MUST consume this buffer, never the (now-drained) stream. |
+
 ### `EmitServiceDocsInput`
 
 | Field | Type | Description |
@@ -1423,6 +1411,10 @@ unavailable for everyone (route missing or product-disabled).
  `crud_action` route, or `meta.actions_overrides[op]`. |
 | icon | `string` |  |
 | color | `ActionColor` |  |
+| variant | `ActionVariant` | CTA shape — `default` (filled severity variant) or `outline`
+ (gradient-outline ghost). CTA-only axis: it never reaches the
+ dialog surface — dialog `tone="soft"` stays the reserved
+ auth/security family, unreachable from meta. |
 | confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` for
  single ops, `{count}`/`{entity}` for bulk). When set it replaces the
  standard `app.common.{delete,restore}Entit{y,ies}Confirm` copy —
@@ -1456,6 +1448,8 @@ Backing route of an `EntityAction` — emitted by the BE route scan.
  +color travel as ONE contract; semantic icons bind their color. |
 | icon | `string` |  |
 | color | `ActionColor` |  |
+| variant | `ActionVariant` | CTA shape — `default` or `outline`. CTA-only axis: never reaches
+ the dialog (`tone="soft"` is the reserved security family). |
 | confirm_key | `string` | Confirm-dialog message template override (`{entity}`/`{name}` single,
  `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. |
 | busy_key | `string` | In-flight confirm-button label override — see `EntityAction.busy_key`. |
@@ -1482,7 +1476,7 @@ most recent change without scanning the audit log.
 |-------|------|-------------|
 | entity_type | `string` |  |
 | entity_uuid | `string` |  |
-| version | `number` | The new `version` after the save. |
+| version | `bigint` | The new `version` after the save. |
 | audit_log_id | `string \| number` | The audit row key of the change — bigint for legacy surrogate-id
  audit tables, uuid string for post-eradication `*_audit` rows
  (PK `(uuid, changed_at)`). |
@@ -1589,6 +1583,21 @@ served response. Used automatically for edit-page titles; reusable for
 comboboxes, lists, chips. |
 | actions_overrides | `ActionsOverrides` | Per-op enable overrides — may ONLY toggle `enabled` on route-backed
  ops; a missing route already produces `enabled: false`. |
+| create | `{ surface: "form" \| "sheet" }` | Create surface declaration — HOW `create.single` is exercised.
+ `"form"` (default when absent) → census `kind:"create"` route +
+ `page_props.form` → `EntityFormPage` page (the canonical archetype).
+ `"sheet"` → NO route required (a sheet is never a nav leaf): the
+ list create CTA opens `entity.record` in `mode:"create"` — the same
+ record panel, no fetch, empty draft, POST on commit.
+ Authored on the entity meta — never via component props. |
+| form | `{ validators: string[] }` | Entity-level form policy — the surface an entity declares for
+ surfaces that have no authored `page_props.form` (builtin/platform
+ entities have no route decl to author against: their record-sheet
+ forms ride the synthesized fallback). Consumed by
+ `synthesizeFormDecl`, which attaches `validators` verbatim — an
+ authored route `page_props.form` always wins (page-domain
+ placement beats entity policy). Field census stays synthesized:
+ `meta.columns` order is the single source, never duplicated. |
 | columns | `MetaColumn[]` | Entity field dictionary (root-level, transversal). |
 | table | `TableMeta` | Table options — omit when the entity has no table page
  (e.g. a self-service form meta). |
@@ -1603,7 +1612,10 @@ Entity declaration for `makeServiceRoutes`. `spec` only shapes the
 |-------|------|-------------|
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
-| permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
+| permissions | `Partial<Record<EntityAction, typeOperator \| false>>` | Permission per action — presence registers the route. `false`
+ explicitly DISABLES an op that would otherwise default-on (the
+ bulk twins inherit their single counterpart's perms — same opt-out
+ model as `duplicate`). |
 | meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
@@ -1631,7 +1643,10 @@ Throw `ValidationError` (or anything — it is wrapped) on failure. |
 |-------|------|-------------|
 | entityName | `string` | Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* |
 | service | `EntityServiceLike<TEntity>` |  |
-| permissions | `Partial<Record<EntityAction, typeOperator>>` | Permission per action — presence registers the route. |
+| permissions | `Partial<Record<EntityAction, typeOperator \| false>>` | Permission per action — presence registers the route. `false`
+ explicitly DISABLES an op that would otherwise default-on (the
+ bulk twins inherit their single counterpart's perms — same opt-out
+ model as `duplicate`). |
 | meta | `EntityMeta` | Static entity meta — served by GET /meta with derived
  `display_name` + `actions` + `collaboration`. When omitted, the meta
  route is not registered even if `permissions.meta` is set. |
@@ -1858,13 +1873,17 @@ The unified health response returned by `/health` on both BE and US.
 | serviceVersion | `string` | Service version (from package.json) — included in /health response. |
 | serviceUrl | `string` | Base URL the service is listening on — included in /health response. |
 | routeHandler | `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>` | Custom route handler — receives req/res, returns true if handled. |
-| clientShieldRegistry | `ClientShieldRegistry` | Client-identity gate (B11): when set, every non-/health request must
-carry a registry-listed `User-Agent` prefix + valid
-`x-primebrick-client-shield-key` before the route handler runs. |
-| identityExemptPaths | `RegExp[]` | URL paths exempt from the client-identity gate — for services that
+| identityExemptPaths | `RegExp[]` | URL paths exempt from the internal provenance gate — for services that
 expose a genuinely public surface (e.g. the webhook ingress, whose
 callers are external providers that cannot carry our identity headers).
 `/health` is always public and does not need listing. |
+| internalProvenance | `"off" \| "enforce" \| "verify-if-present"` | Internal provenance enforcement (arch-internal-trust-and-transports):
+  "enforce"           — every non-exempt request MUST carry a valid
+                        proof-of-possession signature (US servers: internal-only);
+  "verify-if-present" — signed/identity-claiming traffic must verify, cleartext
+                        x-user-* is rejected as an injection attempt, plain
+                        public traffic passes to its own auth chain (BE edge);
+  "off"               — no verification (library default; tests). |
 
 ### `IConfigEntity`
 
@@ -2007,16 +2026,24 @@ convention). Structurally assignable from the real `AuditParams`:
  a uuid primary key (its `*_audit` table drops the column). |
 | entityUuid | `string` |  |
 | action | `string` |  |
-| changedAt | `Date` |  |
-| version | `number` |  |
+| changedAt | `symbol \| Date` | Mirrors dal `AuditParams.changedAt` (`Date | DalNow`): in practice the
+ dal ALWAYS passes the DAL_NOW sentinel — a symbol meaning "the database
+ stamps clock_timestamp() itself". The application never knows the real
+ time by doctrine, so this value is NEVER a usable timestamp: the marker
+ must take the time from entity_updated_at or the audit row read-back. |
+| version | `bigint` |  |
 | changedBy | `string` |  |
 | delta | `Record<string, { old: unknown; new: unknown }>` |  |
+| entity_updated_at | `Date \| null` | Mirrors dal `AuditParams.entity_updated_at` — the entity row's freshly
+ stamped updated_at from the write's own RETURNING record (authoritative
+ DB clock). Present only when the write re-stamped it; absent/null for
+ HARD_DELETE and entities without the column. Never the pre-write stale
+ value. The marker PREFERS this — it is the entity's canonical
+ modification time — and falls back to the audit row's changed_at. |
 
 ### `MarkerAuditPort`
 
-Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
-inserted audit row key (used for the marker's `audit_log_id`): bigint
-for legacy surrogate-id audit tables, uuid string post-eradication.
+Structural mirror of dal-pg `AuditPort`.
 
 ### `MaterializeResult`
 
@@ -2026,6 +2053,15 @@ for legacy surrogate-id audit tables, uuid string post-eradication.
 | action | `"inserted" \| "updated" \| "unchanged" \| "skipped_deleted"` |  |
 | uuid | `string` |  |
 | changed_fields | `string[]` |  |
+
+### `MessageKeyMaterial`
+
+shape of the `service_message_key_material` row value in system.config_entries
+
+| Field | Type | Description |
+|-------|------|-------------|
+| generation | `number` |  |
+| generations | `Record<string, string>` | generation number → base64url parte_B for that generation (trimmed to the key window) |
 
 ### `MfaStepUpSpec`
 
@@ -2057,6 +2093,12 @@ Route declaration: which action/resource the token must authorize.
 | Field | Type | Description |
 |-------|------|-------------|
 | serviceName | `string` | Service name for logging and health endpoint (e.g. "emailsender"). |
+| schemas | `typeOperator` | Owned PG schema list — declaration order, `[0]` = the primary/owned
+schema. This is the service's schema identity AS CODE (typically the
+service's `OWNED_SCHEMAS` const): it feeds the service_registry
+ownership claim, the entity schema-domain assert, and the migration
+boot step. It is deliberately NOT env-configurable — a mutated schema
+silently bifurcates the database. |
 | serviceDisplayName | `string` | Human-readable name shown in service registry (e.g. "Email Sender"). |
 | serviceDescription | `string` | Service description for service registry. |
 | icon | `string` | Icon name for service registry (e.g. "mail"). |
@@ -2074,6 +2116,11 @@ SDK DB-agnostic: the service supplies a probe, e.g.
 | dalClose | `() => Promise<void>` | DAL close callback — called during graceful shutdown.
 The SDK is DB-agnostic so the consumer provides this.
 Typically `async () => { await getDal().close(); }`. |
+| dalPool | `() => SqlPoolPort` | Lazy accessor for the consumer-owned pg pool — REQUIRED, enforced by
+construction: the fabric message-key provider reads vault material
+through direct DAL (never NATS), so every microservice must expose
+its pool. Typically `() => getDal().getPool()`. Lazy because initDal
+has not run yet when the options object is built. |
 | configRepositoryAdapter | `() => ConfigRepositoryPort` | Factory for ConfigRepositoryPort — called after initDal.
 Reads config rows from the microservice's config table. |
 | authConfigPort | `(configLoader: ConfigLoader) => AuthConfigPort` | Factory for AuthConfigPort — called after ConfigLoader is created.
@@ -2097,6 +2144,10 @@ in the service's build script. |
 | identityExemptPaths | `RegExp[]` | Paths exempt from the client-identity gate — only for services with a
 genuinely public surface (e.g. the webhook ingress, whose callers are
 external providers). Everything else is gated by default. |
+| internalProvenance | `"off" \| "enforce" \| "verify-if-present"` | Internal provenance mode — defaults to "enforce" (internal-only services).
+The BE edge passes "verify-if-present": browser traffic is unsigned by
+nature, but cleartext identity injection is rejected and signed internal
+traffic is verified. Never set "off" outside tests. |
 | authDependencySetters | `(cfg: AuthConfig, apiKeyPort: ApiKeyPort) => void[]` | Auth dependency setters — called after auth config is loaded.
 Each setter receives (authConfig, apiKeyPort?) and typically wires
 auth dependencies into route handlers (e.g. setAuthDependencies(cfg, apiKeyPort)). |
@@ -2138,12 +2189,14 @@ app launcher, module menus) against this service's own translation
 namespace. Fallback when absent/unresolved: the raw `name`. |
 | customHealthChecks | `Record<string, () => Promise<HealthCheckResult>>` | Custom health checks beyond DB — added to the HealthCheck constructor.
 NATS check is added automatically if not provided. |
-| dbPatches | `DbMigrationBootOptions` | Database migration boot step — runs immediately after `initDal`, before
+| dbPatches | `ServiceDbMigrationOptions` | Database migration boot step — runs immediately after `initDal`, before
 ConfigLoader and any other table read. When set, the service owns its
 schema patches (`db-meta/patches` + signed MANIFEST.json) and applies
 them before registration. A critical failure boots the service in
 DEGRADED mode: only `/health` + the db-migration admin routes answer,
-domain traffic gets 503, heartbeat reports `db_migration.ok=false`. |
+domain traffic gets 503, heartbeat reports `db_migration.ok=false`.
+`schemas` is injected from the top-level `schemas` option (the service
+cannot declare a divergent list); `schema` defaults to the primary. |
 | partitionMaintenance | `PartitionMaintenanceJob` | Partition/retention maintenance — the shared system job produced by
 dal-pg's `makePartitionMaintenanceJob(entityRegistry)`.
 `needed=false` (no `@Partition`/`@AuditTrail`/`@Retention` surface)
@@ -2151,6 +2204,14 @@ mounts nothing and materializes no trigger. When set and needed, the
 `<svc>.partition_maintenance` callable is mounted inside the deferred
 on-ready init (post-NATS, post-migrations) and the system trigger is
 declared through the governed materialize route. |
+| sequenceRevive | `SequenceReviveJob` | Shared sequence-revive job wiring — produced by dal-pg's
+`makeSequenceReviveJob()`. The builtin `sequences` table mounts
+unconditionally, so the `<svc>.sequence_revive` callable mounts on
+every dal-backed service inside the deferred on-ready init
+(post-NATS, post-migrations); the system trigger is declared
+through the governed materialize route. The revive ALGORITHM lives
+once in dal-pg (`dal.sequenceRevive`) — the service only hosts the
+executor. |
 | onReady | `(ctx: MicroserviceContext) => Promise<void>` | Callback fired after everything is wired (NATS subscriptions, business
 logic init, etc.). Receives the full MicroserviceContext.
 SKIPPED entirely when the service booted degraded (migration failure). |
@@ -2222,11 +2283,11 @@ replicas). Pass `null` ONLY for broadcast listeners that must see every
 message — that intent stays visible in the declaration. |
 | permissions | `typeOperator` | RBAC permissions — MANDATORY unless `verify` is set. |
 | rbacMode | `"any" \| "all"` |  |
-| verify | `NatsRouteVerify` | Service-identity verification (e.g. BE client-shield check) instead of
+| verify | `NatsRouteVerify` | Service-identity verification (service-lane check) instead of
 the default AuthUser+RBAC chain. Use for service-to-BE subjects where
 the caller is a service, not a user. |
 | enrollment | `boolean` | Enrollment channel — the route's `verify` REPLACES the global Layer-1
-client-shield check entirely (it must do the equivalent check itself,
+caller-verification layer entirely (it must do the equivalent check itself,
 typically with `allowNewPrefix`). Only legal on routes whose purpose
 is first-time client enrollment (service.register): everywhere else a
 skipped L1 is a security hole and the flag must never be set. |
@@ -2240,6 +2301,13 @@ AND wires the mandatory runtime validation. Omit for private routes:
 a callable without a contract is not mappable. |
 | label_key | `string` | i18n keys for the callable census entry (picker label/description). |
 | description_key | `string` |  |
+| durable | `boolean` | Durable work-item transport — the route is consumed through JetStream
+(at-least-once + systemic Redis dedupe) instead of lossy core pub/sub.
+The factory ensures the per-service workqueue stream `<SERVICECODE>`
+capturing exactly this subject and wires the same verify/RBAC/contract
+middleware — the declaration is identical, only the transport changes.
+THE default for state-carrying work items (durability doctrine);
+absence is legitimate only for the governed ephemeral exceptions. |
 | handler | `(ctx: NatsRouteContext<TReq>) => Promise<unknown>` | The ONE service call. An object the handler returns is carried onto
 the `jobs.result.*` outcome message as `report` (same convention as
 `NatsClient.jetstreamSubscribe`) — a fire-and-forget route that wants
@@ -2250,7 +2318,7 @@ its execution report recorded on the run row just returns it. |
 | Field | Type | Description |
 |-------|------|-------------|
 | user | `AuthUser` | Resolved caller (GATEWAY-RESOLVED headers). `undefined` for
-service-authenticated routes (`verify` shield check) — services have
+service-lane routes (`verify` service check) — services have
 no AuthUser. |
 | request | `TReq` | Validated request payload. |
 | msg | `Msg` | Raw NATS message — headers, subject, reply. |
@@ -2598,13 +2666,6 @@ forwards them in headers.
 
 ### `RoleMappingPort`
 
-### `RotatingSecretRef`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| scope | `string` | "global" or a service code — scopes the key namespace. |
-| name | `string` |  |
-
 ### `RouterScanResult`
 
 | Field | Type | Description |
@@ -2623,6 +2684,7 @@ UI configuration for a non-standard row CTA (route-backed bare op).
 | translation_key | `string` | i18n key for the CTA label. |
 | icon | `string` | Icon name (Lucide in the reference FE) — absent renders an icon-less CTA. |
 | color | `ActionColor` | Semantic color for icon + label together — see `ActionColor`. |
+| variant | `ActionVariant` | CTA shape — `default` or `outline` (CTA-only axis, never dialogs). |
 | disabled_when_deleted | `boolean` | Disable the CTA on soft-deleted rows. |
 | required_permission | `string \| string[]` | Permission required to see/use the action (filtered client-side
  against the user's permission set). |
@@ -2723,20 +2785,112 @@ tests only. |
 | perms | `string[]` |  |
 | stepUp | `boolean` |  |
 
-### `SecretGetRequest`
+### `SequenceDecl`
+
+A sequence DEFINITION carried on the wire — the same shape
+`@SequenceField(decl)` declares on the entity class and the expr form
+of a write directive carries. `step`/`start` are bigint-only (ext-json
+decodes integers to bigint; plain-JSON clients cannot express the expr
+form — they select existing sequences by code/uuid instead).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| scope | `string` | "global" or a service code — scopes the key namespace. |
-| name | `string` |  |
+| pattern | `string` | Pattern source — parsed by parseSequencePattern at every boundary. |
+| step | `bigint` | Counter increment per emitted value — non-zero. |
+| start | `bigint` | First emitted counter value when the sequence is materialized. |
+| tz | `string \| null` | IANA zone for date tokens — `null`/`undefined` = server default. |
+| sez | `string` | Row-owned sezionale defaults materialized onto the sequence row —
+ the pattern's `{sez}`/`{sez2}`/`{sez3}` slots take the row's value
+ when the directive doesn't supply them (owned slots are immutable
+ at claim time — a directive may only supply non-owned slots). |
+| sez2 | `string` |  |
+| sez3 | `string` |  |
+| revive_every | `string` | Revive cadence `'N (day|week|month|quarter|year)[s]'` — the row is
+ cloned on a chained calendar (`expire_at` boundary, `switch_at`
+ retirement); NULL/absent = the row never revives. IMMUTABLE
+ post-create (the period contract is the row's identity). |
+| revive_grace | `string` | Overlap window `'N unit'` — how long the retired row survives
+ `expire_at` so backdated `at` values still resolve it. Editable —
+ only moves `switch_at`. Default `'0'`. |
+| revive_slot | `SequenceSezToken` | Which sez slot the period label advances at revive — must be a
+ slot the pattern uses; its value must parse under
+ derivePeriodLabel for the unit. Default `'sez'`. |
 
-### `SecretGetResponse`
+### `SequenceDirectiveContext`
+
+Optional per-allocation context carried by the object directive forms —
+ the sezionale slot values (`sez`/`sez2`/`sez3` — the counter partitions
+ are persisted per `(sequence, period, partition_key)`; the pattern's
+ slots decide which are required/allowed), the business date `at`
+ (ISO string — drives `period_key` + date tokens; default = write
+ time), and `tz` (IANA zone overriding the row's for THIS allocation —
+ resolve-time context, never stored on the counter).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| current | `string` |  |
-| previous | `string \| null` |  |
-| rotated_at | `number` | Epoch ms of the last rotation. |
+| sez | `string` |  |
+| sez2 | `string` |  |
+| sez3 | `string` |  |
+| at | `string` |  |
+| tz | `string \| null` |  |
+
+### `SequencePattern`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| source | `string` | The authored pattern string — persisted verbatim on the sequence row. |
+| segments | `SequenceSegment[]` |  |
+| counter_width | `number` | `{seq:W}` pad width (0 → no padding). |
+| period_kind | `SequencePeriodKind` | Counter-identity granularity implied by the date tokens present. |
+| sez_slots | `SequenceSezToken[]` | Sezionale slots the pattern uses, in slot order (`[]` → partition-free). |
+
+### `SequenceReviveJob`
+
+What `createMicroservice` needs to mount the job — produced by
+dal-pg's `makeSequenceReviveJob()`:
+`needed` is the ownership gate, `run` is the DAL executor.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| needed | `boolean` | `false` when the service owns no sequence surface — nothing mounts. |
+| run | `() => Promise<unknown>` | Runs `dal.sequenceRevive({actor:"system"})`; result → run report. |
+| i18nNs | `() => string` | The owning schema's translation namespace for the callable's
+label/description keys — `public`→`app`, every other schema owns
+itself. Resolved lazily at mount time by the dal-pg factory. |
+
+### `SequenceTokenContext`
+
+Authoring context for token examples/previews — the pattern-builder
+widget renders "what this token would emit" through the same helpers
+the real renderer uses. `counter`/`partitions` are ILLUSTRATIVE sample
+values (partitions are claim-time context, never persisted on the
+sequence row); `at` defaults to now, `tz` to UTC.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| counter | `bigint` |  |
+| at | `Date` |  |
+| tz | `string` |  |
+| partitions | `SequencePartitions` |  |
+
+### `SequenceTokenSpec`
+
+One insertable entry of the pattern grammar — the SINGLE catalog the
+ authoring widget lists, so the FE never re-declares the token set.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | `string` | Catalog identity — testids and the spec discriminator. |
+| key | `string` | i18n key suffix — `app.widgets.sequence_pattern.tokens.<key>`.
+ Explicit because the key grammar is lowercase-only and token ids
+ are case-meaningful: `{MM}` (month) and `{mm}` (minutes) would
+ both lowercase to `mm` — so minutes carries `min`, and `{HH}`/
+ `{hh}` carry `hh`/`hh12`. |
+| insert | `string` | Insertable source text — for `kind:"counter"` the panel composes
+ `{seq}`/`{seq:W}` from its padding form, so this stays `{seq}`. |
+| kind | `"date" \| "time" \| "literal" \| "sez" \| "counter"` |  |
+| slot | `string` | The used-set slot this insert consumes (`seq`, `yyyy`, `HH`, `sez`…).
+ `undefined` for repeatable literals — `{{`/`}}` never mark used. |
 
 ### `ServiceHealthCheck`
 
@@ -2763,8 +2917,8 @@ tests only. |
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
-it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-system.client_shield_registry, service_registry.pkg_name, log messages). |
+it forms the canonical identity `{pkg_name}/{version}`
+(service_registry.pkg_name, log messages). |
 
 ### `ServiceRegisterPayload`
 
@@ -2784,8 +2938,8 @@ system.client_shield_registry, service_registry.pkg_name, log messages). |
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
 | pkg_name | `string` | Package name from the service's package.json — with `service_version`
-it forms the canonical identity `{pkg_name}/{version}` (ua_prefix in
-system.client_shield_registry, service_registry.pkg_name, log messages). |
+it forms the canonical identity `{pkg_name}/{version}`
+(service_registry.pkg_name, log messages). |
 | endpoints | `Record<string, unknown>` |  |
 | part_of | `string` | ROOT LEVEL the module belongs to (`part of`) — e.g. 'system' for
 platform services, 'crm' for the CRM domain. Persisted in
@@ -2804,27 +2958,18 @@ against this service's OWN translation namespace (same contract as
 nav[].label_key). Persisted in `service_registry.label_key`; every UI
 surface (breadcrumbs, app launcher, module menus) renders it, falling
 back to the raw `name` when absent or the key is unresolved. |
-| client_key_hash | `string` | sha256 of the service's client shield key (module config
-`service_client_shield_key`). The raw key NEVER travels — the BE
-stores only this hash in client_shield_registry and verifies inbound
-`x-primebrick-client-shield-key` by hashing+comparing. |
-| key_mode | `"static" \| "derived"` | Key-rotation contract (B14): `key_mode='derived'` means the hash was
-produced from `HMAC(derivation_secret, ua_prefix:key_generation)` — the
-BE stores `key_generation` on the row and a rotate endpoint bumps it,
-triggering re-registration with the next derived key. 'static' rows
-carry a service-configured key and rotate only by admin action. |
-| key_generation | `number` |  |
 | capabilities | `string[]` | Capabilities declared in the service's package.json
 (`"capabilities": [...]`, snake_case lowercase) — e.g.
 `llm_orchestrator`, `vectorizing_engine`. Persisted by the BE in
 `service_registry.capabilities` and refreshed at every registration,
 so the registry always reflects the deployed artifact. |
-| schemas | `string[]` | PG schema ownership claim — the service's `DATABASE_SCHEMA` env list
-(validated by `assertDbEnv`). The first schema is the owned one.
+| schemas | `string[]` | PG schema ownership claim — the service's declared schema list
+(code constant, validated by `assertValidSchemaList`). The first
+schema is the owned one.
 Persisted in `service_registry.schemas`: the BE rejects registration
 when a claimed schema is owned by a different code, or is one of the
-platform schemas (the BE's own `DATABASE_SCHEMA`, e.g.
-public/system/custom). The claim survives offline/stale rows and is
+platform schemas (the BE's own declared list, e.g.
+system/public/custom). The claim survives offline/stale rows and is
 released only by `service.unregister` or admin purge. |
 | code_source | `"derived" \| "override"` | How `code` was resolved (B3 — static service identity):
 `derived`   — `code === pkg_name` minus the `primebrick-` prefix;
@@ -2859,29 +3004,15 @@ namespace by every UI surface (fallback: raw `name`). |
 | is_behind_scaler | `boolean` |  |
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
-| clientKey | `string` | This service's own client key (module config `service_client_shield_key`) — paired with
-the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent
-in `service.register`; the raw key never leaves the service. |
-| keyDerivationSecret | `string` | Derived-key mode (B14): the service's derivation secret (module config
-`service_key_derivation_secret`). When set, every `service.register`
-materializes the key as `HMAC(secret, ua_prefix:generation)` for the
-generation the BE advertises — the row becomes `key_mode='derived'` and
-a BE-side rotate (generation bump) auto-triggers re-registration with
-the newly derived key. No key material rests in config or on disk. |
-| registryGeneration | `() => number` | Reads this service's current `key_generation` from the client-shield
-registry snapshot (wired by create-microservice). Required for derived
-mode; unused otherwise. |
-| generationSlot | `{ value: number }` | Shared slot (wired by create-microservice): the registrar writes the
-generation of each ACKED register so outbound calls keep deriving the
-acked key while the post-rotation handshake completes (zero-gap). |
 | gatewayUrl | `string` | API gateway base URL (the BE, e.g. `http://localhost:3001`) — used only
 as a log tag on lifecycle messages so the target of registration and
 heartbeats is visible on the service's stdout. |
 | docsPackDir | `string` | Absolute path of the built docs pack (e.g. `dist/docs-pack`). When it
 contains a manifest.json, the `docs_pack` capability is added to the
 registration automatically — no package.json edit needed. |
-| schemas | `string[]` | PG schema ownership claim — the service's `DATABASE_SCHEMA` list
-(validated by `assertDbEnv`, first = owned schema). Sent in
+| schemas | `string[]` | PG schema ownership claim — the service's declared schema list
+(code constant, validated by `assertValidSchemaList`, first = owned
+schema). Sent in
 `service.register` → persisted in `service_registry.schemas` so the
 BE can enforce one-module-one-schema (`SCHEMA_OWNERSHIP_CONFLICT`). |
 | codeSource | `"derived" \| "override"` | How `serviceCode` was resolved: `"override"` when package.json
@@ -2903,6 +3034,9 @@ ServiceRegistryRepo) to persist incoming lifecycle events.
 | Field | Type | Description |
 |-------|------|-------------|
 | info | `{ title: string; version: string; description: string }` | OpenAPI document info — title is required, version recommended. |
+| schemas | `typeOperator` | The service's declared schema list (code const — [0] = owned schema).
+Carried into the builtin decl context so platform surfaces resolve
+their owned namespace from service identity, never env. |
 | serverUrl | `string` | Emitted as `servers[0].url` when present. |
 | tags | `{ name: string; description: string }[]` | Extra top-level OpenAPI tags. |
 | entities | `EntityRouteDecl<unknown>[]` | Entity CRUD routers — routes AND spec derived from one config. |
@@ -2992,13 +3126,16 @@ EntityTablePage/EntityFormPage shell declaration extracted from the page.
 | editAction | `boolean` |  |
 | navStrategy | `string` |  |
 
-### `ShieldRegistryLike`
+### `SqlClientPort`
 
-Structural view of the client registry needed for shield checks.
+### `SqlPoolPort`
+
+### `SqlQueryResult`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| allowedPrefixes | `typeOperator` |  |
+| rows | `Record<string, unknown>[]` |  |
+| rowCount | `number \| null` |  |
 
 ### `SqlVersionProbe`
 
@@ -3236,6 +3373,40 @@ Empty string or undefined = no flags. Flags are NOT parsed from the pattern stri
 | protocols | `string[]` | Allowed URL protocols, e.g. ["http", "https", "redis", "rediss", "tcp"]. |
 | error_label_key | `string` |  |
 
+### `VaultEntryPolicy`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| ref | `VaultSecretRef` |  |
+| rotationMs | `number` | Rotation cadence — rotation happens when the current generation is
+ older than this (checked at boot and on the interval). |
+| retentionMs | `number` | Retention window — generations older than this are physically deleted
+ inside every rotation transaction. |
+
+### `VaultGenerations`
+
+Reader output — shaped exactly like MessageKeyMaterial so the A6 wiring
+is `new MessageKeyProvider(() => reader.readGenerations(ref))`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| generation | `number` |  |
+| generations | `Record<string, string>` |  |
+
+### `VaultSecretRef`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| scope | `string` | "global" for fleet-wide secrets, or a service/module scope. |
+| name | `string` |  |
+
+### `VerifiedProvenance`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| service | `string` | The signer's declared and proven service code. |
+| sensitiveHeaders | `Record<string, string>` | Sensitive headers opened from the sealed blob (empty when absent). |
+
 ### `VisibleKeyPrefs`
 
 Persisted column-visibility intent (storage schema v2): the user's
@@ -3270,7 +3441,21 @@ Closed action-color vocabulary — ONE semantic drives BOTH the icon and
 Per-op overrides — `enabled` toggles route-backed ops; chrome fields
  restyle the standard CTA without touching its logic.
 
-**Type:** `Record<string, { enabled: boolean; label_key: string; icon: string; color: ActionColor; confirm_key: string; busy_key: string }>`
+**Type:** `Record<string, { enabled: boolean; label_key: string; icon: string; color: ActionColor; variant: ActionVariant; confirm_key: string; busy_key: string }>`
+
+### `ActionVariant`
+
+Closed action-variant vocabulary — the CTA SHAPE axis, orthogonal to
+`color`. Same names as the svelte `Button` shape prop:
+`default` = filled severity variant (the standard look);
+`outline` = gradient-outline ghost (secondary affordance, e.g. export).
+`variant` reaches ONLY the CTA — never the dialog: an "outline dialog"
+would be the `tone="soft"` security-family style, and that tone is
+semantically reserved (MFA/OTP/session), not a shape pick.
+A meta may never smuggle a shape outside this set — the enum IS the
+contract.
+
+**Type:** `"default" \| "outline"`
 
 ### `ApiKeyCacheSource`
 
@@ -3334,9 +3519,17 @@ own domain subject only — nothing in this axis knows scheduling exists.
 
 **Type:** `() => Promise<void>`
 
-### `ClientIdentityResult`
+### `ColumnDefaultSpec`
 
-**Type:** `{ ok: true; ua: string } \| { ok: false; status: 401 \| 403; error: string }`
+`ColumnDefaultSpec` — the computed-default vocabulary a `MetaColumn.default`
+may carry instead of a literal. Closed union — consumers recognize the
+spec by `kind` membership, never by object shape alone (a jsonb column
+may legitimately hold a literal object default).
+
+  - `"next_day_start_local"` — the form seeds tomorrow at 00:00 in the
+    USER's local zone, serialized to the column's wire type (`datetime`
+    → UTC ISO). The anchor-default for "starts from" fields (e.g.
+    `sequence.default_from`).
 
 ### `ConfigEntry`
 
@@ -3381,6 +3574,37 @@ and FE widget selection.
 
 **Type:** `"string" \| "text" \| "boolean" \| "bigint" \| "number" \| "money" \| "badge" \| "single_select" \| "multi_select" \| "url" \| "secret" \| "json" \| "date" \| "datetime" \| "time" \| "email" \| "phone"`
 
+### `CoreLogLevel`
+
+Minimal environment-neutral logger — the shared logging floor for every
+primebrick library.
+
+Why this exists: libraries below the SDK (dal-pg, anything in core itself)
+cannot import the SDK logger — the dependency direction forbids it. Before
+this module they fell back to raw `console.*`, which produced unformatted
+bare lines in service output. Every library MUST route diagnostics through
+`logger` here instead of `console.*`.
+
+Design:
+- **Environment-neutral** — no Node APIs, no DOM, no OTel. `console` exists
+  in every runtime; the default transport writes formatted lines there.
+- **Never bare** — even with zero wiring, output carries timestamp + level,
+  so an unconfigured library can never print a naked message again.
+- **Transport hook** — the runtime owner (the SDK in `createMicroservice`,
+  or the BE at its own boot) installs ONE transport via
+  setCoreLogTransport; entries then flow into the host pipeline
+  (trace correlation, batching, OTel) and become indistinguishable from
+  host logs. Libraries never know nor care.
+- **Zero state beyond the transport** — no level filtering here: when a
+  transport is wired the host pipeline already gates levels; the default
+  path emits everything (libraries log sparingly by contract).
+
+**Type:** `"debug" \| "info" \| "warn" \| "error"`
+
+### `CoreLogTransport`
+
+**Type:** `(entry: CoreLogEntry) => void`
+
 ### `DbEnv`
 
 ### `DecimalInput`
@@ -3415,7 +3639,7 @@ Values mirror the `Permission` enum in `@primebrick/sdk`.
 
 ### `EntityCrudOp`
 
-**Type:** `"meta" \| "list" \| "get" \| "create" \| "update" \| "delete" \| "purge" \| "restore" \| "audit" \| "export" \| "duplicate" \| "bulk_delete" \| "bulk_restore"`
+**Type:** `"meta" \| "list" \| "get" \| "create" \| "update" \| "delete" \| "purge" \| "restore" \| "audit" \| "export" \| "duplicate" \| "bulk_delete" \| "bulk_restore" \| "bulk_update"`
 
 ### `EntityMetaResponse`
 
@@ -3504,22 +3728,6 @@ Flat i18n dict — keys are full dot-paths (e.g. "app.auth.login.title").
 
 ### `InternalIdentityProvider`
 
-Internal HTTP client — the ONLY legal way to call another Primebrick
-service over HTTP (BE→US, US→US).
-
-`internalFetch` is a thin wrapper over `fetch` that force-injects the
-caller's service-identity headers (User-Agent + x-primebrick-client-shield-key)
-provided by `configureInternalClient`. Identity headers are applied AFTER
-the caller's own headers so they can never be overridden or spoofed.
-
-Fail-closed: if no provider was configured at boot, every call throws —
-a raw `fetch()` to a microservice would be rejected by the identity gate
-anyway, so bypassing this client is pointless. This is what makes the
-"forgot the identity headers" class of bug impossible.
-
-External calls (Casdoor, Brevo, LLM providers, …) MUST keep using plain
-`fetch` — they are not governed by the client registry.
-
 **Type:** `() => Record<string, string>`
 
 ### `JsonSchema`
@@ -3548,6 +3756,14 @@ Global connector joining the advanced-filter group.
 
 ### `LucideRewriteResult`
 
+### `MessageKeyMaterialReader`
+
+Reader port — implemented by createMicroservice wiring (A6) as a direct DAL
+read on system.config_entries. Injectable for tests and for the boot order:
+the provider never owns the connection, only the derivation and the cache.
+
+**Type:** `() => Promise<MessageKeyMaterial \| null>`
+
 ### `MetaColumn`
 
 Entity field descriptor — the root-level `columns` dictionary.
@@ -3574,13 +3790,6 @@ crosses the wire. Same physical-column rule as `color_field`.
 
 ### `MetaColumnDependsCondition`
 
-A sibling-value condition — the SAME vocabulary `null_label.when` and
-`visible_on` already use for row-gated rendering, lifted to form scope.
-`prop` compares against the pivot ROW's prop (the picked ref option's
-raw row — e.g. its `code`); absent `prop` compares the pivot's stored
-value directly. `equals`/`not` take a single literal, `values` a set
-(IN semantics).
-
 ### `MetaColumnFormat`
 
 Authored field-format vocabulary — the SEMANTIC input contract of a
@@ -3592,7 +3801,7 @@ Closed union on purpose: an unknown `format` in a `*.meta.ts` file is a
 compile error — the US→FE option boundary is enforced by the type.
 New formats are additive literals (never breaking).
 
-**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang"`
+**Type:** `"text" \| "textarea" \| "email" \| "url" \| "phone" \| "secret" \| "nats_subject" \| "service_code" \| "schedule_spec" \| "json" \| "display_name" \| "idp_name" \| "color_hex" \| "number" \| "money" \| "date" \| "datetime" \| "time" \| "identifier" \| "snake_key" \| "dotted_key" \| "dotted_glob" \| "rule_filter" \| "slug" \| "no_space" \| "lang" \| "sequence" \| "sequence_pattern" \| "revive_interval" \| "revive_offset" \| "i18n_key"`
 
 ### `MetaColumnOptionsSource`
 
@@ -3601,7 +3810,7 @@ COLUMN (`MetaColumn.options_source`), never on a form placement:
 the same contract feeds forms, list filters and docs generation.
 Closed union on purpose — an unknown source is a construction error.
 
-**Type:** `"census.emits" \| "census.callables" \| "audit.actors" \| "system.roles"`
+**Type:** `"census.emits" \| "census.callables" \| "audit.actors" \| "system.roles" \| "iana.tzones"`
 
 ### `MetaColumnType`
 
@@ -3659,13 +3868,6 @@ absent — adimensional, it is a `kind` of its own.
 **Type:** `"length" \| "mass" \| "volume" \| "area" \| "time" \| "temperature" \| "digital" \| "angle"`
 
 ### `MetaColumnUomSource`
-
-Option vocabulary a unit-of-measure selector may draw from.
-`"currencies"`: the ISO 4217 list resolved client-side (`getAllCurrencies`
-— same source the config-domain currency picker uses). `{entity}`: the
-UoM codes persist as rows of another entity (resolved via its `/list`).
-`{api_url}`: an explicit endpoint serving the options.
-Closed union on purpose — an unknown source is a construction error.
 
 **Type:** `"currencies" \| { entity: string } \| { api_url: string; value_field: string; label_field: string }`
 
@@ -3824,7 +4026,7 @@ MountPageFn.
 Custom caller verification. Replaces the default
 verifyNatsMessage+enforceNatsRbac chain. Return:
   - `AuthUser`  → caller verified (user available in ctx.user)
-  - `undefined` → caller verified, no user (service-to-BE shield identity)
+  - `undefined` → caller verified, no user (service-to-service lane identity)
   - `null`      → denied (auth error to the caller / drop for pub/sub)
 
 **Type:** `(msg: Msg) => Promise<AuthUser \| null \| undefined>`
@@ -4010,6 +4212,12 @@ Queryable — same type the DAL Repository uses (Pick&#60;Pool, "query"&#62;).
 `<chunk>.deps.json` — emitted next to each remote chunk at build time,
 declaring the vendor specifiers/versions it was compiled against.
 
+### `ReviveSpec`
+
+A revive axis value: a `'N unit'` interval or a pinned instant.
+
+**Type:** `{ kind: "interval"; count: number; unit: SequenceReviveUnit } \| { kind: "at"; at: Date }`
+
 ### `RoundingMode`
 
 **Type:** `"UP" \| "DOWN" \| "CEILING" \| "FLOOR" \| "HALF_UP" \| "HALF_DOWN" \| "HALF_EVEN"`
@@ -4024,6 +4232,116 @@ declaring the vendor specifiers/versions it was compiled against.
  issue key so the form can say WHY, not just THAT it failed.
 
 **Type:** `"invalid" \| "below_min_interval"`
+
+### `SequenceDateToken`
+
+Sequence pattern engine — the ONE generator shared by ad-hoc (runtime)
+and persisted (counter-in-DB) sequences. String interpolation NEVER
+happens in SQL: the database only escrows integer counters; this module
+turns `{pattern, counter, step}` into rendered codes, identically for
+the FE forecast and the BE assignment (same function → no drift).
+
+Grammar (closed):
+
+  segment   := literal | counter | dateToken | timeToken | partition
+  counter   := "&#123;seq&#125;" | "&#123;seq:" width "&#125;"     — exactly ONE per pattern
+  dateToken := "&#123;yyyy&#125;" | "&#123;yy&#125;" | "&#123;MM&#125;" | "&#123;dd&#125;" | "&#123;q&#125;"
+  timeToken := "&#123;HH&#125;" | "&#123;hh&#125;" | "&#123;mm&#125;" | "&#123;ss&#125;" — at most once each
+  partition := "&#123;sez&#125;" | "&#123;sez2&#125;" | "&#123;sez3&#125;"   — up to 3, any position
+  literal   := any chars except unescaped braces; "&#123;&#123;"→"&#123;", "&#125;&#125;"→"&#125;"
+
+Invariants:
+ - exactly one `{seq[:W]}` slot — two numeric slots would need two
+   counters, and that is scope creep not a pattern;
+ - `width` is a MIN-width zero-pad, never a max — a counter that
+   overflows its width renders honestly (`{seq:5}` + 100000 →
+   `"100000"`): uniqueness beats aesthetics, always;
+ - a pattern carrying date tokens is PERIOD-SCOPED by its finest
+   token: `{yyyy}`→reset per year, `+{q}`→per quarter, `+{MM}`→per
+   month, `+{dd}`→per day (Italian-invoice semantics — no holes,
+   no duplicates inside one period). TIME TOKENS NEVER SCOPE the
+   counter — `{mm}`/`{ss}` are claim-time cosmetics (a timestamp
+   suffix), not period granularity: an hourly counter reset would
+   be a different feature entirely;
+ - case IS the grammar: `{MM}` is month, `{mm}` is minutes; `{HH}`
+   is 24-hour, `{hh}` is 12-hour — the token sets are disjoint by
+   case, exactly like strftime/moment conventions;
+ - `{sez}`/`{sez2}`/`{sez3}` are POSITIONAL sezionale slots rendered
+   from directive fields (`sez`, `sez2`, `sez3`); the counter PK is
+   `(sequence_id, period_key, partition_key)` where partition_key is
+   the used slots joined in slot order — `{sez3}` alone ≠ `{sez}`
+   with the same value: empty slots stay meaningful;
+ - the two period axes are ORTHOGONAL: date tokens always render `at`
+   (the business date on the directive ctx, default now — never
+   ambient wall-clock of the caller's choosing) and drive the
+   counter-level auto-roll via `period_key`; sez slots are the
+   ROW-OWNED period axis — a reviving sequence clones the row and
+   advances the `revive_slot` value via `derivePeriodLabel`, the
+   counter resets because the successor is a new uuid (new counter
+   namespace), never because a counter row is rewritten;
+ - `step` is a non-zero bigint — negative steps are honest arithmetic
+   (countdown sequences exist) and are NOT special-cased;
+ - counters are `bigint` end to end: width 19 is PG bigint capacity
+   and ext-json carries bigint natively.
+
+**Type:** `"yyyy" \| "yy" \| "MM" \| "dd" \| "q"`
+
+### `SequenceDirective`
+
+**Type:** `{ seq: string } \| { seq: { uuid: string } & SequenceDirectiveContext } \| { seq: SequenceDecl & SequenceDirectiveContext }`
+
+### `SequenceMode`
+
+Sequence-widget modes — the two write-path configurations a
+`format:"sequence"` control may offer. Closed union on purpose.
+ - `"generate"` — inline pattern builder emitting a `{seq:{pattern,…}}`
+   directive (resolved + materialized inside the write transaction);
+ - `"select"` — combobox over the module's `sequence` registry,
+   emitting `{seq:{uuid}}` (uuid is the ONLY sequence identity).
+
+**Type:** `"generate" \| "select"`
+
+### `SequencePartitions`
+
+Sezionale values supplied per assignment — positional per token.
+
+**Type:** `Partial<Record<SequenceSezToken, string>>`
+
+### `SequencePeriodKind`
+
+**Type:** `"none" \| "year" \| "quarter" \| "month" \| "day"`
+
+### `SequenceReviveSlot`
+
+**Type:** `typeof SEQUENCE_REVIVE_SLOTS[number]`
+
+### `SequenceReviveUnit`
+
+**Type:** `"day" \| "week" \| "month" \| "quarter" \| "year"`
+
+### `SequenceSegment`
+
+**Type:** `{ kind: "literal"; text: string } \| { kind: "counter"; width: number } \| { kind: "date"; token: SequenceDateToken } \| { kind: "time"; token: SequenceTimeToken } \| { kind: "sez"; slot: SequenceSezToken }`
+
+### `SequenceSezToken`
+
+**Type:** `"sez" \| "sez2" \| "sez3"`
+
+### `SequenceTimeToken`
+
+`{HH}`=24h, `{hh}`=12h, `{mm}`=minutes, `{ss}`=seconds — cosmetic
+ claim-time stamps; NEVER participate in `period_key`.
+
+**Type:** `"HH" \| "hh" \| "mm" \| "ss"`
+
+### `ServiceDbMigrationOptions`
+
+What a service declares as `createMicroservice({ dbPatches })` — the
+resolved boot options MINUS the schema fields: `schemas` is injected
+from the top-level `schemas` option (single source — the service cannot
+declare a divergent list) and `schema` defaults to the primary.
+
+**Type:** `Omit<DbMigrationBootOptions, "schemas" \| "schema"> & { schema: () => string }`
 
 ### `ServiceRoutesHandler`
 
@@ -4111,6 +4429,13 @@ the renderer).
 
 **Type:** `typeOperator`
 
+### `ACTION_VARIANTS`
+
+The full `ActionVariant` vocabulary — construction/lint validation
+ rejects anything outside this closed set.
+
+**Type:** `typeOperator`
+
 ### `API_KEY_CACHE_TTL_MS`
 
 Shared cache key + TTL for `api_keys` lookups.
@@ -4174,30 +4499,6 @@ HTTP header names used by the Primebrick cache protocol.
 | PB_CACHED | "X-PB-Cached" |
 | PB_CACHE_SCOPE | "X-PB-Cache-Scope" |
 
-### `CLIENT_SHIELD_KEY_HEADER`
-
-**Type:** `"x-primebrick-client-shield-key"`
-
-### `CLIENT_SHIELD_REGISTRY_SUBJECTS`
-
-**Type:** `{ GET: "system.clientShieldRegistry.get"; CHANGED: "system.client_shield_registry.changed" }`
-
-| Field | Value |
-|-------|-------|
-| GET | "system.clientShieldRegistry.get" |
-| CHANGED | "system.client_shield_registry.changed" |
-
-### `CLIENT_SHIELD_SECRET_REF`
-
-Canonical ref of the rotating client-shield secret.
-
-**Type:** `{ scope: "global"; name: "service_client_shield_secret" }`
-
-| Field | Value |
-|-------|-------|
-| scope | "global" |
-| name | "service_client_shield_secret" |
-
 ### `CONFIG_CHANGED_SUBJECT`
 
 NATS broadcast subject for config-change notifications.
@@ -4256,12 +4557,6 @@ contract (embeddings are model-bound; the consumer re-embeds).
 ### `DOCS_PACK_SCHEMA_VERSION`
 
 **Type:** `1`
-
-### `DOCS_PACK_SHIELD_HEADER`
-
-Canonical header carrying the rotating client-shield secret on s2s calls.
-
-**Type:** `"x-client-shield-secret"`
 
 ### `DOTTED_GLOB_RE`
 
@@ -4507,6 +4802,25 @@ Control-plane route for system-trigger materialization (primebrick-job).
 | done | "" |
 | warn | "" |
 | error | "" |
+
+### `MESSAGE_KEY_MATERIAL_POLICY`
+
+Ratified policy: hourly rotation, 7-day key window (the retention cap).
+
+**Type:** `VaultEntryPolicy`
+
+### `MESSAGE_KEY_MATERIAL_REF`
+
+The fabric message-key material — rotating parte_B of the split key.
+
+**Type:** `VaultSecretRef`
+
+### `MESSAGE_KEY_PART_A`
+
+parte_A — fleet-common derivation root. See the posterity note above.
+Not a credential: useless alone without live access to parte_B in PG.
+
+**Type:** `"pb-mkroot-v1:8f3c2a91e47b4d06f1a593c7d28b4e05a6c1f902d7b3485e96a0c3d51f2e7b89"`
 
 ### `MFA_ACTION_AUTH_HEADER`
 
@@ -5048,25 +5362,19 @@ Test helper alias (backward compat).
 
 **Type:** `() => void`
 
-### `SECRET_DEFAULTS`
+### `REVIVE_AT_RE`
 
-Rotation cadence + how long `previous` stays acceptable.
+**Type:** `RegExp`
 
-**Type:** `{ rotationMs: number; graceMs: number }`
+### `REVIVE_INTERVAL_RE`
 
-| Field | Value |
-|-------|-------|
-| rotationMs | "" |
-| graceMs | "" |
+`'15 days'`, `'1 month'`, `'2 years'` — the closed wire format.
 
-### `SECRET_SUBJECTS`
+**Type:** `RegExp`
 
-**Type:** `{ GET: "secret.get"; ROTATED: "secret.rotated" }`
+### `REVIVE_UNTIL_RE`
 
-| Field | Value |
-|-------|-------|
-| GET | "secret.get" |
-| ROTATED | "secret.rotated" |
+**Type:** `RegExp`
 
 ### `SEMANTIC_ICON_COLORS`
 
@@ -5083,6 +5391,31 @@ label can never drift apart even by accident.
 - `exec-stop`  → destructive (stop/disable is a destructive op)
 
 **Type:** `Record<string, ActionColor>`
+
+### `SEQUENCE_REVIVE_SLOTS`
+
+The three positional sezionale slots — the only legal `revive_slot`
+ values, and the slots a pattern's `{sez}`/`{sez2}`/`{sez3}` tokens map.
+
+**Type:** `typeOperator`
+
+### `SEQUENCE_REVIVE_UNITS`
+
+**Type:** `typeOperator`
+
+### `sequenceTokenExampleDefaults`
+
+Illustrative defaults the catalog (and any pattern-builder preview)
+ falls back to when the caller does not override the example context —
+ exported so the authoring widget and the token sheet share ONE set
+ of sample values instead of re-declaring them.
+
+**Type:** `{ counter: {"value":"42","negative":false}; partitions: { sez: "A"; sez2: "01"; sez3: "X" } }`
+
+| Field | Value |
+|-------|-------|
+| counter | {"value":"42","negative":false} |
+| partitions | "" |
 
 ### `SERVICE_SUBJECTS`
 
@@ -5111,11 +5444,50 @@ NOT published by microservices — it is a BE-internal event.
 | STALE | "service.stale" |
 | GATEWAY_ONLINE | "service.gateway_online" |
 
+### `serviceLaneVerify`
+
+Service-to-service lane verification: declares explicitly that the route
+carries no user context — the sealed A7 envelope (validated at the
+transport layer before any route logic runs) IS the provenance proof, and
+no user identity exists to resolve. Mount on routes that exist for
+service-to-service traffic only (service.register, config.get, …).
+
+Routes that MAY carry user context depending on the lane must instead
+deserialize opportunistically and decide inside the handler.
+
+**Type:** `NatsRouteVerify`
+
+### `SEZ_VALUE_RE`
+
+Sezionale value charset — alphanumerics and separators; the join
+ separator (US \x1f) can never appear inside a value.
+
+**Type:** `RegExp`
+
 ### `SHARED_CONFIG_SUBJECT`
 
 NATS subject for the shared config request/reply.
 
 **Type:** `"config.get"`
+
+### `SIGNATURE_SKEW_MS`
+
+Clock-skew window for timestamp acceptance (±30s).
+
+**Type:** `30000`
+
+### `SIGNING_HEADERS`
+
+**Type:** `{ service: "x-pb-service"; keygen: "x-pb-keygen"; timestamp: "x-pb-timestamp"; nonce: "x-pb-nonce"; signature: "x-pb-signature"; sealed: "x-pb-sealed" }`
+
+| Field | Value |
+|-------|-------|
+| service | "x-pb-service" |
+| keygen | "x-pb-keygen" |
+| timestamp | "x-pb-timestamp" |
+| nonce | "x-pb-nonce" |
+| signature | "x-pb-signature" |
+| sealed | "x-pb-sealed" |
 
 ### `SINGULAR_NAV_ALLOWLIST`
 
@@ -5264,6 +5636,18 @@ Reverse lookup — `UNIT_TO_CATEGORY.meter === 'length'`; compound
 UUID (any version) — matches zod/JSON-Schema `format:"uuid"`.
 
 **Type:** `RegExp`
+
+### `VAULT_SUBJECTS`
+
+Governed hint subjects — metadata only, never material. DEDICATED to the
+vault: never multiplex onto the legacy `secret.rotated` (see the module
+doc for why the consumer reaction differs).
+
+**Type:** `{ ROTATED: "secret_vault.rotated" }`
+
+| Field | Value |
+|-------|-------|
+| ROTATED | "secret_vault.rotated" |
 
 ### `VENDOR_BLOCKED_PACKAGES`
 
@@ -5459,7 +5843,7 @@ historical behavior).
 
 ### `assertDbEnv(cwd): DbEnv`
 
-Validate the DB env contract and return the resolved `{ url, schemas }`.
+Validate the DB env contract and return the resolved `{ url }`.
 Throws with the full violation list on any failure — services MUST crash.
 
 | Parameter | Type | Description |
@@ -5478,6 +5862,16 @@ dialog) or MfaConsumeUnavailableError (transport failure → 503).
 | spec | `MfaStepUpSpec` |  |
 | user | `AuthUser \| undefined` |  |
 | consume | `MfaConsumeFn` |  |
+
+### `assertValidSchemaList(list): string[]`
+
+Validate a code-declared owned-schema list (the `schemas` option on
+createMicroservice). Each entry must be a valid PG identifier; the list
+must be non-empty and is returned deduped ([0] = primary/owned schema).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| list | `typeOperator` |  |
 
 ### `assertWithinRoot(root, paths): void`
 
@@ -5563,7 +5957,8 @@ the IDP `sub`. The mapping is performed by the UserResolverPort.
 ### `buildNatsAuthHeaders(user, config): Record<string, string>`
 
 Build NATS headers from a resolved AuthUser (publisher side, BE).
-Wraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing.
+Wraps serializeAuthUserToHeaders() — anti-spoofing is the sealed-envelope
+provenance, not a transmitted secret.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -5579,9 +5974,8 @@ Wraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing
 ### `buildUserAgent(identity, capabilities): string`
 
 Build the Primebrick User-Agent string, e.g.
-`primebrick-emailsender/1.4.0 (emailsender) Node/24.14.1`.
-`capabilities` is the service code / role tag — free-form but should be
-stable; it is what the allowlist prefix matches against along with name.
+`primebrick-emailsender/1.4.0 (emailsender) Node/24.14.1` — observability
+metadata for logs and traces, never consulted for trust decisions.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -5687,16 +6081,6 @@ route universe (BE documents only what no module declared).
 | registry | `{ code: string; endpoints: Record<string, unknown> }[]` |  |
 | ownCode | `string` |  |
 
-### `clientKeyHash(key): string`
-
-sha256 hex of a client key — the only form that ever leaves the service
-(sent in `service.register` → stored in system.client_shield_registry) and the
-only form compared at verification time.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| key | `string` |  |
-
 ### `closeRedisClient(): Promise<void>`
 
 Graceful shutdown — disconnect the Redis client. Safe to call multiple times.
@@ -5758,6 +6142,29 @@ are rejected BY CONSTRUCTION (they are not documentable pages — e.g.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | nav | `ModuleNavDeclaration` |  |
+
+### `columnSchemaLeaf(col): { type: string \| string[]; format: string; enum: string[] }`
+
+Canonical `MetaColumn → JSON-schema leaf` conversion — the honest WIRE
+shape of the column so schema-driven resolvers (`schemaTypeIcon`,
+`schemaLeafSub`, `schemaToNavNodes` — the ONE vocabulary shared with
+the payload-map editor and rule-filter picker) can render it without a
+second icon map:
+
+  - the declared `format` wins over the bare `type` (`email`→`"email"`
+    → mail, `identifier`→`"uuid"` → file-key, `json`/`rule_filter`→
+    `"object"` → braces);
+  - a `badge` column exposes its value vocabulary as `enum` (→ tags),
+    `ref` is its uuid wire shape, `sparkline` is an array;
+  - `nullable` flags the type union with `"null"` — the resolver
+    renders the base icon dashed.
+
+Icon names live ONLY in `schemaTypeIcon`; this function must never
+carry a glyph of its own.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| col | `Pick<MetaColumn, "type"> & Partial<Pick<MetaColumn, "badge" \| "format" \| "nullable">>` |  |
 
 ### `composeRouteHandlers(handlers): RouteHandler`
 
@@ -5880,14 +6287,6 @@ Get the currency symbol for a currency code (e.g. "EUR" → "€"). Falls back t
 |-----------|------|-------------|
 | code | `string` |  |
 
-### `currentClientShieldSecret(fallback): string \| undefined`
-
-The value a publisher must stamp on outbound calls.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| fallback | `string` |  |
-
 ### `currentServiceCode(): string`
 
 ### `dec(input): Decimal`
@@ -5959,19 +6358,48 @@ Keys visible by default — from column flags.
 |-----------|------|-------------|
 | columns | `MetaColumn[]` |  |
 
-### `deriveClientKey(derivationSecret, uaPrefix, generation): string`
-
-Deterministic per-service client key (B14): `HMAC-SHA256(secret, uaPrefix:generation)`
-rendered base64url. Services configured with `service_key_derivation_secret`
-never store a key — they re-derive it from the derivation secret (provisioned
-by the installer/secret engine) plus the generation the BE registry row
-currently advertises. Rotating a key = bumping the generation on the BE.
+### `deriveMessageKey(partA, partB, generation): Buffer`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| derivationSecret | `string` |  |
-| uaPrefix | `string` |  |
+| partA | `string` |  |
+| partB | `string` |  |
 | generation | `number` |  |
+
+### `derivePeriodKey(kind, at, tz): string`
+
+The counter-identity key for `period_kind` at `at` — `''` for
+period-free patterns. `derivePeriodKey` + `INSERT..ON CONFLICT` make
+the first allocation of a period atomic (no create-if-missing race).
+`at` is the BUSINESS date (document date on the directive, default
+now()): a Jan-issued invoice dated December lands in the Dec period.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| kind | `SequencePeriodKind` |  |
+| at | `Date` |  |
+| tz | `string` |  |
+
+### `derivePeriodLabel(current, every): string`
+
+Advance a row-owned period label by one `revive_every` interval —
+parse-and-preserve: the CURRENT value's shape decides the render,
+never a declared format. `2026`→`2027`, `26`→`27`,
+`2026-Q1`→`2026-Q2` (or `2027-Q1` by year unit), `2026-03`→`2026-04`,
+`2026-W14`→`2026-W15`, `2026-03-16`→`2026-03-17`.
+
+Compatibility rule: the unit must not be FINER than the label's
+granularity — `'1 month'` on `2026` cannot render (throw);
+`'1 year'` on `2026-03` renders `2027-03`. A bare 2-digit label is
+`YY` under a year unit, `MM` under a month unit — anything else is a
+construction error. Throws on unparseable values: create-time
+validation calls this same function so a reviving row can never be
+built with an un-incrementable slot.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| current | `string` |  |
+| every | `string` |  |
 
 ### `deriveVisibleKeyPrefs(visibleKeys, columns): VisibleKeyPrefs`
 
@@ -5989,7 +6417,8 @@ Derive the persistable intent from the resolved set + served columns:
 ### `deserializeAuthUserFromHeaders(headers, config): AuthUser`
 
 Deserialize an AuthUser from headers (microservice side, GATEWAY-RESOLVED mode).
-The gateway secret is verified separately by verifyAuthGatewayResolved().
+Anti-spoofing is the proof-of-possession provenance verified at the
+transport edge before this chain runs — there is no secret to verify.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6057,23 +6486,23 @@ Boot-time staleness: emit iff the pack is missing or generation inputs
 Lane-aware `verify` for `NatsClient.jetstreamSubscribe` on `jobs.due.*`.
 
 What a due message CAN prove at the gate:
-  - L1 publisher identity — the schedule declaration was published by an
-    enrolled service (its static client-shield key survives the rotating
-    secret because it lives outside that scheme).
+  - L1 provenance — the fired message travels in the sealed envelope, which
+    only a service holding vault-derived message keys can produce: envelope
+    validity IS the publisher proof (A7).
   - For the user lane: the structural presence of the actor claim
     (`x-user-id`) that the ARM attested.
 
 What it deliberately does NOT check: the arm-time serialized AuthUser
-and the rotating client-shield secret frozen in the fired headers —
-both die ~65 minutes after arming (rotation 60m + grace 5m), which
-would kill every long-lived user-lane schedule. Authorization is
+frozen in the fired headers —
+permissions attest the arming instant, not the firing one, and
+a revoked grant must stop the fire. Authorization is
 re-derived AT FIRE TIME instead: the consumer runs the freshness
 checkpoint (see due-forwarder's `freshAuthHeaders` →
 `auth.ctl.resolve_user`), which re-resolves the actor with CURRENT
 permissions or refuses the fire (fail-closed). RBAC belongs on the
 callable's own route — evaluated on FRESH headers — never at this
 gate: arm-time permissions would keep firing for a since-revoked
-grant until the secret happened to rotate.
+grant.
 
   - "system" lane → L1 only; the handler receives no authUser.
   - "user" lane   → L1 + actor-claim presence; the handler ALSO
@@ -6257,7 +6686,9 @@ Express middleware that parses request bodies with Ext-JSON.
 This replaces the default `express.json()` body parser for routes that need
 to receive BigInt values without precision loss. Native `JSON.parse()` converts
 large integers to `number`, losing precision above `Number.MAX_SAFE_INTEGER`.
-This parser uses `extJsonParse` which forces all integers to native `bigint`.
+This parser uses `extJsonParse` which forces all integers to native `bigint`
+and rejects malformed bodies — including duplicate keys — instead of
+silently last-winning them.
 
 Install once in the Express app, BEFORE routes, typically replacing or
 alongside `express.json()`. Only parses requests with `Content-Type: application/json`.
@@ -6287,29 +6718,39 @@ Wire format: standard JSON with numbers (not strings) for bigint values.
 
 ### `extJsonParse(text): T`
 
-Parse an Ext-JSON string.
+Parse an Ext-JSON string — strict.
 
-ALL integers are returned as native `bigint` (via reviver — the
-useNativeBigInt option throws on float tokens, so we use a reviver instead).
-Floats (values with decimal point or scientific notation) are returned as `number`.
-Strings, booleans, null are unaffected.
+ALL integer-valued numbers are returned as native `bigint`; non-integer
+floats stay `number`; strings/booleans/null are unaffected.
 
-This makes types predictable: every integer is always `bigint`, every float
-is always `number`. No `number | bigint` ambiguity.
+The single sanctioned exception: the `status` integer of an RFC7807
+problem-details object (shape-detected by type+title+detail strings)
+stays `number` — the error model is HTTP-native and its status is
+classified with typeof guards across the ecosystem. An integer `status`
+outside that shape is a domain integer and stays bigint, always.
+
+Throws `SyntaxError` on malformed input, trailing commas, and
+duplicate keys at any depth (native JSON.parse silently last-wins —
+that failure mode is deliberately closed: a duplicated key is a wire
+contract violation, not data).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | text | `string` |  |
 
-### `extJsonStringify(data): string`
+### `extJsonStringify(data, space): string`
 
 Serialize a value to an Ext-JSON string.
-BigInt values are serialized as JSON numbers (e.g. 42n → "42").
-Floats are serialized as JSON numbers (e.g. 3.14 → "3.14").
+BigInt values serialize as JSON numbers (42n → "42"); floats stay numbers.
+
+Use for request bodies carrying bigint values — the BE's ext-json body
+parser revives them to native `bigint`. `space` mirrors JSON.stringify's
+pretty-print indent for display/tooltip contexts.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | data | `unknown` |  |
+| space | `number` |  |
 
 ### `extractHostFacts(raw, route, deps): SveltePageFacts`
 
@@ -6496,7 +6937,9 @@ Used by `CacheKeyBuilder.forRowFromMeta` as the first resolution step.
 Read the FE tab-session id (`X-Client-Session` header) for the current
 request, or `undefined` when absent / outside an HTTP scope.
 
-### `getClientShieldSecretSlot(): ClientShieldSecretSlot \| null`
+### `getCoreLogTransport(): CoreLogTransport \| null`
+
+Current transport — exposed for tests that need to snapshot/restore.
 
 ### `getCurrencyInfo(code): CurrencyInfo \| null`
 
@@ -6517,7 +6960,7 @@ Returns `undefined` for entities not marked with `@Cached()`.
 
 ### `getLogOptions(): Readonly<LoggerState>`
 
-### `getNatsShieldRegistry(): ShieldRegistryLike \| null`
+### `getMessageKeyProvider(): MessageKeyProvider \| null`
 
 ### `getOperatorsForColumnType(columnType): FilterOperator[]`
 
@@ -6574,14 +7017,6 @@ Returns a hex-encoded string.
 |-----------|------|-------------|
 | key | `string` |  |
 
-### `humanizeMs(ms): string`
-
-"3600000" → "1 hour", "27000" → "27 seconds", "300000" → "5 minutes".
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| ms | `number` |  |
-
 ### `i18nCacheKey(schema, language): string`
 
 Cache key format: `translations:i18n:{schema}:{language}`
@@ -6599,18 +7034,6 @@ Columns that exist only to carry a record-level IANA timezone for a
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | meta | `EntityMeta` |  |
-
-### `identityHeaders(identity, capabilities, clientKey): Record<string, string>`
-
-Identity headers to attach to every outbound internal call.
-`clientKey` comes from the service's own config (env/config entry) —
-it is the secret paired with the UA in `system.client_shield_registry`.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| identity | `PackageIdentity` |  |
-| capabilities | `string` |  |
-| clientKey | `string` |  |
 
 ### `initAuthConfig(p): void`
 
@@ -6806,6 +7229,18 @@ refuses to mount anything else at startup.
 |-----------|------|-------------|
 | v | `string` |  |
 
+### `isNonceReplay(service, nonce): Promise<boolean>`
+
+Register-or-report the nonce. True = already seen (replay). False = first
+sighting, now recorded. Fail-CLOSED on Redis errors: a verifier that cannot
+check replays must reject rather than wave through — same doctrine as the
+signature itself.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| service | `string` |  |
+| nonce | `string` |  |
+
 ### `isPeriodic(d): boolean`
 
 `true` when the value was produced by a truncated non-terminating division.
@@ -6833,6 +7268,17 @@ role expansion.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | p | `string` |  |
+
+### `isSensitiveInternalHeader(name): boolean`
+
+Sensitive-internal-header classification — ONE definition shared by the
+publisher (seal), the edge (strip cleartext + merge unsealed) and any
+future funnel. x-user-* plus the auth headers configured for gateway mode:
+identity material never travels cleartext on internal hops.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | `string` |  |
 
 ### `isSnakeCaseSingular(value): value is SnakeCaseSingular`
 
@@ -7166,6 +7612,17 @@ then, and the callable is picked up by the post-onReady census.
 |-----------|------|-------------|
 | job | `PartitionMaintenanceJob` |  |
 
+### `mountSequenceReviveJob(job): Promise<void>`
+
+Mount the `<svc>.sequence_revive` callable and materialize the
+system trigger. Called by `createMicroservice` inside the deferred
+on-ready init — NATS is connected and migrations have succeeded by
+then, and the callable is picked up by the post-onReady census.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| job | `SequenceReviveJob` |  |
+
 ### `msgHeader(hdrs, name): string \| null`
 
 Case-insensitive lookup over a case-sensitive MsgHdrs.
@@ -7285,6 +7742,14 @@ Scale is preserved as written (`"1.230"` → scale 3).
 |-----------|------|-------------|
 | raw | `unknown` |  |
 
+### `parseGraceSpec(text): ReviveSpec \| null`
+
+`revive_grace` spec — `'N unit'` offset or `'until <RFC3339>'` pin.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| text | `string` |  |
+
 ### `parseMapKeysDeclaration(raw): Record<string, MapKeyDecl>`
 
 Parse an `x_map_keys.prop` declaration row (the template's `variables`
@@ -7317,6 +7782,45 @@ Two dispatch shapes are supported:
 | entrySource | `string` |  |
 | opts | `{ component_url_routes: string[]; sheet_keys: string[] }` |  |
 | ts | `typeof ts` |  |
+
+### `parseReviveInterval(text): { count: number; unit: SequenceReviveUnit } \| null`
+
+Parse a `'N unit'` revive interval — null on anything outside the
+ closed format (validators turn null into the construction error).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| text | `string` |  |
+
+### `parseReviveSpec(text): ReviveSpec \| null`
+
+`revive_every` spec — `'N unit'` cadence or `'at <RFC3339>'` pin.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| text | `string` |  |
+
+### `parseSequenceDirective(raw): SequenceDirective \| null`
+
+The ONLY accepted wire shape for a `format:"sequence"` column — see
+SequenceDirective for the three forms. Returns the parsed
+directive or `null` (shape/decl violation — the caller emits the
+`app.common.validation.sequence_directive` issue). A literal value is
+never writable: the repository resolves the directive in-transaction.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| raw | `unknown` |  |
+
+### `parseSequencePattern(source): SequencePattern`
+
+Parse a pattern string into segments — the construction gate: anything
+outside the closed grammar throws, so an invalid pattern can never be
+persisted on a sequence row nor accepted on the wire.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| source | `string` |  |
 
 ### `pathCompatible(target, source): boolean`
 
@@ -7466,6 +7970,50 @@ for reporting.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | dir | `string` |  |
+
+### `removeSequenceToken(source, slot): string`
+
+Remove the FIRST occurrence of a token slot from the pattern source —
+the sheet's "unuse" affordance (`-` on a consumed slot). `slot` is the
+used-set name: `seq` strips `{seq}` or `{seq:W}` whole (the width is
+part of the token, not trailing text); every other slot strips the
+literal `{slot}` span. Escaped `{{`/`}}` are skipped exactly like the
+tokenizer reads them, so `{{seq}}` literals are never stripped.
+Never throws — a slot not present returns the source unchanged.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| source | `string` |  |
+| slot | `string` |  |
+
+### `renderSequenceRange(pattern, first, step, count, at, opts): string[]`
+
+Render the full code series for `count` items starting at `first` —
+`codes[i] = render(first + i*step)`. THE shared function: the FE calls
+it for forecast display, the BE calls it inside the claim transaction
+for the actual assignment. `count === 0` → `[]`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| pattern | `SequencePattern` |  |
+| first | `bigint` |  |
+| step | `bigint` |  |
+| count | `number` |  |
+| at | `Date` |  |
+| opts | `{ tz: string; partitions: Partial<Record<SequenceSezToken, string>> }` |  |
+
+### `renderSequenceValue(pattern, counter, at, opts): string`
+
+Render ONE counter value through the pattern. Padding is min-width:
+`String(abs(counter)).padStart(width,"0")`; a negative counter renders
+the sign before the digits (`-0042`) — honest, never truncated.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| pattern | `SequencePattern` |  |
+| counter | `bigint` |  |
+| at | `Date` |  |
+| opts | `{ tz: string; partitions: Partial<Record<SequenceSezToken, string>> }` |  |
 
 ### `requireActor(): string`
 
@@ -7626,6 +8174,49 @@ the OLD endpoint) before the delegate swap.
 | cfg | `TelemetryConfig` |  |
 | serviceName | `string` |  |
 | serviceVersion | `string` |  |
+
+### `reviveAddInterval(at, interval, tz): Date`
+
+Add a `'N unit'` interval to `at` on the WALL calendar of `tz`
+(grace arithmetic — DST-safe, the wall clock owns the semantics;
+`'1 day'` after a DST-jump boundary still lands on the next local
+midnight, not +24h into the wrong offset). `at` is an instant;
+the interval walks its zoned wall time forward, then converts back.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| at | `Date` |  |
+| interval | `string` |  |
+| tz | `string` |  |
+
+### `reviveAdvanceSpec(every, period_kind): { count: number; unit: SequenceReviveUnit } \| null`
+
+The interval a successor's sez label advances by — the authored
+ interval itself, or `'1 <period_kind>'` under an `'at'` pin (the
+ pattern's own grain is the natural advance — `'26'`→`'27'` under a
+ yearly pattern). `null` when the spec is unparseable or `'at'` meets
+ a period-free pattern (`period_kind:'none'` — no grain to advance).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| every | `string` |  |
+| period_kind | `SequencePeriodKind` |  |
+
+### `reviveExpireAt(at, every, tz): Date`
+
+The calendar-anchored expiry instant for a reviving row — the first
+period boundary strictly after `at` in the row's timezone:
+  start of current period (midnight today / ISO-week Monday /
+  1st-of-month / quarter start / Jan-1) + `count` units.
+`'15 days'` is day-aligned rolling from today's local midnight;
+`'1 year'` created Mar-15-2026 expires Jan-1-2027 00:00 local.
+This is the successor's `default_from` — the `at`-axis boundary.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| at | `Date` |  |
+| every | `string` |  |
+| tz | `string` |  |
 
 ### `rewriteLucideBarrelImports(code): LucideRewriteResult`
 
@@ -7807,11 +8398,65 @@ never masquerade as user edits.
 | sourceEntity | `{ key: string; entity: string; table: string } \| undefined` |  |
 | map | `PayloadMap` |  |
 
+### `sequencePartitionKey(_pattern, partitions): string`
+
+Deterministic counter partition identity — the FIXED 3-slot tuple
+ `sez|sez2|sez3` (unused slots empty), so a `{sez3}`-only pattern can
+ never collide with a `{sez}`-only one even if the pattern is edited
+ over the sequence's life: the slot position IS the identity.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| _pattern | `SequencePattern` |  |
+| partitions | `SequencePartitions` |  |
+
+### `sequencePreview(pattern, first, step, count, at, opts): { first: string \| null; last: string \| null }`
+
+Forecast `{first, last}` — what the bulk editor shows before apply.
+For a persisted sequence `first` is the counter read WITHOUT
+incrementing (optimistic preview; a concurrent claim may shift it —
+the claim RETURNING is the only truth).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| pattern | `SequencePattern` |  |
+| first | `bigint` |  |
+| step | `bigint` |  |
+| count | `number` |  |
+| at | `Date` |  |
+| opts | `{ tz: string; partitions: Partial<Record<SequenceSezToken, string>> }` |  |
+
+### `sequenceReviveShapeIssues(row): FieldIssue[]`
+
+The revive contract on a (possibly merged) sequence row — ONE predicate
+consumed by the form's cross-field registry, the wire validator, and
+the service's merged-row check, so the three surfaces can never drift:
+
+  - a supplied `sez*` value must name a slot the pattern declares;
+  - `revive_slot` requires `revive_every` and is required by it;
+  - `revive_slot` must be a slot the pattern uses;
+  - the slot's row-owned value must be present and advanceable by
+    `derivePeriodLabel` — a free-text sezionale can never revive.
+
+An unparseable `pattern` contributes NO issues — the `sequence_pattern`
+format check owns that finding; this predicate is the shape layer.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| row | `{ pattern: string; sez: string \| null; sez2: string \| null; sez3: string \| null; revive_every: string \| null; revive_slot: string \| null }` |  |
+
+### `sequenceTokenCatalog(): SequenceTokenSpec[]`
+
+The closed token vocabulary of the pattern grammar — counter slot
+(`{seq}` plain and `{seq:W}` width example), date tokens, sezionale
+slots, literal braces. Derived from the same token sets/render helpers
+the parser and renderer use — extending the grammar extends the sheet.
+
 ### `serializeAuthUserToHeaders(user, config): Record<string, string>`
 
 Serialize a fully resolved AuthUser into a headers object for forwarding
-to microservices (HTTP proxy or NATS). Also includes the gateway secret
-header for anti-spoofing.
+to microservices (HTTP proxy or NATS). No secret is included — provenance
+is proof-of-possession, applied by the transport funnel.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -7841,20 +8486,15 @@ meta (e.g. sparkline `endpoint: "/actions/job-run-stats"`) resolve to
 |-----------|------|-------------|
 | listBasePath | `string` |  |
 
-### `serviceShieldVerify(msg): Promise<null \| undefined>`
+### `setCoreLogTransport(t): void`
 
-NatsRouteVerify adapter — use as `verify` on service-identity routes
-(no AuthUser): `verify: serviceShieldVerify`.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| msg | `Msg` |  |
-
-### `setClientShieldSecretSlot(s): void`
+Install the host transport. Idempotent-by-replacement: the last install
+wins (test harnesses may re-wire; production installs exactly once at
+boot). Pass `null` to restore the default console transport.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| s | `ClientShieldSecretSlot \| null` |  |
+| t | `CoreLogTransport \| null` |  |
 
 ### `setCurrentServiceCode(code): void`
 
@@ -7870,11 +8510,11 @@ Hot-swap logging options (from config reload / `config.changed`).
 |-----------|------|-------------|
 | opts | `{ level: LogLevel; format: LogFormat; service: string; version: string }` |  |
 
-### `setNatsShieldRegistry(r): void`
+### `setMessageKeyProvider(provider): void`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| r | `ShieldRegistryLike \| null` |  |
+| provider | `MessageKeyProvider \| null` |  |
 
 ### `setOtelLogSink(sink): void`
 
@@ -7921,6 +8561,15 @@ Store the cache port and Redis info (called once after Redis connects).
 
 Flush pending batches + shutdown current providers (graceful shutdown).
 
+### `signInternalRequest(input): Record<string, string>`
+
+Sign an outbound internal request. Fail-closed (A7 doctrine): without key
+material this THROWS — an unsigned internal request must never reach the wire.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `SignInternalRequestInput` |  |
+
 ### `signum(d): -1 \| 0 \| 1`
 
 | Parameter | Type | Description |
@@ -7934,16 +8583,6 @@ Top-level npm package of a specifier ('svelte/internal/client' → 'svelte').
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | specifier | `string` |  |
-
-### `startSecretProvider(provider): Promise<void>`
-
-Wire the consumer: subscribe to `secret.rotated` (shielded broadcast),
-refetch and re-cache. Call once per service after NATS + shield registry
-are up, then `provider.get(ref)` for each consumed secret.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| provider | `SecretProvider` |  |
 
 ### `streamEntityExport(opts, query, res): Promise<void>`
 
@@ -7999,27 +8638,14 @@ Example:
   &#125;); |
 | verify | `NatsRouteVerify` |  |
 
-### `subscribeShielded(subject, handler, opts): Promise<void>`
-
-Shield-gated fire-and-forget subscription for broadcast subjects
-(config.changed, service.gateway_online, lifecycle events): the handler
-runs only after the publisher's client identity is verified. Use this —
-never raw NatsClient.subscribe — for subjects published by other services.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| subject | `string` |  |
-| handler | `(payload: T, msg: Msg) => Promise<unknown>` |  |
-| opts | `{ queue: string }` |  |
-
 ### `systemAuthUser(initiator): AuthUser`
 
 Synthetic `is_system` AuthUser for service-initiated outbound calls —
 the governed path for operations with no acting user (welcome emails on
 self-registration, scheduled jobs, lifecycle work). Same shape the
 is_system API-key path produces in verify-api-key.ts: RBAC bypasses via
-`isSystem`, so the call must ALWAYS be additionally gated by the client
-shield (it is — verifyNatsPublisher runs first on every governed route).
+`isSystem`, so the call must ALWAYS travel the governed fabric — the
+sealed envelope (NATS) / provenance signature (HTTP) IS the proof, and a user-less service cannot forge it.
 
 `initiator` records WHO triggered the send (the real session actor when
 one exists, else the service code) — it is audit metadata, not identity.
@@ -8078,7 +8704,18 @@ Accessor — returns the capability record for a type.
 |-----------|------|-------------|
 | type | `ConfigType` |  |
 
-### `validateActionChrome(icon, color): string \| null`
+### `usedSequenceTokens(source): Set<string>`
+
+Best-effort scan of the pattern source for already-consumed slots —
+the sheet marks used tokens (grammar: one counter, each date/sez at
+most once). NEVER throws: mid-typing text like `INV-{seq:}` still
+reports `seq` used — the UI affordance must survive invalid states.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| source | `string` |  |
+
+### `validateActionChrome(icon, color, variant): string \| null`
 
 Validates the icon↔color contract of a single action chrome override.
 Returns a diagnostic string on violation, `null` when the pair is legal:
@@ -8090,6 +8727,7 @@ Returns a diagnostic string on violation, `null` when the pair is legal:
 |-----------|------|-------------|
 | icon | `string \| undefined` |  |
 | color | `string \| undefined` |  |
+| variant | `string` |  |
 
 ### `validateCallablesDeclaration(code, decl): string \| null`
 
@@ -8164,14 +8802,16 @@ Every nav href / routes entry must live under SOME declared prefix.
 | decl | `unknown` |  |
 | partOf | `string` |  |
 
-### `validClientShieldSecrets(graceMs, fallback): string[]`
+### `validateSequencePartitions(pattern, partitions): SequencePartitions`
 
-All values a subscriber may accept right now (current + in-grace previous).
+Validate the directive's sezionale fields against the pattern's slots —
+every used token requires its field; unused slots must NOT be supplied
+(a sez the pattern ignores would silently mis-key the counter).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| graceMs | `number` |  |
-| fallback | `string` |  |
+| pattern | `SequencePattern` |  |
+| partitions | `Partial<Record<SequenceSezToken, string>> \| undefined` |  |
 
 ### `verifyAccessToken(token, oidc): Promise<JwtClaims>`
 
@@ -8217,30 +8857,21 @@ Needs AuthPorts (UserResolverPort + RoleMappingPort).
 ### `verifyAuthGatewayResolved(headers, config): Promise<AuthUser>`
 
 Verify auth in GATEWAY-RESOLVED mode (microservices).
-NO ports needed. Just verifies gateway secret + deserializes AuthUser from headers.
+NO ports needed. Deserializes the AuthUser from headers — anti-spoofing is the transport-edge provenance, not a shared secret.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | headers | `HeaderProvider` |  |
 | config | `AuthConfig` |  |
 
-### `verifyClientIdentity(req, opts): Promise<ClientIdentityResult>`
+### `verifyEdgeRequest(req, url): Promise<EdgeVerifiedRequest>`
 
-Verify an inbound internal call's identity headers.
-
-- `ua` missing                → 401 UNIDENTIFIED_CLIENT
-- `ua` not starting with an allowed prefix → 403 UNKNOWN_CLIENT
-- `verifyKey(key)` false      → 401 INVALID_CLIENT_SHIELD_KEY
-
-`allowedPrefixes` is loaded from `system.client_shield_registry` (cached by the
-caller and refreshed on `system.client_shield_registry.changed` events).
-`verifyKey` compares the presented key against the registry entry for the
-matched prefix (hash comparison — inject the hasher).
+Buffer + verify + unseal-merge. Throws AuthError — the caller maps to 401.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| req | `{ headers: { get:  } }` |  |
-| opts | `{ allowedPrefixes: typeOperator; verifyKey: (uaPrefix: string, presentedKey: string) => boolean \| Promise<boolean> }` |  |
+| req | `IncomingMessage` |  |
+| url | `URL` |  |
 
 ### `verifyHttpRequest(req, config, ports): Promise<AuthUser>`
 
@@ -8252,6 +8883,15 @@ Verify auth from an HTTP request.
 | config | `AuthConfig` | Auth configuration |
 | ports | `AuthPorts` | Auth ports (UserResolverPort + RoleMappingPort). Required for STANDALONE mode (BE). Omit for GATEWAY-RESOLVED mode (microservices). |
 
+### `verifyInternalRequest(input): Promise<VerifiedProvenance>`
+
+Verify the provenance proof on an inbound internal request. Ordering is
+the contract — every failure is a distinct 401 code.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `VerifyInternalRequestInput` |  |
+
 ### `verifyNatsMessage(msg, config): Promise<AuthUser>`
 
 Verify auth from a NATS message (microservice subscriber side).
@@ -8261,28 +8901,6 @@ GATEWAY-RESOLVED mode — no ports needed.
 |-----------|------|-------------|
 | msg | `Msg` |  |
 | config | `AuthConfig` |  |
-
-### `verifyNatsPublisher(msg): Promise<boolean>`
-
-Verify the publisher's client-shield identity. Returns true when the
-caller is a registered client (or the registry is not configured — test
-contexts only). Denials are logged with the presented UA.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| msg | `{ subject: string; headers: MsgHdrs }` |  |
-
-### `verifyRowKey(row, presentedKey): boolean`
-
-Verify a presented key against a registry row: current hash always wins;
-during the post-rotation grace window (`previous_valid_until` in the future)
-the previous hash is still accepted so in-flight callers are not cut off
-mid-rotation.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| row | `ClientKeyMaterial \| undefined` |  |
-| presentedKey | `string` |  |
 
 ### `walkHostPages(routesDir): string[]`
 

@@ -44,7 +44,7 @@
  */
 
 import { extJsonStringify } from "../json/ext-json.js";
-import { STANDARD_OPS, validateActionChrome, resolveDisplayTemplate, type ActionColor, type EntityMeta } from "@primebrick/core";
+import { STANDARD_OPS, validateActionChrome, resolveDisplayTemplate, type ActionColor, type ActionVariant, type EntityMeta } from "@primebrick/core";
 import {
   streamEntityExport,
   type EntityExportConfig,
@@ -76,6 +76,9 @@ export interface EntityServiceLike<TEntity = unknown> {
   duplicate(uuids: string[]): Promise<unknown>;
   bulkDelete(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
   bulkRestore(items: Array<{ uuid: string; version: number }>): Promise<unknown>;
+  /** Uniform apply-to-all patch — every item carries the same `set` keys
+   *  (per-row CAS on `version`, like every bulk). dal-pg `updateMany`. */
+  bulkUpdate(items: Array<{ uuid: string; version: number } & Record<string, unknown>>): Promise<unknown>;
   audit(uuid: string, page: number, limit: number): Promise<unknown>;
   /** `options_source:"audit.actors"` vocabulary feed — the entity's own
    *  audit actor columns distinct, label-resolved through
@@ -106,6 +109,7 @@ export type EntityAction =
   | "duplicate"
   | "bulkDelete"
   | "bulkRestore"
+  | "bulkUpdate"
   | "get"
   | "update"
   | "delete"
@@ -127,6 +131,7 @@ const ACTION_TO_OP: Record<EntityAction, string> = {
   duplicate: "duplicate.bulk",
   bulkDelete: "delete.bulk",
   bulkRestore: "restore.bulk",
+  bulkUpdate: "update.bulk",
 };
 
 export interface EntityActionMeta {
@@ -143,6 +148,9 @@ export interface EntityActionMeta {
   label_key?: string;
   icon?: string;
   color?: ActionColor;
+  /** CTA shape — `default` or `outline`. CTA-only axis: never reaches
+   *  the dialog (`tone="soft"` is the reserved security family). */
+  variant?: ActionVariant;
   /** Confirm-dialog message template override (`{entity}`/`{name}` single,
    *  `{count}`/`{entity}` bulk) — see `EntityAction.confirm_key`. */
   confirm_key?: string;
@@ -165,6 +173,7 @@ export interface EntityCustomOp {
   label_key?: string;
   icon?: string;
   color?: ActionColor;
+  variant?: ActionVariant;
   confirm_key?: string;
   busy_key?: string;
 }
@@ -175,8 +184,11 @@ export interface EntityRouterConfig<TEntity = unknown> {
   /** Entity URL segment, e.g. "ai_model" → /api/v1/entities/ai_model/* */
   entityName: string;
   service: EntityServiceLike<TEntity>;
-  /** Permission per action — presence registers the route. */
-  permissions: Partial<Record<EntityAction, readonly string[]>>;
+  /** Permission per action — presence registers the route. `false`
+   *  explicitly DISABLES an op that would otherwise default-on (the
+   *  bulk twins inherit their single counterpart's perms — same opt-out
+   *  model as `duplicate`). */
+  permissions: Partial<Record<EntityAction, readonly string[] | false>>;
   /** Static entity meta — served by GET /meta with derived
    *  `display_name` + `actions` + `collaboration`. When omitted, the meta
    *  route is not registered even if `permissions.meta` is set. */
@@ -378,6 +390,36 @@ function parseBulkItems(body: unknown): Array<{ uuid: string; version: number }>
   return parsed as Array<{ uuid: string; version: number }>;
 }
 
+/**
+ * `{ items: [{ uuid, version }], set: { col: value } }` — the apply-to-all
+ * bulk contract: the same `set` lands on EVERY item (uniform by wire
+ * shape, never per-row payloads). `set` keys are validated against the
+ * entity's update-editable allowlist when the router carries meta —
+ * audited/managed/immutable/calculated columns, the uid and `version`
+ * can never ride a bulk patch. With no meta the validator only enforces
+ * shape; unknown/stray keys still fail closed at repo.updateMany.
+ */
+function parseBulkUpdate(
+  body: unknown,
+  allowlist: ReadonlySet<string> | null,
+): { items: Array<{ uuid: string; version: number }>; set: Record<string, unknown> } {
+  const items = parseBulkItems(body);
+  const set = (body as { set?: unknown })?.set;
+  if (!set || typeof set !== "object" || Array.isArray(set) || Object.keys(set).length === 0) {
+    throw new ValidationError("Body must carry a non-empty { set: { col: value } } object");
+  }
+  if (allowlist) {
+    for (const k of Object.keys(set)) {
+      if (!allowlist.has(k)) {
+        throw new ValidationError(
+          `set.${k} is not a bulk-editable column (audited/managed/immutable/calculated, uid or version are excluded)`,
+        );
+      }
+    }
+  }
+  return { items, set: set as Record<string, unknown> };
+}
+
 function defaultDuplicateBody(body: unknown): { uuids: string[] } {
   const uuids = (body as { uuids?: unknown })?.uuids;
   if (
@@ -393,18 +435,47 @@ function defaultDuplicateBody(body: unknown): { uuids: string[] } {
 
 // ─── Meta assembly ───────────────────────────────────────────────────────────
 
+/** Bulk twins whose default derives from the single counterpart. */
+const BULK_PARENT: Partial<Record<EntityAction, EntityAction>> = {
+  bulkDelete: "delete",
+  bulkRestore: "restore",
+  bulkUpdate: "update",
+};
+
+/**
+ * Effective permissions for an op — the single source for BOTH route
+ * registration (`push`/`specOpsFor`) and `meta.actions` derivation.
+ *
+ * Default-on model: an op the facade implements is active whenever its
+ * privilege basis exists — explicit `permissions.<op>` wins, then the
+ * bulk twin inherits the SINGLE counterpart's perms (same privilege
+ * class, wider scope). Turning a default-on op OFF is the explicit
+ * `permissions.<op> === false` opt-out — same model as `duplicate`,
+ * which defaults-on for clonable services.
+ */
+export function opPermissions(
+  cfg: EntityRouterConfig,
+  a: EntityAction,
+): readonly string[] | undefined {
+  const declared = cfg.permissions[a];
+  if (declared === false) return undefined;
+  if (a === "duplicate") {
+    if (cfg.duplicate === false || cfg.service.clonable !== true) return undefined;
+    return declared ?? [`${cfg.entityName}.duplicate.bulk`];
+  }
+  if (declared !== undefined) return declared;
+  const parent = BULK_PARENT[a];
+  const parentPerms = parent ? cfg.permissions[parent] : undefined;
+  return parentPerms === false ? undefined : parentPerms;
+}
+
 function deriveActions(
   cfg: EntityRouterConfig,
   registered: Set<EntityAction>,
 ): EntityActionMeta[] {
   const overrides = cfg.meta?.actions_overrides ?? {};
-  const permsFor = (a: EntityAction): readonly string[] | undefined => {
-    if (a === "duplicate") {
-      if (cfg.duplicate === false || cfg.service.clonable !== true) return undefined;
-      return cfg.permissions.duplicate ?? [`${cfg.entityName}.duplicate.bulk`];
-    }
-    return cfg.permissions[a];
-  };
+  const permsFor = (a: EntityAction): readonly string[] | undefined =>
+    opPermissions(cfg, a);
   const standard = STANDARD_OPS.map((op) => {
     const action = (Object.keys(ACTION_TO_OP) as EntityAction[]).find(
       (a) => ACTION_TO_OP[a] === op,
@@ -438,6 +509,7 @@ function deriveActions(
     if (ov?.label_key) entry.label_key = ov.label_key;
     if (ov?.icon) entry.icon = ov.icon;
     if (ov?.color) entry.color = ov.color;
+    if (ov?.variant) entry.variant = ov.variant;
     if (ov?.confirm_key) entry.confirm_key = ov.confirm_key;
     if (ov?.busy_key) entry.busy_key = ov.busy_key;
     // "Modifica" is the primary affordance by DESIGN — the standard edit
@@ -451,10 +523,24 @@ function deriveActions(
       entry.color ??= "violet";
       entry.icon ??= "copy";
     }
-    // Icon↔color contract — the RESOLVED pair is validated once (a
-    // `crud_action` CTA icon + an `actions_overrides` color could
-    // combine into a divergent pair; semantic icons bind their color).
-    const chromeErr = validateActionChrome(entry.icon, entry.color);
+    // `update.bulk` is a WRITE across N rows — confirm-gated by served
+    // default (overridable via actions_overrides, chrome contract
+    // unchanged). Primary is the edit affordance, pencil its glyph.
+    if (op === "update.bulk") {
+      entry.color ??= "primary";
+      entry.icon ??= "pencil";
+      entry.confirm_key ??= "app.common.update_entities_confirm";
+    }
+    // `export` is a SECONDARY affordance by DESIGN — primary color but
+    // outline shape (the ghost-gradient CTA), overridable like all chrome.
+    if (op === "export") {
+      entry.color ??= "primary";
+      entry.variant ??= "outline";
+    }
+    // Icon↔color + variant contract — the RESOLVED triple is validated
+    // once (a `crud_action` CTA + `actions_overrides` could combine into
+    // a divergent pair; semantic icons bind their color).
+    const chromeErr = validateActionChrome(entry.icon, entry.color, entry.variant);
     if (chromeErr) throw new Error(`entity "${cfg.entityName}" action "${op}": ${chromeErr}`);
     return entry;
   });
@@ -468,6 +554,16 @@ function deriveActions(
         ...(sentinel ? { sentinel } : {}),
         enabled: overrides[c.op]?.enabled !== false,
         endpoint: { method: c.method, path: c.path },
+        // Chrome rides meta.actions too — `runEntityOp` reads `confirm_key`
+        // from the action entry (not from `table.row_custom_actions`), so
+        // a declared `cta.confirm_key` MUST reach here or the op dispatches
+        // unconfirmed (gated=false → straight to MFA step-up).
+        ...(c.label_key ? { label_key: c.label_key } : {}),
+        ...(c.icon ? { icon: c.icon } : {}),
+        ...(c.color ? { color: c.color } : {}),
+        ...(c.variant ? { variant: c.variant } : {}),
+        ...(c.confirm_key ? { confirm_key: c.confirm_key } : {}),
+        ...(c.busy_key ? { busy_key: c.busy_key } : {}),
       };
     });
   return [...standard, ...custom];
@@ -512,11 +608,11 @@ export function makeEntityRouter<TEntity = unknown>(
   // first meta request: a divergent pair (semantic icon with a foreign
   // color) or a color outside the closed vocabulary is a declaration bug.
   for (const [op, ov] of Object.entries(config.meta?.actions_overrides ?? {})) {
-    const err = validateActionChrome(ov.icon, ov.color);
+    const err = validateActionChrome(ov.icon, ov.color, ov.variant);
     if (err) throw new Error(`entity-router[${config.entityName}] actions_overrides["${op}"]: ${err}`);
   }
   for (const c of config.custom_ops ?? []) {
-    const err = validateActionChrome(c.icon, c.color);
+    const err = validateActionChrome(c.icon, c.color, c.variant);
     if (err) throw new Error(`entity-router[${config.entityName}] custom_op "${c.op}": ${err}`);
   }
 
@@ -539,11 +635,7 @@ export function makeEntityRouter<TEntity = unknown>(
   };
 
   const enabled = (a: EntityAction): readonly string[] | undefined => {
-    if (a === "duplicate") {
-      if (config.duplicate === false || service.clonable !== true) return undefined;
-      return config.permissions.duplicate ?? [`${config.entityName}.duplicate.bulk`];
-    }
-    return config.permissions[a];
+    return opPermissions(config, a);
   };
 
   const routes: RpcRoute[] = [];
@@ -657,6 +749,28 @@ export function makeEntityRouter<TEntity = unknown>(
     handler: async (ctx) => {
       await runGuard("bulkRestore", ctx);
       return service.bulkRestore(ctx.body as Array<{ uuid: string; version: number }>);
+    },
+  });
+
+  // Bulk-editable allowlist — derived once at construction from served
+  // meta: physical writable columns only (never audited, managed,
+  // immutable, calculated/virtual, the uid or `version`).
+  const bulkSetAllowlist = config.meta?.columns
+    ? new Set(
+        config.meta.columns
+          .filter((c) => !c.audited && !c.managed && !c.immutable && !c.kind && c.key !== config.meta!.uid && c.key !== "version")
+          .map((c) => c.key),
+      )
+    : null;
+
+  push("bulkUpdate", {
+    method: "POST",
+    path: `${base}/bulk-update`,
+    body: (raw) => parseBulkUpdate(raw, bulkSetAllowlist),
+    handler: async (ctx) => {
+      await runGuard("bulkUpdate", ctx);
+      const { items, set } = ctx.body as { items: Array<{ uuid: string; version: number }>; set: Record<string, unknown> };
+      return service.bulkUpdate(items.map((i) => ({ ...i, ...set })));
     },
   });
 

@@ -7,13 +7,15 @@
     },
     "raw-query": {
       "allowPaths": [
-        "translations/translations-service.ts"
+        "translations/translations-service.ts",
+        "secrets/secret-vault.ts"
       ]
     },
     "raw-sql": {
       "allowPaths": [
         "translations/translations-service.ts",
-        "docs-gen/service-docs.ts"
+        "docs-gen/service-docs.ts",
+        "secrets/secret-vault.ts"
       ]
     },
     "ext-json": {
@@ -21,7 +23,17 @@
         "lifecycle/logger.ts",
         "docs-pack/build-docs-pack.ts",
         "docs-pack/serve-docs-pack.ts",
-        "microservice/create-microservice.ts"
+        "microservice/create-microservice.ts",
+        "nats/__tests__/message-codec.test.ts"
+      ]
+    },
+    "no-fnf-nats-publish": {
+      "allowPaths": [
+        "nats/nats-client.ts",
+        "presence/nats-subjects.ts",
+        "service/service-registrar.ts",
+        "secrets/rotating-secret.ts",
+        "secrets/secret-vault.ts"
       ]
     }
   }

@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { internalFetch, configureInternalClient, resetInternalClient } from "../internal-client.js";
+import { MessageKeyProvider, setMessageKeyProvider } from "../../nats/message-key-provider.js";
+import { resetHttpSigningForTest } from "../../auth/http-signing.js";
 
 describe("internalFetch", () => {
-  beforeEach(() => resetInternalClient());
+  beforeEach(async () => {
+    resetInternalClient();
+    const provider = new MessageKeyProvider(async () => ({ generation: 7, generations: { "7": "test-partb-material" } }));
+    await provider.refresh();
+    setMessageKeyProvider(provider);
+    resetHttpSigningForTest();
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it("throws fail-closed when not configured", async () => {

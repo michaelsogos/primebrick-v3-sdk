@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { RedisPresencePort } from "./redis-presence-port.js";
 import type { PresenceEntry } from "./types.js";
 
+import { extJsonParse } from '../json/ext-json.js';
 /** Minimal in-memory Redis double covering the commands the port uses. */
 function makeRedis() {
   const hashes = new Map<string, Map<string, string>>();
@@ -131,8 +132,8 @@ describe("RedisPresencePort — session-keyed entries", () => {
     const t1 = Date.now();
     await port.heartbeat(E, U, USER, "sess-a");
     const usersKey = `presence:${E}:${U}:users`;
-    const rawA = JSON.parse(redis.hashes.get(usersKey)!.get(`${USER}:sess-a`)!);
-    const rawB = JSON.parse(redis.hashes.get(usersKey)!.get(`${USER}:sess-b`)!);
+    const rawA = extJsonParse<any>(redis.hashes.get(usersKey)!.get(`${USER}:sess-a`)!);
+    const rawB = extJsonParse<any>(redis.hashes.get(usersKey)!.get(`${USER}:sess-b`)!);
     expect(rawA.last_seen_at).toBeGreaterThanOrEqual(t1);
     expect(rawA.status).toBe("EDITING"); // heartbeat must not clobber status
     expect(rawB.session_id).toBe("sess-b");
