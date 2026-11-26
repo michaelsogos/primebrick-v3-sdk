@@ -192,42 +192,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
         }
       }
 
-      // Client-identity gate — internal callers must identify themselves
-      // (User-Agent prefix + client key) before any route runs.
-      if (
-        options.clientShieldRegistry &&
-        !options.identityExemptPaths?.some((re) => re.test(url.pathname))
-      ) {
-        const registry = options.clientShieldRegistry;
-        const headerAdapter = {
-          headers: {
-            get: (name: string) => {
-              const v = req.headers[name.toLowerCase()];
-              return typeof v === "string" ? v : null;
-            },
-          },
-        };
-        const idResult = await verifyClientIdentity(headerAdapter, {
-          allowedPrefixes: registry.allowedPrefixes,
-          verifyKey: (prefix, key) => registry.verifyKey(prefix, key),
-        });
-        if (!idResult.ok) {
-          sendRfcError(
-            res,
-            idResult.status,
-            idResult.error === "UNKNOWN_CLIENT" ? "Unknown client" : "Unidentified client",
-            idResult.error === "UNKNOWN_CLIENT"
-              ? "User-Agent is not in the client registry allowlist"
-              : "Missing or invalid client identity headers",
-            {
-              internal_code: idResult.error,
-              instance: url.pathname,
-              severity: "MEDIUM",
-            },
-          );
-          return;
-        }
-      }
+      // The client-identity gate (shield registry) is gone — internal
+      // provenance verification above is strictly stronger: proof-of-possession
+      // of vault-derived keys, never a transmitted secret. The registry still
+      // lives for NATS publisher attribution only (verifyNatsPublisher).
 
       // Custom routes
       if (options.routeHandler) {
