@@ -1,15 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { logger } from "../lifecycle/logger.js";
 import { logServiceStartup } from "../lifecycle/startup-logger.js";
-import { verifyClientIdentity } from "../service/service-identity.js";
+import { verifyEdgeRequest } from "../auth/edge-verification.js";
+import { SIGNING_HEADERS } from "../auth/http-signing.js";
+import { AuthError } from "../auth/verify.js";
 import { context, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { HealthCheck } from "./health-check.js";
 import { extJsonStringify } from "../json/ext-json.js";
 import { extractTraceContext } from "../telemetry/otel.js";
 import { mapDalError } from "../errors/dal-error-mapper.js";
-import { verifyEdgeRequest } from "../auth/edge-verification.js";
-import { SIGNING_HEADERS } from "../auth/http-signing.js";
-import { AuthError } from "../auth/verify.js";
 
 export interface HttpServerOptions {
   port: number;
@@ -22,13 +21,7 @@ export interface HttpServerOptions {
   /** Custom route handler — receives req/res, returns true if handled. */
   routeHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>;
   /**
-   * Client-identity gate (B11): when set, every non-/health request must
-   * carry a registry-listed `User-Agent` prefix + valid
-   * `x-primebrick-client-shield-key` before the route handler runs.
-   */
-  clientShieldRegistry?: import("../service/client-shield-registry.js").ClientShieldRegistry;
-  /**
-   * URL paths exempt from the client-identity gate — for services that
+   * URL paths exempt from the internal provenance gate — for services that
    * expose a genuinely public surface (e.g. the webhook ingress, whose
    * callers are external providers that cannot carry our identity headers).
    * `/health` is always public and does not need listing.

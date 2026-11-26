@@ -85,7 +85,7 @@ export {
   type ClientIdentityResult,
   type ClientKeyMaterial,
 } from "./service/service-identity.js";
-export { ClientShieldRegistry, CLIENT_SHIELD_REGISTRY_SUBJECTS, type ClientShieldRegistryRow } from "./service/client-shield-registry.js";
+
 export {
   validateNavDeclaration,
   accessNamespace,
@@ -114,7 +114,7 @@ export {
   type GeneratedDoc,
 } from "./docs-pack/build-docs-pack.js";
 export { docsPackRouteHandler, DOCS_PACK_ROUTE } from "./docs-pack/serve-docs-pack.js";
-export { fetchDocsPack, DOCS_PACK_SHIELD_HEADER } from "./docs-pack/docs-pack-client.js";
+export { fetchDocsPack } from "./docs-pack/docs-pack-client.js";
 export {
   extractHostFacts,
   extractRemoteFacts,
@@ -261,16 +261,7 @@ export {
   jobResultSubject,
   type JobResultMessage,
 } from "./nats/job-contract.js";
-export {
-  RotatingSecretEngine,
-  SecretProvider,
-  startSecretProvider,
-  SECRET_SUBJECTS,
-  SECRET_DEFAULTS,
-  type RotatingSecretRef,
-  type SecretGetRequest,
-  type SecretGetResponse,
-} from "./secrets/rotating-secret.js";
+
 export {
   SecretVault,
   SecretVaultReader,
@@ -284,15 +275,7 @@ export {
   type SqlQueryResult,
   VAULT_SUBJECTS,
 } from "./secrets/secret-vault.js";
-export {
-  setClientShieldSecretSlot,
-  getClientShieldSecretSlot,
-  currentClientShieldSecret,
-  validClientShieldSecrets,
-  humanizeMs,
-  CLIENT_SHIELD_SECRET_REF,
-  type ClientShieldSecretSlot,
-} from "./auth/client-shield-secret.js";
+
 
 // HTTP
 export { createHttpServer, resolveHttpBindHost, type HttpServerOptions } from "./http/http-server.js";

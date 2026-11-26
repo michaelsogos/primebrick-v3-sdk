@@ -102,52 +102,6 @@ Find an API key by its SHA-256 hash. Returns null if not found.
 |-----------|------|-------------|
 | hash | `string` |  |
 
-### `ClientShieldRegistry`
-
-#### `ClientShieldRegistry.start(): Promise<void>`
-
-Subscribe to invalidation events first, then keep retrying the snapshot
-until the BE answers — the BE may be down at boot (same stateless-retry
-model as service.register). Non-blocking: until the first snapshot lands
-the allowlist is empty and every internal call is rejected (fail-closed).
-
-#### `ClientShieldRegistry.addChangeListener(cb)`
-
-Register a callback fired after a reload that actually changed row
-material — the service registrar hooks this to re-register when its own
-`key_generation` was bumped by a BE rotation.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| cb | `() => void` |  |
-
-#### `ClientShieldRegistry.refresh(): Promise<boolean>`
-
-Public forced re-fetch — the `ShieldRegistryLike.refresh` hook used by
-`verifyNatsPublisher`'s stale-snapshot recovery: a verified denial may
-simply be a cache that missed its `changed` broadcast (fire-and-forget
-core pub — no redelivery). One reload + retry closes that window;
-a genuinely unknown client still fails closed on the retry.
-
-#### `ClientShieldRegistry.generationFor(uaPrefix): number`
-
-The generation the BE issued for `uaPrefix` — a derived-mode service
-re-derives its key as `HMAC(secret, prefix:generation)`. Returns 0 for
-unknown/static rows (matches the DB default).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| uaPrefix | `string` |  |
-
-#### `ClientShieldRegistry.verifyKey(uaPrefix, presentedKey): boolean`
-
-Current-hash or grace-windowed previous-hash comparison for the matched prefix.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| uaPrefix | `string` |  |
-| presentedKey | `string` |  |
-
 ### `ConfigLoader`
 
 Dictionary-style config loader backed by a config table.
@@ -745,57 +699,6 @@ No-op if no marker exists.
 | entityType | `string` |  |
 | entityUuid | `string` |  |
 
-### `RotatingSecretEngine`
-
-#### `RotatingSecretEngine(redis, opts)`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| redis | `RedisClientType` |  |
-| opts | `{ rotationMs: number; graceMs: number }` |  |
-
-#### `RotatingSecretEngine.get(ref): Promise<ClientShieldSecretSlot>`
-
-Read the slot; generate on cold start (TTL-expired or first boot).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
-
-#### `RotatingSecretEngine.rotate(ref): Promise<ClientShieldSecretSlot>`
-
-Rotate `ref`: previous := current, current := fresh random. Serialized by a
-NX lock so concurrent owners (BE replicas, get-vs-timer races) rotate once.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
-
-#### `RotatingSecretEngine.startAutoRotation(ref)`
-
-Interval driver — ensure existence now, then rotate every rotationMs.
- Idempotent per ref: a lifecycle re-run (e.g. after a NATS outage)
- must not stack a second interval on the same rotation.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
-
-### `SecretProvider`
-
-#### `SecretProvider.get(ref): Promise<ClientShieldSecretSlot>`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| ref | `RotatingSecretRef` |  |
-
-#### `SecretProvider.invalidate(scope, name)`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| scope | `string` |  |
-| name | `string` |  |
-
 ### `SecretVault`
 
 #### `SecretVault(deps)`
@@ -1217,27 +1120,6 @@ BE publisher-identity verifier).
 | client_key_hash | `string` |  |
 | previous_key_hash | `string \| null` |  |
 | previous_valid_until | `string \| Date \| null` |  |
-
-### `ClientShieldRegistryRow`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| ua_prefix | `string` |  |
-| client_key_hash | `string` |  |
-| is_enabled | `boolean` |  |
-| key_generation | `number` | Key-rotation state (B14). `key_generation` is the BE-issued generation a
-derived-mode service must use to re-derive its key; `previous_*` carries
-the old hash during the grace window. |
-| previous_key_hash | `string \| null` |  |
-| previous_valid_until | `string \| Date \| null` | ISO string on the wire; Date when the BE passes rows in-process. |
-
-### `ClientShieldSecretSlot`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| current | `string` |  |
-| previous | `string \| null` |  |
-| rotated_at | `number` | Epoch ms of the last rotation. |
 
 ### `CollaborationMeta`
 
@@ -1992,10 +1874,7 @@ The unified health response returned by `/health` on both BE and US.
 | serviceVersion | `string` | Service version (from package.json) — included in /health response. |
 | serviceUrl | `string` | Base URL the service is listening on — included in /health response. |
 | routeHandler | `(req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>` | Custom route handler — receives req/res, returns true if handled. |
-| clientShieldRegistry | `ClientShieldRegistry` | Client-identity gate (B11): when set, every non-/health request must
-carry a registry-listed `User-Agent` prefix + valid
-`x-primebrick-client-shield-key` before the route handler runs. |
-| identityExemptPaths | `RegExp[]` | URL paths exempt from the client-identity gate — for services that
+| identityExemptPaths | `RegExp[]` | URL paths exempt from the internal provenance gate — for services that
 expose a genuinely public surface (e.g. the webhook ingress, whose
 callers are external providers that cannot carry our identity headers).
 `/health` is always public and does not need listing. |
@@ -2788,13 +2667,6 @@ forwards them in headers.
 
 ### `RoleMappingPort`
 
-### `RotatingSecretRef`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| scope | `string` | "global" or a service code — scopes the key namespace. |
-| name | `string` |  |
-
 ### `RouterScanResult`
 
 | Field | Type | Description |
@@ -2913,21 +2785,6 @@ tests only. |
 | path | `string` |  |
 | perms | `string[]` |  |
 | stepUp | `boolean` |  |
-
-### `SecretGetRequest`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| scope | `string` | "global" or a service code — scopes the key namespace. |
-| name | `string` |  |
-
-### `SecretGetResponse`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| current | `string` |  |
-| previous | `string \| null` |  |
-| rotated_at | `number` | Epoch ms of the last rotation. |
 
 ### `SequenceDecl`
 
@@ -3296,8 +3153,6 @@ EntityTablePage/EntityFormPage shell declaration extracted from the page.
 | navStrategy | `string` |  |
 
 ### `ShieldRegistryLike`
-
-Structural view of the client registry needed for shield checks.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -4646,26 +4501,6 @@ HTTP header names used by the Primebrick cache protocol.
 
 **Type:** `"x-primebrick-client-shield-key"`
 
-### `CLIENT_SHIELD_REGISTRY_SUBJECTS`
-
-**Type:** `{ GET: "system.clientShieldRegistry.get"; CHANGED: "system.client_shield_registry.changed" }`
-
-| Field | Value |
-|-------|-------|
-| GET | "system.clientShieldRegistry.get" |
-| CHANGED | "system.client_shield_registry.changed" |
-
-### `CLIENT_SHIELD_SECRET_REF`
-
-Canonical ref of the rotating client-shield secret.
-
-**Type:** `{ scope: "global"; name: "service_client_shield_secret" }`
-
-| Field | Value |
-|-------|-------|
-| scope | "global" |
-| name | "service_client_shield_secret" |
-
 ### `CONFIG_CHANGED_SUBJECT`
 
 NATS broadcast subject for config-change notifications.
@@ -4724,12 +4559,6 @@ contract (embeddings are model-bound; the consumer re-embeds).
 ### `DOCS_PACK_SCHEMA_VERSION`
 
 **Type:** `1`
-
-### `DOCS_PACK_SHIELD_HEADER`
-
-Canonical header carrying the rotating client-shield secret on s2s calls.
-
-**Type:** `"x-client-shield-secret"`
 
 ### `DOTTED_GLOB_RE`
 
@@ -5548,26 +5377,6 @@ Test helper alias (backward compat).
 ### `REVIVE_UNTIL_RE`
 
 **Type:** `RegExp`
-
-### `SECRET_DEFAULTS`
-
-Rotation cadence + how long `previous` stays acceptable.
-
-**Type:** `{ rotationMs: number; graceMs: number }`
-
-| Field | Value |
-|-------|-------|
-| rotationMs | "" |
-| graceMs | "" |
-
-### `SECRET_SUBJECTS`
-
-**Type:** `{ GET: "secret.get"; ROTATED: "secret.rotated" }`
-
-| Field | Value |
-|-------|-------|
-| GET | "secret.get" |
-| ROTATED | "secret.rotated" |
 
 ### `SEMANTIC_ICON_COLORS`
 
@@ -6458,14 +6267,6 @@ Get the currency symbol for a currency code (e.g. "EUR" → "€"). Falls back t
 |-----------|------|-------------|
 | code | `string` |  |
 
-### `currentClientShieldSecret(fallback): string \| undefined`
-
-The value a publisher must stamp on outbound calls.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| fallback | `string` |  |
-
 ### `currentServiceCode(): string`
 
 ### `dec(input): Decimal`
@@ -7129,8 +6930,6 @@ Used by `CacheKeyBuilder.forRowFromMeta` as the first resolution step.
 Read the FE tab-session id (`X-Client-Session` header) for the current
 request, or `undefined` when absent / outside an HTTP scope.
 
-### `getClientShieldSecretSlot(): ClientShieldSecretSlot \| null`
-
 ### `getCurrencyInfo(code): CurrencyInfo \| null`
 
 Get ISO 4217 metadata for a currency code. Returns null for unknown codes.
@@ -7208,14 +7007,6 @@ Returns a hex-encoded string.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | key | `string` |  |
-
-### `humanizeMs(ms): string`
-
-"3600000" → "1 hour", "27000" → "27 seconds", "300000" → "5 minutes".
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| ms | `number` |  |
 
 ### `i18nCacheKey(schema, language): string`
 
@@ -8675,20 +8466,11 @@ meta (e.g. sparkline `endpoint: "/actions/job-run-stats"`) resolve to
 |-----------|------|-------------|
 | listBasePath | `string` |  |
 
-### `serviceShieldVerify(msg): Promise<null \| undefined>`
-
-NatsRouteVerify adapter — use as `verify` on service-identity routes
-(no AuthUser): `verify: serviceShieldVerify`.
+### `serviceShieldVerify(_msg): Promise<undefined>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| msg | `Msg` |  |
-
-### `setClientShieldSecretSlot(s): void`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| s | `ClientShieldSecretSlot \| null` |  |
+| _msg | `Msg` |  |
 
 ### `setCurrentServiceCode(code): void`
 
@@ -8710,11 +8492,11 @@ Hot-swap logging options (from config reload / `config.changed`).
 |-----------|------|-------------|
 | provider | `MessageKeyProvider \| null` |  |
 
-### `setNatsShieldRegistry(r): void`
+### `setNatsShieldRegistry(_r): void`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| r | `ShieldRegistryLike \| null` |  |
+| _r | `ShieldRegistryLike \| null` |  |
 
 ### `setOtelLogSink(sink): void`
 
@@ -8775,16 +8557,6 @@ Top-level npm package of a specifier ('svelte/internal/client' → 'svelte').
 |-----------|------|-------------|
 | specifier | `string` |  |
 
-### `startSecretProvider(provider): Promise<void>`
-
-Wire the consumer: subscribe to `secret.rotated` (shielded broadcast),
-refetch and re-cache. Call once per service after NATS + shield registry
-are up, then `provider.get(ref)` for each consumed secret.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| provider | `SecretProvider` |  |
-
 ### `streamEntityExport(opts, query, res): Promise<void>`
 
 | Parameter | Type | Description |
@@ -8840,11 +8612,6 @@ Example:
 | verify | `NatsRouteVerify` |  |
 
 ### `subscribeShielded(subject, handler, opts): Promise<void>`
-
-Shield-gated fire-and-forget subscription for broadcast subjects
-(config.changed, service.gateway_online, lifecycle events): the handler
-runs only after the publisher's client identity is verified. Use this —
-never raw NatsClient.subscribe — for subjects published by other services.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -9027,15 +8794,6 @@ every used token requires its field; unused slots must NOT be supplied
 | pattern | `SequencePattern` |  |
 | partitions | `Partial<Record<SequenceSezToken, string>> \| undefined` |  |
 
-### `validClientShieldSecrets(graceMs, fallback): string[]`
-
-All values a subscriber may accept right now (current + in-grace previous).
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| graceMs | `number` |  |
-| fallback | `string` |  |
-
 ### `verifyAccessToken(token, oidc): Promise<JwtClaims>`
 
 Verify a Bearer access token against the configured IDP.
@@ -9125,15 +8883,11 @@ GATEWAY-RESOLVED mode — no ports needed.
 | msg | `Msg` |  |
 | config | `AuthConfig` |  |
 
-### `verifyNatsPublisher(msg): Promise<boolean>`
-
-Verify the publisher's client-shield identity. Returns true when the
-caller is a registered client (or the registry is not configured — test
-contexts only). Denials are logged with the presented UA.
+### `verifyNatsPublisher(_msg): Promise<boolean>`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| msg | `{ subject: string; headers: MsgHdrs }` |  |
+| _msg | `{ subject: string; headers: MsgHdrs }` |  |
 
 ### `verifyRowKey(row, presentedKey): boolean`
 

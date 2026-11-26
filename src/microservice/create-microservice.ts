@@ -55,10 +55,6 @@
  */
 
 import { logger } from "../lifecycle/logger.js";
-import { ClientShieldRegistry } from "../service/client-shield-registry.js";
-import { setNatsShieldRegistry } from "../nats/service-shield.js";
-import { SecretProvider, startSecretProvider, refreshSecretWithRetry } from "../secrets/rotating-secret.js";
-import { CLIENT_SHIELD_SECRET_REF } from "../auth/client-shield-secret.js";
 import { SecretVaultReader, MESSAGE_KEY_MATERIAL_REF, VAULT_SUBJECTS, type SqlPoolPort } from "../secrets/secret-vault.js";
 import { MessageKeyProvider, setMessageKeyProvider } from "../nats/message-key-provider.js";
 import { subscribeShielded } from "../nats/service-shield.js";
@@ -111,9 +107,7 @@ import {
   resolveServiceCode,
   setCurrentServiceCode,
   buildUserAgent,
-  deriveClientKey,
   logModuleStartup,
-  CLIENT_SHIELD_KEY_HEADER,
   isFactoryRouteHandler,
   brandRouteHandler,
 } from "../index.js";
@@ -694,70 +688,15 @@ export async function createMicroservice(
 
   const baseUrl = configLoader.require("service_base_url");
   const serviceVersion = options.serviceVersion ?? readServiceVersion();
-  const clientKey = configLoader.get("service_client_shield_key");
-  const keyDerivationSecret = configLoader.get("service_key_derivation_secret");
-  const uaPrefix = `${selfIdentity.name}/${serviceVersion}`;
-  /**
-   * Shared acked-generation slot (B14): the registrar writes the generation
-   * of each successful register; the header closure keeps deriving it until
-   * the post-rotation handshake lands — during a rotation the old
-   * (grace-windowed) key keeps outbound calls alive while the new one is
-   * being enrolled. Zero-gap.
-   */
-  const generationSlot: { value?: number } = {};
-  const outboundClientKey = (): string | null => {
-    if (keyDerivationSecret) {
-      const generation = generationSlot.value ?? clientShieldRegistry.generationFor(uaPrefix);
-      return deriveClientKey(keyDerivationSecret, uaPrefix, generation);
-    }
-    return clientKey;
-  };
-  configureInternalClient(() => {
-    const key = outboundClientKey();
-    return {
-      "User-Agent": buildUserAgent(selfIdentity, serviceCode),
-      ...(key ? { [CLIENT_SHIELD_KEY_HEADER]: key } : {}),
-    };
-  });
-  if (clientKey || keyDerivationSecret) {
-    logger.done(`The service ${selfIdentity.name}/${selfIdentity.version ?? "?"} shield key enrolled`, { tags: ["core"] });
-  }
-
-  // Client-identity registry (B11): drives BOTH the HTTP client gate and
-  // the NATS publisher shield (verifyNatsPublisher). Must start before any
-  // shielded NATS subscription — fail-closed: an unavailable registry
-  // means every internal call is rejected, loudly.
-  const clientShieldRegistry = new ClientShieldRegistry();
-  setNatsShieldRegistry(clientShieldRegistry);
-  try {
-    await clientShieldRegistry.start();
-  } catch (error) {
-    logger.error("Client registry unavailable — internal calls will be rejected (fail-closed)", {
-      tags: ["core"],
-      error,
-    });
-  }
-
-  // Rotating secrets: provision `service_client_shield_secret` (global scope) from the BE
-  // owner via the governed `secret.get` correlation route, and keep the
-  // in-memory slot fresh on every `secret.rotated` broadcast. The slot feeds
-  // BOTH sides of the wire — outbound header stamping and inbound verify —
-  // so the shared secret never lives in config_entries or on disk.
-  const secretProvider = new SecretProvider();
-  try {
-    await startSecretProvider(secretProvider);
-    await secretProvider.get(CLIENT_SHIELD_SECRET_REF);
-  } catch (error) {
-    logger.warn("The secret engine is unreachable — falling back to the static client-shield secret from config", {
-      tags: ["core"],
-      error,
-    });
-    // Self-heal: without the rotating secret every shield-verified inbound
-    // call is rejected — a boot-time miss must not become a permanent wall.
-    // Same unbounded retry the secret.rotated consumer path uses (deduped:
-    // a broadcast landing mid-retry coalesces into this loop).
-    void refreshSecretWithRetry(secretProvider, CLIENT_SHIELD_SECRET_REF);
-  }
+  // Internal identity is observability metadata only — the User-Agent stamps
+  // name+version+runtime for logs and traces. No key material is ever
+  // transmitted: trust on internal hops is proof-of-possession (HTTP signing
+  // provenance / NATS sealed envelope), never a shared secret on the wire.
+  // The client-shield registry, key enrollment, and rotating-secret engine
+  // are gone (arch-internal-trust-and-transports, WP-5).
+  configureInternalClient(() => ({
+    "User-Agent": buildUserAgent(selfIdentity, serviceCode),
+  }));
 
   // Vault rotation hints (WP-A6) — metadata-only broadcast on the DEDICATED
   // subject: the correct consumer reaction is a direct-DAL re-read, never a
@@ -939,14 +878,6 @@ export async function createMicroservice(
       is_behind_scaler: options.isBehindScaler ?? false,
       icon: options.icon,
       icon_type: options.iconType,
-      // Per-service client key from module config (never env).
-      clientKey: configLoader.get("service_client_shield_key") ?? undefined,
-      // Derived-key mode (B14): `service_key_derivation_secret` — the service
-      // derives its key as HMAC(secret, ua_prefix:generation); a BE rotate
-      // bumps the generation and this registrar re-enrolls automatically.
-      keyDerivationSecret: keyDerivationSecret ?? undefined,
-      registryGeneration: () => clientShieldRegistry.generationFor(uaPrefix),
-      generationSlot,
       // API gateway endpoint — shown as a log tag on register/heartbeat.
       // Required module config: it is also the identity of the only public
       // ingress this service talks to; a missing value is a misconfigured
@@ -963,14 +894,6 @@ export async function createMicroservice(
       codeSource: selfIdentity.service_code ? "override" : "derived",
     },
     registrarHealthCheckFn,
-  );
-
-  // Derived-key rotation (B14): when the BE bumps this service's
-  // key_generation (rotate endpoint), the registry reload notifies the
-  // registrar → re-register with the newly derived key. Until the ack
-  // lands, outbound calls keep using the acked (grace-windowed) key.
-  clientShieldRegistry.addChangeListener(() =>
-    registrar.onRegistryChanged(clientShieldRegistry.generationFor(uaPrefix)),
   );
 
   // 8. HTTP server + HealthCheck
@@ -1057,7 +980,6 @@ export async function createMicroservice(
     serviceVersion,
     serviceUrl: baseUrl,
     routeHandler,
-    clientShieldRegistry,
     identityExemptPaths: options.identityExemptPaths,
     internalProvenance: options.internalProvenance ?? "enforce",
   });

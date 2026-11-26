@@ -163,7 +163,7 @@ describe("NatsClient.publishEphemeralLossy", () => {
     expect(opened.headers).toEqual({ "x-user-id": "user-123", "X-User-Email": "user@example.com" });
   });
 
-  it("seals configured auth-user header names while shield stamps stay transport-visible", async () => {
+  it("seals configured auth-user header names — identity never travels cleartext", async () => {
     const provider = await readyProvider();
     setMessageKeyProvider(provider);
     const config: AuthConfig = {
@@ -202,7 +202,6 @@ describe("NatsClient.publishEphemeralLossy", () => {
     const [, payload, opts] = mocks.mockPublish.mock.calls[0];
     expect(opts.headers.get("auth-principal")).toBeUndefined();
     expect(opts.headers.get("auth-permissions")).toBeUndefined();
-    expect(opts.headers.get("x-client-shield-secret")).toBe("shield-secret");
     const opened = openEnvelope(extJsonParse(new TextDecoder().decode(payload)) as never, (generation) =>
       provider.keyForGeneration(generation),
     );

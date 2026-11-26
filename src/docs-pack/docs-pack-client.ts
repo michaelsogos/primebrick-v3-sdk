@@ -12,18 +12,13 @@
 
 import { internalFetch } from "../http/internal-client.js";
 import { extJsonParse } from "../json/ext-json.js";
-import { currentClientShieldSecret } from "../auth/client-shield-secret.js";
 import { DOCS_PACK_ROUTE } from "./serve-docs-pack.js";
 import { parseDocsPackPayload, type DocsPackPayload } from "./manifest.js";
 
-/** Canonical header carrying the rotating client-shield secret on s2s calls. */
-export const DOCS_PACK_SHIELD_HEADER = "x-client-shield-secret";
 
 export async function fetchDocsPack(serviceBaseUrl: string): Promise<DocsPackPayload> {
   const url = new URL(DOCS_PACK_ROUTE, serviceBaseUrl);
-  const secret = currentClientShieldSecret();
   const res = await internalFetch(url, {
-    headers: secret ? { [DOCS_PACK_SHIELD_HEADER]: secret } : undefined,
   });
   if (!res.ok) {
     throw new Error(`docs pack fetch failed: ${res.status} ${res.statusText} (${url})`);
