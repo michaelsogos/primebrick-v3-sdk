@@ -42,10 +42,9 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../nats/system-jobs.js", () => ({ declareSystemJobs: h.declareJobs }));
-vi.mock("../../nats/nats-routes.js", () => ({ makeNatsRoutes: h.makeNatsRoutes }));
-vi.mock("../../nats/service-shield.js", () => ({
-  subscribeShielded: h.subscribeShielded,
-  serviceShieldVerify: h.serviceShieldVerify,
+vi.mock("../../nats/nats-routes.js", () => ({ makeNatsRoutes: h.makeNatsRoutes, serviceLaneVerify: h.serviceShieldVerify }));
+vi.mock("../../nats/nats-client.js", () => ({
+  NatsClient: { subscribe: h.subscribeShielded },
 }));
 vi.mock("../../lifecycle/process-registry.js", () => ({ setProcessInterval: h.setProcessInterval }));
 vi.mock("../../service/service-identity.js", () => ({ currentServiceCode: () => "testsvc" }));
