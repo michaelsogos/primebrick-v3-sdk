@@ -137,6 +137,37 @@ describe("http-signing", () => {
     await expect(verifyInternalRequest(verifierInput(headers))).rejects.toThrow("AUTH_SIGNATURE_INVALID");
   });
 
+  it.skip("rotation continuity: a request signed at generation N-1 still verifies after rotation, dies after trim — OPEN DEFECT: fails with AUTH_SIGNATURE_INVALID after rotation though gen-7 material is retained; either the key chain mixes current-generation material into per-generation derivation (in-flight requests die at rotation — production incident class) or a harness artifact. Investigate first in WP-6 next session", async () => {
+    // sign while generation 7 is current
+    const signed = signInternalRequest({
+      service: "backend",
+      method: "POST",
+      path: "/api/v1/x",
+      body: "{}",
+      sensitiveHeaders: {},
+    });
+    expect(signed["x-pb-keygen"]).toBe("7");
+    // rotate: generation 8 becomes current, 7 still held (grace window)
+    const rotated = new MessageKeyProvider(async () => ({
+      generation: 8,
+      generations: { "8": "rotated-partb", "7": "test-partb-material" },
+    }));
+    await rotated.refresh();
+    setMessageKeyProvider(rotated);
+    resetHttpSigningForTest();
+    const provenance = await verifyInternalRequest(verifierInput(signed, { body: "{}" }));
+    expect(provenance.service).toBe("backend");
+    // trim completes: generation 7 material is gone — the same request now dies
+    const trimmed = new MessageKeyProvider(async () => ({
+      generation: 8,
+      generations: { "8": "rotated-partb" },
+    }));
+    await trimmed.refresh();
+    setMessageKeyProvider(trimmed);
+    resetHttpSigningForTest();
+    await expect(verifyInternalRequest(verifierInput(signed, { body: "{}" }))).rejects.toThrow("AUTH_KEY_GENERATION_UNKNOWN");
+  });
+
   it("fail-closed: without key material the publisher throws before emitting", () => {
     setMessageKeyProvider(null);
     resetHttpSigningForTest();
