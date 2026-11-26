@@ -11,7 +11,7 @@
  */
 
 import type { IncomingMessage } from "node:http";
-import { verifyInternalRequest, type VerifiedProvenance } from "./http-signing.js";
+import { verifyInternalRequest, isSensitiveInternalHeader, type VerifiedProvenance } from "./http-signing.js";
 import { isNonceReplay } from "./nonce-cache.js";
 
 export interface EdgeVerifiedRequest {
@@ -36,7 +36,13 @@ export async function verifyEdgeRequest(req: IncomingMessage, url: URL): Promise
     },
     isNonceReplay,
   });
-  // unsealed identity re-enters the header surface — downstream unchanged
+  // Strip ANY cleartext sensitive headers first — they are never legitimate
+  // on internal hops (the publisher seals them), so their presence is an
+  // injection attempt riding alongside a valid signature. Then the unsealed
+  // identity re-enters the header surface — downstream unchanged.
+  for (const name of Object.keys(req.headers)) {
+    if (isSensitiveInternalHeader(name)) delete req.headers[name];
+  }
   for (const [name, value] of Object.entries(provenance.sensitiveHeaders)) {
     req.headers[name.toLowerCase()] = value;
   }

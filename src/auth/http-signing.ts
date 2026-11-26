@@ -25,6 +25,7 @@
 
 import { createHash, createHmac, createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 import { getMessageKeyProvider } from "../nats/message-key-provider.js";
+import { getLoadedAuthConfig } from "./auth-config-cache.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
 import { AuthError } from "./verify.js";
 
@@ -36,6 +37,24 @@ export const SIGNING_HEADERS = {
   signature: "x-pb-signature",
   sealed: "x-pb-sealed",
 } as const;
+
+/**
+ * Sensitive-internal-header classification — ONE definition shared by the
+ * publisher (seal), the edge (strip cleartext + merge unsealed) and any
+ * future funnel. x-user-* plus the auth headers configured for gateway mode:
+ * identity material never travels cleartext on internal hops.
+ */
+export function isSensitiveInternalHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (lower.startsWith("x-user-")) return true;
+  const authConfig = getLoadedAuthConfig();
+  if (authConfig) {
+    for (const configured of Object.values(authConfig.gateway.headers)) {
+      if (typeof configured === "string" && configured.toLowerCase() === lower) return true;
+    }
+  }
+  return false;
+}
 
 /** Clock-skew window for timestamp acceptance (±30s). */
 export const SIGNATURE_SKEW_MS = 30_000;

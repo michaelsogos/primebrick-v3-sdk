@@ -16,7 +16,7 @@
  * `fetch` — they are not governed by the client registry.
  */
 
-import { signInternalRequest } from "../auth/http-signing.js";
+import { signInternalRequest, isSensitiveInternalHeader } from "../auth/http-signing.js";
 import { currentServiceCode } from "../service/service-identity.js";
 import { getLoadedAuthConfig } from "../auth/auth-config-cache.js";
 
@@ -65,16 +65,9 @@ export async function internalFetch(url: string | URL, init: RequestInit = {}): 
   // headers travel ONLY inside the sealed blob; the request carries a
   // proof-of-possession signature, never a secret. Fail-closed by construction:
   // no key material → throw BEFORE anything reaches the wire.
-  const configuredAuthHeaders = new Set<string>();
-  const authConfig = getLoadedAuthConfig();
-  if (authConfig) {
-    for (const configured of Object.values(authConfig.gateway.headers)) {
-      if (typeof configured === "string") configuredAuthHeaders.add(configured.toLowerCase());
-    }
-  }
   const sensitive: Record<string, string> = {};
   for (const [name, value] of [...headers.entries()]) {
-    if (name.toLowerCase().startsWith("x-user-") || configuredAuthHeaders.has(name.toLowerCase())) {
+    if (isSensitiveInternalHeader(name)) {
       sensitive[name] = value;
       headers.delete(name);
     }

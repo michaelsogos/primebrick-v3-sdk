@@ -7,6 +7,9 @@ import type { HealthCheck } from "./health-check.js";
 import { extJsonStringify } from "../json/ext-json.js";
 import { extractTraceContext } from "../telemetry/otel.js";
 import { mapDalError } from "../errors/dal-error-mapper.js";
+import { verifyEdgeRequest } from "../auth/edge-verification.js";
+import { SIGNING_HEADERS } from "../auth/http-signing.js";
+import { AuthError } from "../auth/verify.js";
 
 export interface HttpServerOptions {
   port: number;
@@ -31,6 +34,16 @@ export interface HttpServerOptions {
    * `/health` is always public and does not need listing.
    */
   identityExemptPaths?: RegExp[];
+  /**
+   * Internal provenance enforcement (arch-internal-trust-and-transports):
+   *   "enforce"           — every non-exempt request MUST carry a valid
+   *                         proof-of-possession signature (US servers: internal-only);
+   *   "verify-if-present" — signed/identity-claiming traffic must verify, cleartext
+   *                         x-user-* is rejected as an injection attempt, plain
+   *                         public traffic passes to its own auth chain (BE edge);
+   *   "off"               — no verification (library default; tests).
+   */
+  internalProvenance?: "enforce" | "verify-if-present" | "off";
 }
 
 /**
@@ -132,6 +145,51 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Serv
           }));
         }
         return;
+      }
+
+      // Internal provenance verification (arch-internal-trust-and-transports):
+      // proof-of-possession signature on internal hops. The verified body is
+      // buffered once and re-armed for downstream routers; unsealed identity
+      // headers are merged back into req.headers by verifyEdgeRequest after
+      // stripping any cleartext injection attempt.
+      const provenanceMode = options.internalProvenance ?? "off";
+      if (
+        provenanceMode !== "off" &&
+        !options.identityExemptPaths?.some((re) => re.test(url.pathname))
+      ) {
+        const hasSignature = typeof req.headers[SIGNING_HEADERS.service] === "string";
+        const hasCleartextIdentity = Object.keys(req.headers).some((h) => h.startsWith("x-user-"));
+        if (!hasSignature) {
+          // unsigned traffic: enforce mode rejects everything; either mode
+          // rejects cleartext identity — it is an injection attempt by
+          // construction (legitimate internal callers always seal).
+          if (provenanceMode === "enforce" || hasCleartextIdentity) {
+            sendRfcError(res, 401, "Unauthorized", "Internal request missing proof-of-possession signature", {
+              internal_code: "AUTH_SIGNATURE_MISSING",
+              instance: url.pathname,
+              severity: "HIGH",
+            });
+            return;
+          }
+        } else {
+          try {
+            const verified = await verifyEdgeRequest(req, url);
+            // re-arm body iteration — downstream routers consume
+            // `for await (const chunk of req)`; the original stream is drained.
+            const bodyCopy = Buffer.from(verified.body);
+            (req as unknown as Record<symbol, unknown>)[Symbol.asyncIterator] = async function* () {
+              if (bodyCopy.length > 0) yield bodyCopy;
+            };
+          } catch (err) {
+            const code = err instanceof AuthError ? err.internal_code : "AUTH_SIGNATURE_INVALID";
+            sendRfcError(res, 401, "Unauthorized", "Internal request signature verification failed", {
+              internal_code: code,
+              instance: url.pathname,
+              severity: "HIGH",
+            });
+            return;
+          }
+        }
       }
 
       // Client-identity gate — internal callers must identify themselves
