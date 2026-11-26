@@ -1999,6 +1999,13 @@ carry a registry-listed `User-Agent` prefix + valid
 expose a genuinely public surface (e.g. the webhook ingress, whose
 callers are external providers that cannot carry our identity headers).
 `/health` is always public and does not need listing. |
+| internalProvenance | `"off" \| "enforce" \| "verify-if-present"` | Internal provenance enforcement (arch-internal-trust-and-transports):
+  "enforce"           — every non-exempt request MUST carry a valid
+                        proof-of-possession signature (US servers: internal-only);
+  "verify-if-present" — signed/identity-claiming traffic must verify, cleartext
+                        x-user-* is rejected as an injection attempt, plain
+                        public traffic passes to its own auth chain (BE edge);
+  "off"               — no verification (library default; tests). |
 
 ### `IConfigEntity`
 
@@ -2259,6 +2266,10 @@ in the service's build script. |
 | identityExemptPaths | `RegExp[]` | Paths exempt from the client-identity gate — only for services with a
 genuinely public surface (e.g. the webhook ingress, whose callers are
 external providers). Everything else is gated by default. |
+| internalProvenance | `"off" \| "enforce" \| "verify-if-present"` | Internal provenance mode — defaults to "enforce" (internal-only services).
+The BE edge passes "verify-if-present": browser traffic is unsigned by
+nature, but cleartext identity injection is rejected and signed internal
+traffic is verified. Never set "off" outside tests. |
 | authDependencySetters | `(cfg: AuthConfig, apiKeyPort: ApiKeyPort) => void[]` | Auth dependency setters — called after auth config is loaded.
 Each setter receives (authConfig, apiKeyPort?) and typically wires
 auth dependencies into route handlers (e.g. setAuthDependencies(cfg, apiKeyPort)). |
@@ -3859,22 +3870,6 @@ Flat i18n dict — keys are full dot-paths (e.g. "app.auth.login.title").
 **Type:** `Record<string, string>`
 
 ### `InternalIdentityProvider`
-
-Internal HTTP client — the ONLY legal way to call another Primebrick
-service over HTTP (BE→US, US→US).
-
-`internalFetch` is a thin wrapper over `fetch` that force-injects the
-caller's service-identity headers (User-Agent + x-primebrick-client-shield-key)
-provided by `configureInternalClient`. Identity headers are applied AFTER
-the caller's own headers so they can never be overridden or spoofed.
-
-Fail-closed: if no provider was configured at boot, every call throws —
-a raw `fetch()` to a microservice would be rejected by the identity gate
-anyway, so bypassing this client is pointless. This is what makes the
-"forgot the identity headers" class of bug impossible.
-
-External calls (Casdoor, Brevo, LLM providers, …) MUST keep using plain
-`fetch` — they are not governed by the client registry.
 
 **Type:** `() => Record<string, string>`
 

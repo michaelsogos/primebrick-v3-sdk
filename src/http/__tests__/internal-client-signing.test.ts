@@ -3,6 +3,7 @@
  * the proof-of-possession signature; sensitive headers never travel cleartext.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { extJsonStringify, extJsonParse } from "../../json/ext-json.js";
 import { createServer, type Server } from "node:http";
 import { internalFetch, configureInternalClient, resetInternalClient } from "../internal-client.js";
 import { MessageKeyProvider, setMessageKeyProvider } from "../../nats/message-key-provider.js";
@@ -49,7 +50,7 @@ describe("internalFetch signing", () => {
   }
 
   it("signs every outbound call — x-pb-* headers present, valid against the received bytes", async () => {
-    const body = JSON.stringify({ hello: "world" });
+    const body = extJsonStringify({ hello: "world" });
     await internalFetch(`http://127.0.0.1:${port()}/api/v1/entities/customer?limit=1`, {
       method: "POST",
       body,

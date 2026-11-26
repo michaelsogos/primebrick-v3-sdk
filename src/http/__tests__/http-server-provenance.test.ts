@@ -4,6 +4,7 @@
  * but rejects cleartext identity injection.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { extJsonStringify, extJsonParse } from "../../json/ext-json.js";
 import { MessageKeyProvider, setMessageKeyProvider } from "../../nats/message-key-provider.js";
 import { resetHttpSigningForTest, signInternalRequest } from "../../auth/http-signing.js";
 import { resetNonceCacheForTest } from "../../auth/nonce-cache.js";
@@ -25,7 +26,7 @@ async function bootServer(mode: "enforce" | "verify-if-present"): Promise<{ serv
         const chunks: Buffer[] = [];
         for await (const chunk of req) chunks.push(chunk as Buffer);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, user: req.headers["x-user-id"] ?? null, bodyLen: Buffer.concat(chunks).length }));
+        res.end(extJsonStringify({ ok: true, user: req.headers["x-user-id"] ?? null, bodyLen: Buffer.concat(chunks).length }));
         return true;
       }
       return false;
@@ -52,14 +53,14 @@ describe("http-server provenance enforcement", () => {
     const port = (server!.address() as { port: number }).port;
     const res = await fetch(`http://127.0.0.1:${port}/api/v1/test`, { method: "POST", body: "{}" });
     expect(res.status).toBe(401);
-    const body = await res.json() as { internal_code: string };
+    const body = extJsonParse(await res.text()) as { internal_code: string };
     expect(body.internal_code).toBe("AUTH_SIGNATURE_MISSING");
   });
 
   it("enforce: signed request passes, unsealed identity visible downstream, body re-armed", async () => {
     ({ server } = await bootServer("enforce"));
     const port = (server!.address() as { port: number }).port;
-    const payload = JSON.stringify({ probe: 1 });
+    const payload = extJsonStringify({ probe: 1 });
     const signed = signInternalRequest({
       service: "backend",
       method: "POST",
@@ -73,9 +74,9 @@ describe("http-server provenance enforcement", () => {
       body: payload,
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { user: string; bodyLen: number };
+    const body = extJsonParse(await res.text()) as { user: string; bodyLen: number };
     expect(body.user).toBe("u-9");
-    expect(body.bodyLen).toBe(payload.length);
+    expect(body.bodyLen).toBe(BigInt(payload.length));
   });
 
   it("verify-if-present: cleartext x-user injection without signature is rejected", async () => {
@@ -113,7 +114,7 @@ describe("http-server provenance enforcement", () => {
       body: payload,
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { user: string | null };
+    const body = extJsonParse(await res.text()) as { user: string | null };
     expect(body.user).toBeNull();
   });
 });

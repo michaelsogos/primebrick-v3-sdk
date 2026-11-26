@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { extJsonStringify, extJsonParse } from "../../json/ext-json.js";
 import { createServer, type Server, type IncomingMessage } from "node:http";
 import { MessageKeyProvider, setMessageKeyProvider } from "../../nats/message-key-provider.js";
 import { resetHttpSigningForTest, signInternalRequest } from "../http-signing.js";
@@ -31,21 +32,21 @@ describe("edge-verification", () => {
   }
 
   it("verifies a signed request, unseals identity into headers, exposes exact body", async () => {
-    const payload = JSON.stringify({ test: true });
+    const payload = extJsonStringify({ test: true });
     await withServer(
       async (req, res) => {
         try {
           const url = new URL(req.url!, "http://x");
           const verified = await verifyEdgeRequest(req, url);
           res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify({
+          res.end(extJsonStringify({
             service: verified.provenance.service,
             user: req.headers["x-user-id"],
             bodyLen: verified.body.length,
           }));
         } catch (e) {
           res.writeHead(401);
-          res.end(JSON.stringify({ error: (e as Error).message }));
+          res.end(extJsonStringify({ error: (e as Error).message }));
         }
       },
       async (port) => {
@@ -61,11 +62,11 @@ describe("edge-verification", () => {
           headers: { "content-type": "application/json", ...signed },
           body: payload,
         });
-        const data = await res.json() as { service: string; user: string; bodyLen: number };
+        const data = extJsonParse(await res.text()) as { service: string; user: string; bodyLen: number };
         expect(res.status).toBe(200);
         expect(data.service).toBe("backend");
         expect(data.user).toBe("u-7");
-        expect(data.bodyLen).toBe(payload.length);
+        expect(data.bodyLen).toBe(BigInt(payload.length));
       },
     );
   });

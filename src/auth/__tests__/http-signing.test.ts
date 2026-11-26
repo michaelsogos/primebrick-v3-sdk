@@ -4,6 +4,7 @@
  * confidentiality, fail-closed boot. Mirrors the plan's §7 prova-del-9.
  */
 import { beforeEach, describe, expect, it } from "vitest";
+import { extJsonStringify } from "../../json/ext-json.js";
 import { MessageKeyProvider, setMessageKeyProvider } from "../../nats/message-key-provider.js";
 import {
   signInternalRequest,
@@ -27,7 +28,7 @@ const BASE_SIGN = {
   service: SVC,
   method: "POST",
   path: "/api/v1/entities/customer",
-  body: JSON.stringify({ name: "Acme" }),
+  body: extJsonStringify({ name: "Acme" }),
   sensitiveHeaders: { "x-user-id": "u-1", "x-user-is-admin": "false", "x-user-permissions": "crm.customer.create" },
 };
 
@@ -36,7 +37,7 @@ function verifierInput(headers: Record<string, string>, overrides: Partial<Param
   return {
     method: "POST",
     path: "/api/v1/entities/customer",
-    body: JSON.stringify({ name: "Acme" }),
+    body: extJsonStringify({ name: "Acme" }),
     getHeader: (name: string) => lower.get(name.toLowerCase()),
     ...overrides,
   };
@@ -69,7 +70,7 @@ describe("http-signing", () => {
     const headers = signInternalRequest(BASE_SIGN);
     // attacker copies every header but swaps the body — signature covers body hash
     await expect(
-      verifyInternalRequest(verifierInput(headers, { body: JSON.stringify({ name: "Acme", role: "admin" }) })),
+      verifyInternalRequest(verifierInput(headers, { body: extJsonStringify({ name: "Acme", role: "admin" }) })),
     ).rejects.toThrow("AUTH_SIGNATURE_INVALID");
   });
 
