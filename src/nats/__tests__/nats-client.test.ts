@@ -348,7 +348,7 @@ describe("NatsClient.jetstreamSubscribe encryption", () => {
       iv: string;
       data: string;
     };
-    wire.data = wire.data.slice(0, -1) + (wire.data.endsWith("A") ? "B" : "A");
+    wire.data = wire.data.slice(0, 4) + (wire.data[4] === "A" ? "B" : "A") + wire.data.slice(5);
     const msg = fakeJsMsg(new TextEncoder().encode(extJsonStringify(wire)));
     endlessAfterFirst(msg);
     const handler = vi.fn(async () => {});
@@ -372,7 +372,7 @@ describe("NatsClient.jetstreamSubscribe encryption", () => {
     // logger, so the violation MUST surface as its own structured security
     // event — metadata only, never payload/ciphertext material.
     const securityLogs = errorSpy.mock.calls.filter(
-      ([msg]) => typeof msg === "string" && msg.includes("integrity violation"),
+      ([msg]) => typeof msg === "string" && msg.includes("terminal message rejection"),
     );
     expect(securityLogs).toHaveLength(1);
     const meta = securityLogs[0][1] as Record<string, unknown>;
@@ -510,7 +510,7 @@ describe("NatsClient.subscribe", () => {
       iv: string;
       data: string;
     };
-    wire.data = wire.data.slice(0, -1) + (wire.data.endsWith("A") ? "B" : "A");
+    wire.data = wire.data.slice(0, 4) + (wire.data[4] === "A" ? "B" : "A") + wire.data.slice(5);
     const handler = vi.fn();
     mocks.mockSubscribe.mockReturnValue({
       async *[Symbol.asyncIterator]() {

@@ -75,6 +75,13 @@ export class MessageKeyUnknownError extends Error {
   }
 }
 
+export class MessagePlaintextRejectedError extends Error {
+  constructor() {
+    super("MESSAGE_PLAINTEXT_REJECTED: inbound payload is not a sealed envelope — plaintext on the NATS wire is rejected by construction");
+    this.name = "MessagePlaintextRejectedError";
+  }
+}
+
 export class MessageIntegrityViolationError extends Error {
   constructor() {
     super("MESSAGE_INTEGRITY_VIOLATION: ciphertext failed GCM authentication — tampered or foreign");

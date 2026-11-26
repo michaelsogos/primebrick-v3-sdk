@@ -5,7 +5,7 @@ import type { JetStreamClient, JetStreamManager, JsMsg } from "@nats-io/jetstrea
 import { context, propagation, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify } from "../json/ext-json.js";
-import { MessageIntegrityViolationError } from "./message-envelope.js";
+import { MessageIntegrityViolationError, MessagePlaintextRejectedError } from "./message-envelope.js";
 import {
   decodeInboundMessage,
   encodeOutboundMessage,
@@ -551,7 +551,7 @@ export class NatsClient {
           try {
             inbound = decodeInboundMessage<T>(m.data, m.headers);
           } catch (decryptError) {
-            if (decryptError instanceof MessageIntegrityViolationError) {
+            if (decryptError instanceof MessageIntegrityViolationError || decryptError instanceof MessagePlaintextRejectedError) {
               // Security evidence FIRST, before anything else: the term()+return
               // below bypasses the outer error logger, so without this log a
               // tampered/foreign message on a non-job-correlated subject would
@@ -559,19 +559,19 @@ export class NatsClient {
               // sensitive headers or key material.
               span.recordException(decryptError);
               span.setStatus({ code: SpanStatusCode.ERROR });
-              logger.error("NATS message integrity violation — terminating without delivery", {
+              logger.error("NATS terminal message rejection — terminating without delivery", {
                 tags: ["nats", "security"],
-                security_event: "nats_message_integrity_violation",
+                security_event: decryptError instanceof MessagePlaintextRejectedError ? "nats_message_plaintext_rejected" : "nats_message_integrity_violation",
                 subject,
                 stream: opts.stream,
                 durable: opts.durable,
                 stream_sequence: m.seq,
                 key_generation: peekEnvelopeGeneration(m.data),
-                error_code: "MESSAGE_INTEGRITY_VIOLATION",
+                error_code: decryptError instanceof MessagePlaintextRejectedError ? "MESSAGE_PLAINTEXT_REJECTED" : "MESSAGE_INTEGRITY_VIOLATION",
               });
               await publishJobResultMessage(subject, m.headers, {
                 status: "failed",
-                error_code: "MESSAGE_INTEGRITY_VIOLATION",
+                error_code: decryptError instanceof MessagePlaintextRejectedError ? "MESSAGE_PLAINTEXT_REJECTED" : "MESSAGE_INTEGRITY_VIOLATION",
                 error_detail: decryptError.message,
                 fire_seq: m.seq,
               });

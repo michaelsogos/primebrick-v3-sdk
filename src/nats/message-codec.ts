@@ -16,7 +16,7 @@ import { headers } from "@nats-io/transport-node";
 import type { Msg, MsgHdrs } from "@nats-io/transport-node";
 import { logger } from "../lifecycle/logger.js";
 import { extJsonStringify, extJsonParse } from "../json/ext-json.js";
-import { isEnvelope, openEnvelope, sealEnvelope } from "./message-envelope.js";
+import { isEnvelope, MessagePlaintextRejectedError, openEnvelope, sealEnvelope } from "./message-envelope.js";
 import { getMessageKeyProvider } from "./message-key-provider.js";
 import { getLoadedAuthConfig } from "../auth/auth-config-cache.js";
 
@@ -70,7 +70,7 @@ export function decodeInboundMessage<T = unknown>(
   if (!isEnvelope(parsed)) {
     // A7 — hard reject: plaintext inbound is an attack or an ungoverned
     // publisher. The transitional passthrough is closed.
-    throw new Error("MESSAGE_PLAINTEXT_REJECTED: inbound payload is not a sealed envelope — plaintext on the NATS wire is rejected by construction");
+    throw new MessagePlaintextRejectedError();
   }
   const provider = getMessageKeyProvider();
   if (!provider) throw new Error("MESSAGE_KEY_PROVIDER_UNAVAILABLE: encrypted payload cannot be opened");
