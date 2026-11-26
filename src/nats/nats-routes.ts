@@ -503,6 +503,16 @@ export async function callNats<TRes = unknown>(
       for await (const msg of sub) {
         clearTimeout(timer);
         try {
+          // NATS no-responder fast-fail: the server answers immediately with
+          // a headers-only empty reply carrying status code 503 when no
+          // subscriber exists for the subject (verified empirically against
+          // NATS 2.14 — 100 was the legacy informational shape). Without this
+          // check the decode yields null and callers crash on a cryptic
+          // null-deref — a boot race must name its real cause instead.
+          if (msg.headers && msg.headers.code === 503) {
+            reject(new Error(`no responders for ${subject}`));
+            continue;
+          }
           const decoded = decodeInboundMessage<unknown>(msg.data, msg.headers).data;
           if (isReplyError(decoded)) {
             reject(new Error(`${decoded.error.code}: ${decoded.error.message}`));

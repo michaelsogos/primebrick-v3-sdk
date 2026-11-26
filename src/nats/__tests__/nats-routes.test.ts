@@ -333,6 +333,27 @@ describe("callNats", () => {
     await expect(callNats("svc.get", {}, { connection: conn })).rejects.toThrow("RBAC_PERMISSION_DENIED");
   });
 
+  it("rejects with a speaking error on the no-responder fast-fail (status 503)", async () => {
+    // The server answers a request with no subscriber as a headers-only
+    // empty reply carrying status code 503 — the classic boot-race shape.
+    const noResponderHeaders = natsHeaders(503, "No Responders");
+    const conn = {
+      subscribe: (_s: string, _o?: unknown) => ({
+        [Symbol.asyncIterator]() {
+          let done = false;
+          return {
+            next: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: { data: new Uint8Array(0), headers: noResponderHeaders, reply: "" } as Msg }),
+          };
+        },
+        unsubscribe: () => {},
+      }) as unknown as Subscription,
+      publish: () => {},
+    } as unknown as NatsConnection;
+    await expect(callNats("jobs.ctl.triggers.materialize", {}, { connection: conn })).rejects.toThrow(
+      "no responders for jobs.ctl.triggers.materialize",
+    );
+  });
+
   it("seals the outbound request, keeps routing headers outside, and opens the sealed reply", async () => {
     const provider = await readyProvider();
     setMessageKeyProvider(provider);
