@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { NatsClient } from "../nats/nats-client.js";
 import { DOCS_PACK_CAPABILITY } from "../docs-pack/manifest.js";
 import { callNats } from "../nats/nats-routes.js";
-import { subscribeShielded } from "../nats/service-shield.js";
 import { detectPackageIdentity } from "./service-identity.js";
 import { logger } from "../lifecycle/logger.js";
 import {
@@ -218,7 +217,7 @@ export class ServiceRegistrar {
     // NOTE: NatsClient.subscribe already dedupes by subject — the
     // registry gatewayOnlineSub entry is belt-and-suspenders for
     // subscribers that bypass NatsClient (none today).
-    await subscribeShielded(SERVICE_SUBJECTS.GATEWAY_ONLINE, async () => {
+    await NatsClient.subscribe(SERVICE_SUBJECTS.GATEWAY_ONLINE, async () => {
       if (this.reregisterInFlight) return;
       this.reregisterInFlight = true;
       try {

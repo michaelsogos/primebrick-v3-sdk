@@ -3117,12 +3117,6 @@ EntityTablePage/EntityFormPage shell declaration extracted from the page.
 | editAction | `boolean` |  |
 | navStrategy | `string` |  |
 
-### `ShieldRegistryLike`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| allowedPrefixes | `typeOperator` |  |
-
 ### `SqlClientPort`
 
 ### `SqlPoolPort`
@@ -6922,8 +6916,6 @@ Returns `undefined` for entities not marked with `@Cached()`.
 
 ### `getMessageKeyProvider(): MessageKeyProvider \| null`
 
-### `getNatsShieldRegistry(): ShieldRegistryLike \| null`
-
 ### `getOperatorsForColumnType(columnType): FilterOperator[]`
 
 Operators available for a given column UI type.
@@ -8448,12 +8440,6 @@ meta (e.g. sparkline `endpoint: "/actions/job-run-stats"`) resolve to
 |-----------|------|-------------|
 | listBasePath | `string` |  |
 
-### `serviceShieldVerify(_msg): Promise<undefined>`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| _msg | `Msg` |  |
-
 ### `setCurrentServiceCode(code): void`
 
 | Parameter | Type | Description |
@@ -8473,12 +8459,6 @@ Hot-swap logging options (from config reload / `config.changed`).
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | provider | `MessageKeyProvider \| null` |  |
-
-### `setNatsShieldRegistry(_r): void`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| _r | `ShieldRegistryLike \| null` |  |
 
 ### `setOtelLogSink(sink): void`
 
@@ -8601,14 +8581,6 @@ Example:
     return &#123; redis_url: cfg.redis_url &#125;;
   &#125;); |
 | verify | `NatsRouteVerify` |  |
-
-### `subscribeShielded(subject, handler, opts): Promise<void>`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| subject | `string` |  |
-| handler | `(payload: T, msg: Msg) => Promise<unknown>` |  |
-| opts | `{ queue: string }` |  |
 
 ### `systemAuthUser(initiator): AuthUser`
 
@@ -8873,12 +8845,6 @@ GATEWAY-RESOLVED mode — no ports needed.
 |-----------|------|-------------|
 | msg | `Msg` |  |
 | config | `AuthConfig` |  |
-
-### `verifyNatsPublisher(_msg): Promise<boolean>`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| _msg | `{ subject: string; headers: MsgHdrs }` |  |
 
 ### `walkHostPages(routesDir): string[]`
 

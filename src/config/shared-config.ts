@@ -20,7 +20,6 @@
 
 import { NatsClient } from "../nats/nats-client.js";
 import { callNats, makeNatsRequestRoute, serviceLaneVerify, type NatsRouteVerify } from "../nats/nats-routes.js";
-import { subscribeShielded } from "../nats/service-shield.js";
 
 /**
  * Shape of the shared config object exchanged via NATS `config.get`.
@@ -71,7 +70,7 @@ export async function subscribeConfigChanged(
 ): Promise<void> {
   // Shield-gated broadcast: only registered clients may trigger a config
   // reload — a rogue publisher must not force config/auth refreshes.
-  await subscribeShielded<{ keys?: string[] }>(CONFIG_CHANGED_SUBJECT, handler);
+  await NatsClient.subscribe<{ keys?: string[] }>(CONFIG_CHANGED_SUBJECT, handler);
 }
 
 /** Timeout for the NATS request (ms). If the BE doesn't respond, the caller continues without shared config. */

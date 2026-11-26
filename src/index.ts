@@ -237,14 +237,6 @@ export {
   type NatsRouterDeps,
 } from "./nats/nats-routes.js";
 export {
-  setNatsShieldRegistry,
-  getNatsShieldRegistry,
-  verifyNatsPublisher,
-  serviceShieldVerify,
-  subscribeShielded,
-  type ShieldRegistryLike,
-} from "./nats/service-shield.js";
-export {
   dueLaneVerify,
   forwardAuthHeaders,
   forwardedActor,

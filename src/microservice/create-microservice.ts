@@ -57,7 +57,6 @@
 import { logger } from "../lifecycle/logger.js";
 import { SecretVaultReader, MESSAGE_KEY_MATERIAL_REF, VAULT_SUBJECTS, type SqlPoolPort } from "../secrets/secret-vault.js";
 import { MessageKeyProvider, setMessageKeyProvider } from "../nats/message-key-provider.js";
-import { subscribeShielded } from "../nats/service-shield.js";
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -704,7 +703,7 @@ export async function createMicroservice(
   // key window. Hint loss is irrelevant by construction — the provider's
   // reactive debounced self-heal re-reads on the first message that meets
   // a generation it does not know.
-  await subscribeShielded(VAULT_SUBJECTS.ROTATED, async (payload) => {
+  await NatsClient.subscribe(VAULT_SUBJECTS.ROTATED, async (payload) => {
     const hint = payload as { scope?: string; name?: string };
     if (hint.scope === MESSAGE_KEY_MATERIAL_REF.scope && hint.name === MESSAGE_KEY_MATERIAL_REF.name) {
       await messageKeyProvider.refresh();

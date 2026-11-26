@@ -35,8 +35,8 @@
  * the future log-interceptor plan.
  */
 
-import { makeNatsRoutes } from "../nats/nats-routes.js";
-import { serviceShieldVerify, subscribeShielded } from "../nats/service-shield.js";
+import { makeNatsRoutes, serviceLaneVerify } from "../nats/nats-routes.js";
+import { NatsClient } from "../nats/nats-client.js";
 import { declareSystemJobs } from "../nats/system-jobs.js";
 import { setProcessInterval } from "../lifecycle/process-registry.js";
 import { SERVICE_SUBJECTS } from "../service/service-lifecycle-subjects.js";
@@ -99,7 +99,7 @@ export async function mountSequenceReviveJob(
   // work item (queue `<svc>`): exactly one replica runs each fire. A
   // system-lane dispatch carries NO user context and NO client-shield
   // secret (run_as:"system" arms headers-free — the rotating secret is
-  // never frozen), so `verify: serviceShieldVerify` replaces the default
+  // never frozen), so `verify: serviceLaneVerify` replaces the default
   // verifyNatsMessage L2 chain: the L1 client-shield enrollment is the
   // gate, exactly as `dueLaneVerify("system")` defines the lane.
   await makeNatsRoutes(
@@ -108,7 +108,7 @@ export async function mountSequenceReviveJob(
         subject,
         queue: svc,
         permissions: [],
-        verify: serviceShieldVerify,
+        verify: serviceLaneVerify,
         payload_schema: { schema: PAYLOAD_JSON_SCHEMA, parse: parsePayload },
         label_key: `${i18nNs}.callable.sequence_revive.label`,
         description_key: `${i18nNs}.callable.sequence_revive.desc`,
@@ -164,5 +164,5 @@ export async function mountSequenceReviveJob(
   setProcessInterval(`${svc}-sequence-revive-materialize-retry`, ARM_RETRY_MS, () => {
     void tryDeclare("interval");
   });
-  await subscribeShielded(SERVICE_SUBJECTS.GATEWAY_ONLINE, () => tryDeclare("gateway_online"));
+  await NatsClient.subscribe(SERVICE_SUBJECTS.GATEWAY_ONLINE, () => tryDeclare("gateway_online"));
 }
