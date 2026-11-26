@@ -64,8 +64,8 @@ const aheadOf = (base: string, branch: string) =>
   Number(lines(git(["rev-list", "--count", `${base}..${branch}`]).out)[0] ?? "0");
 const exists = (ref: string) => git(["rev-parse", "--verify", "--quiet", ref]).code === 0;
 
-const WIP = /^((?:feature|release|hotfix)\/.+)$/;
-const BASE: Record<string, string> = { feature: "develop", release: "main", hotfix: "main" };
+const WIP = /^((?:feature|release|hotfix|arch)\/.+)$/;
+const BASE: Record<string, string> = { feature: "develop", arch: "develop", release: "main", hotfix: "main" };
 
 function audit(): number {
   const cur = current();
@@ -175,7 +175,7 @@ function finish(name?: string): number {
   }
 
   // release/hotfix also tag main and back-merge into develop
-  if (kind !== "feature") {
+  if (kind === "release" || kind === "hotfix") {
     const version = br.split("/")[1];
     if (!version) die(`${br}: cannot derive tag from branch name`);
     if (git(["tag", version]).code !== 0) die(`tag ${version} failed`);
