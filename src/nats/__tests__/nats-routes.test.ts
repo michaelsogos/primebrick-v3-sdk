@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { headers as natsHeaders, type Msg, type NatsConnection, type Subscription } from "@nats-io/transport-node";
 import { makeNatsRoutes, makeNatsRequestRoute, callNats } from "../nats-routes.js";
 import { initAuthConfig, loadAuthConfig } from "../../auth/auth-config-cache.js";
@@ -6,7 +6,7 @@ import { buildNatsAuthHeaders } from "../../auth/verify-nats.js";
 import { AuthMode, type AuthConfig, type AuthUser } from "../../auth/types.js";
 import { extJsonStringify, extJsonParse } from '../../json/ext-json.js';
 import { isEnvelope, openEnvelope, sealEnvelope } from "../message-envelope.js";
-import { MessageKeyProvider, setMessageKeyProvider } from "../message-key-provider.js";
+import { MessageKeyProvider, setMessageKeyProvider, deriveMessageKey, MESSAGE_KEY_PART_A } from "../message-key-provider.js";
 
 const CFG: AuthConfig = {
   mode: AuthMode.GATEWAY,
@@ -27,12 +27,13 @@ const USER: AuthUser = {
 
 function fakeMsg(body: unknown, opts: { auth?: boolean; reply?: string } = {}): Msg {
   const h = natsHeaders();
+  const sensitiveHeaders: Record<string, string> = {};
   if (opts.auth !== false) {
-    for (const [k, v] of Object.entries(buildNatsAuthHeaders(USER, CFG))) h.set(k, v);
+    for (const [k, v] of Object.entries(buildNatsAuthHeaders(USER, CFG))) sensitiveHeaders[k] = v;
   }
   const responses: Uint8Array[] = [];
   return {
-    data: new TextEncoder().encode(extJsonStringify(body)),
+    data: new TextEncoder().encode(sealEnvelope(TEST_KEY, TEST_GENERATION, body, sensitiveHeaders)),
     headers: h,
     reply: opts.reply,
     respond: (d?: Uint8Array) => { if (d) responses.push(d); return true; },
@@ -62,6 +63,11 @@ function fakeConnection(msgs: Msg[]) {
   return { conn, subsOpts, published };
 }
 
+function openResponse(bytes: Uint8Array): { payload: unknown; headers: Record<string, string> } {
+  return openEnvelope(extJsonParse(new TextDecoder().decode(bytes)) as never, (g) => (g === TEST_GENERATION ? TEST_KEY : null));
+}
+const TEST_GENERATION = 7;
+const TEST_KEY = deriveMessageKey(MESSAGE_KEY_PART_A, "test-partb-material", TEST_GENERATION);
 async function readyProvider(): Promise<MessageKeyProvider> {
   const provider = new MessageKeyProvider(async () => ({
     generation: 7,
@@ -76,6 +82,9 @@ beforeAll(async () => {
   await loadAuthConfig();
 });
 
+beforeEach(async () => {
+  setMessageKeyProvider(await readyProvider());
+});
 afterEach(() => {
   setMessageKeyProvider(null);
 });
@@ -137,7 +146,7 @@ describe("makeNatsRequestRoute (correlation reply)", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(msg._responses).toHaveLength(1);
-    expect(extJsonParse<any>(new TextDecoder().decode(msg._responses[0]))).toEqual({ pong: { q: "ping" } });
+    expect(openResponse(msg._responses[0]).payload).toEqual({ pong: { q: "ping" } });
   });
 
   it("replies with an error envelope on RBAC denial", async () => {
@@ -148,7 +157,7 @@ describe("makeNatsRequestRoute (correlation reply)", () => {
       { serviceCode: "svc", connection: conn },
     );
     await new Promise((r) => setTimeout(r, 20));
-    const res = extJsonParse<any>(new TextDecoder().decode(msg._responses[0]));
+    const res = openResponse(msg._responses[0]).payload as { error: { code: string } };
     expect(res.error.code).toBe("RBAC_PERMISSION_DENIED");
   });
 
@@ -228,8 +237,8 @@ describe("payload_schema contract ({schema, parse})", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(spy).not.toHaveBeenCalled();
-    const res = extJsonParse<any>(new TextDecoder().decode(msg._responses[0]));
-    expect(res).toHaveProperty("error.code", "VALIDATION_ERROR");
+    const res = openResponse(msg._responses[0]).payload as { error: { code: string } };
+    expect(res.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("handler receives the PARSED value; a further validate() runs after the contract", async () => {
@@ -294,7 +303,7 @@ describe("callNats", () => {
         // responder replies on the inbox
         setTimeout(() => {
           inboxSub?.({
-            data: new TextEncoder().encode(extJsonStringify({ ok: true })),
+            data: new TextEncoder().encode(sealEnvelope(TEST_KEY, TEST_GENERATION, { ok: true }, {})),
             headers: natsHeaders(),
             reply: "",
           } as Msg);
@@ -308,7 +317,7 @@ describe("callNats", () => {
   });
 
   it("rejects on responder error envelope", async () => {
-    const errMsg = new TextEncoder().encode(extJsonStringify({ error: { code: "RBAC_PERMISSION_DENIED", message: "nope" } }));
+    const errMsg = new TextEncoder().encode(sealEnvelope(TEST_KEY, TEST_GENERATION, { error: { code: "RBAC_PERMISSION_DENIED", message: "nope" } }, {}));
     const conn = {
       subscribe: (_s: string, _o?: unknown) => ({
         [Symbol.asyncIterator]() {

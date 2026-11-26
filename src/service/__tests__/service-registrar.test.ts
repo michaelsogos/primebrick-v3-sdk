@@ -3,6 +3,16 @@ import { ServiceRegistrar } from "../service-registrar.js";
 import { SERVICE_SUBJECTS } from "../service-lifecycle-subjects.js";
 
 import { extJsonStringify, extJsonParse } from '../../json/ext-json.js';
+import { sealEnvelope, openEnvelope } from "../../nats/message-envelope.js";
+import { MessageKeyProvider, setMessageKeyProvider, deriveMessageKey, MESSAGE_KEY_PART_A } from "../../nats/message-key-provider.js";
+
+const REG_TEST_GENERATION = 7;
+const REG_TEST_KEY = deriveMessageKey(MESSAGE_KEY_PART_A, "test-partb-material", REG_TEST_GENERATION);
+async function wireRegProvider(): Promise<void> {
+  const provider = new MessageKeyProvider(async () => ({ generation: REG_TEST_GENERATION, generations: { "7": "test-partb-material" } }));
+  await provider.refresh();
+  setMessageKeyProvider(provider);
+}
 /**
  * callNats() drives the register handshake: publish with a reply inbox,
  * then one message on the inbox subscription. The mock connection
@@ -17,7 +27,7 @@ function makeNatsMock(replyBatches: unknown[][] = [[{ registered: true }]]) {
         unsubscribe: vi.fn(),
         [Symbol.asyncIterator]: async function* () {
           for (const r of msgs) {
-            yield { data: new TextEncoder().encode(extJsonStringify(r)) };
+            yield { data: new TextEncoder().encode(sealEnvelope(REG_TEST_KEY, REG_TEST_GENERATION, r, {})) };
           }
           // keep the iterator open — simulates "no reply yet"
           await new Promise(() => {});
@@ -44,7 +54,8 @@ describe("ServiceRegistrar", () => {
   let nats: ReturnType<typeof makeNatsMock>;
   let registrar: ServiceRegistrar;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await wireRegProvider();
     nats = makeNatsMock();
     registrar = new ServiceRegistrar(nats as any, baseConfig);
   });
@@ -53,7 +64,7 @@ describe("ServiceRegistrar", () => {
     await registrar.register();
     expect(nats.conn.publish).toHaveBeenCalledTimes(1);
     const [subject, raw] = nats.conn.publish.mock.calls[0];
-    const payload = extJsonParse<any>(new TextDecoder().decode(raw));
+    const payload = openEnvelope(extJsonParse(new TextDecoder().decode(raw)) as never, (g) => (g === REG_TEST_GENERATION ? REG_TEST_KEY : null)).payload as any;
     expect(subject).toBe(SERVICE_SUBJECTS.REGISTER);
     expect(payload.code).toBe("emailsender");
     expect(payload.base_url).toBe("http://localhost:8081");
@@ -75,7 +86,7 @@ describe("ServiceRegistrar", () => {
       is_behind_scaler: true,
     });
     await registrar.register();
-    const payload = extJsonParse<any>(new TextDecoder().decode(nats.conn.publish.mock.calls[0][1]));
+    const payload = openEnvelope(extJsonParse(new TextDecoder().decode(nats.conn.publish.mock.calls[0][1])) as never, (g) => (g === REG_TEST_GENERATION ? REG_TEST_KEY : null)).payload as any;
     expect(payload.name).toBe("Email Sender");
     expect(payload.description).toBe("Sends emails");
     expect(payload.author).toBe("PrimeBrick");

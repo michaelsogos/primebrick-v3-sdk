@@ -128,18 +128,12 @@ describe("NatsClient.publishEphemeralLossy", () => {
     NatsClient.close();
   });
 
-  it("falls back to legacy plaintext before the key provider is wired, warning once", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+  it("fail-closed without key provider: publish throws, nothing reaches the wire", async () => {
     await NatsClient.getConnection();
-    await NatsClient.publishEphemeralLossy("legacy.subject", { secret_field: "plaintext-value" }, { "x-user-id": "user-123" });
-    await NatsClient.publishEphemeralLossy("legacy.subject", { secret_field: "plaintext-value" }, { "x-user-id": "user-123" });
-
-    const [, payload, opts] = mocks.mockPublish.mock.calls[0];
-    const wireText = new TextDecoder().decode(payload);
-    expect(wireText).toContain("plaintext-value");
-    expect(opts.headers.get("x-user-id")).toBe("user-123");
-    const keyWarnings = warnSpy.mock.calls.filter(([msg]) => typeof msg === "string" && msg.includes("MESSAGE_KEY_UNAVAILABLE"));
-    expect(keyWarnings).toHaveLength(1);
+    await expect(
+      NatsClient.publishEphemeralLossy("legacy.subject", { secret_field: "plaintext-value" }),
+    ).rejects.toThrow("MESSAGE_KEY_PROVIDER_UNAVAILABLE");
+    expect(mocks.mockPublish).not.toHaveBeenCalled();
   });
 
   it("seals payload and sensitive x-user headers when the key provider is ready", async () => {
@@ -216,28 +210,30 @@ describe("NatsClient.publishEphemeralLossy", () => {
     expect((opened.headers as Record<string, string>)["auth-permissions"]).toBe("test.permission");
   });
 
-  it("serializes payload with extJsonStringify and publishes as Uint8Array", async () => {
+  it("serializes payload with extJsonStringify inside the sealed envelope", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
     await NatsClient.getConnection();
     await NatsClient.publishEphemeralLossy("test.subject", { id: 42n, name: "test" });
-
     expect(mocks.mockPublish).toHaveBeenCalledTimes(1);
     const [subject, payload] = mocks.mockPublish.mock.calls[0];
     expect(subject).toBe("test.subject");
     expect(payload).toBeInstanceOf(Uint8Array);
-    const decoded = extJsonParse(new TextDecoder().decode(payload));
-    expect(decoded.id).toBe(42n);
-    expect(decoded.name).toBe("test");
+    const opened = openEnvelope(extJsonParse(new TextDecoder().decode(payload)) as never, (g) => provider.keyForGeneration(g));
+    expect((opened.payload as { id: bigint }).id).toBe(42n);
+    expect((opened.payload as { name: string }).name).toBe("test");
   });
 
-  it("serializes bigint values correctly (round-trip)", async () => {
+  it("serializes bigint values correctly inside the sealed envelope (round-trip)", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
     await NatsClient.getConnection();
     const data = { count: 9007199254740993n, nested: { value: 123n } };
     await NatsClient.publishEphemeralLossy("bigint.subject", data);
-
     const payload = mocks.mockPublish.mock.calls[0][1] as Uint8Array;
-    const decoded = extJsonParse(new TextDecoder().decode(payload));
-    expect(decoded.count).toBe(9007199254740993n);
-    expect(decoded.nested.value).toBe(123n);
+    const opened = openEnvelope(extJsonParse(new TextDecoder().decode(payload)) as never, (g) => provider.keyForGeneration(g));
+    expect((opened.payload as typeof data).count).toBe(9007199254740993n);
+    expect((opened.payload as typeof data).nested.value).toBe(123n);
   });
 });
 
@@ -404,10 +400,13 @@ describe("NatsClient.subscribe", () => {
   });
 
   it("calls handler with parsed message (bigint preserved)", async () => {
+    const provider = await readyProvider();
+    setMessageKeyProvider(provider);
+    const key = await provider.currentKey();
     const handler = vi.fn();
-    // Create an async iterable that yields one message then stops
+    const wire = sealEnvelope(key.key, key.generation, { id: 99n, action: "create" }, {});
     const testMsg = {
-      data: new TextEncoder().encode(extJsonStringify({ id: 99n, action: "create" })),
+      data: new TextEncoder().encode(wire),
       reply: "",
       subject: "test.subject",
       sid: 1,
@@ -418,10 +417,8 @@ describe("NatsClient.subscribe", () => {
       },
     };
     mocks.mockSubscribe.mockReturnValue(asyncIterable);
-
     await NatsClient.getConnection();
     await NatsClient.subscribe("test.subject", handler);
-
     // Wait for the async handler to process
     await new Promise((resolve) => setImmediate(resolve));
 
