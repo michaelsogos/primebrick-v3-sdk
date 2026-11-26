@@ -2141,16 +2141,24 @@ convention). Structurally assignable from the real `AuditParams`:
  a uuid primary key (its `*_audit` table drops the column). |
 | entityUuid | `string` |  |
 | action | `string` |  |
-| changedAt | `Date` |  |
+| changedAt | `symbol \| Date` | Mirrors dal `AuditParams.changedAt` (`Date | DalNow`): in practice the
+ dal ALWAYS passes the DAL_NOW sentinel — a symbol meaning "the database
+ stamps clock_timestamp() itself". The application never knows the real
+ time by doctrine, so this value is NEVER a usable timestamp: the marker
+ must take the time from entity_updated_at or the audit row read-back. |
 | version | `bigint` |  |
 | changedBy | `string` |  |
 | delta | `Record<string, { old: unknown; new: unknown }>` |  |
+| entity_updated_at | `Date \| null` | Mirrors dal `AuditParams.entity_updated_at` — the entity row's freshly
+ stamped updated_at from the write's own RETURNING record (authoritative
+ DB clock). Present only when the write re-stamped it; absent/null for
+ HARD_DELETE and entities without the column. Never the pre-write stale
+ value. The marker PREFERS this — it is the entity's canonical
+ modification time — and falls back to the audit row's changed_at. |
 
 ### `MarkerAuditPort`
 
-Structural mirror of dal-pg `AuditPort` — `writeAudit` returns the
-inserted audit row key (used for the marker's `audit_log_id`): bigint
-for legacy surrogate-id audit tables, uuid string post-eradication.
+Structural mirror of dal-pg `AuditPort`.
 
 ### `MaterializeResult`
 
