@@ -1,86 +1,86 @@
 {
-	"name": "@primebrick/sdk",
-	"version": "3.5.2",
-	"private": false,
-	"type": "module",
-	"engines": {
-		"node": "24"
-	},
-	"description": "Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.",
-	"license": "MIT",
-	"author": "Michael Sogos",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/michaelsogos/primebrick-v3-sdk"
-	},
-	"homepage": "https://github.com/michaelsogos/primebrick-v3-sdk#readme",
-	"bugs": {
-		"url": "https://github.com/michaelsogos/primebrick-v3-sdk/issues"
-	},
-	"main": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"exports": {
-		".": {
-			"types": "./dist/index.d.ts",
-			"development": "./src/index.ts",
-			"import": "./dist/index.js"
-		},
-		"./json": {
-			"types": "./dist/json/ext-json.d.ts",
-			"development": "./src/json/ext-json.ts",
-			"import": "./dist/json/ext-json.js"
-		}
-	},
-	"files": [
-		"dist/"
-	],
-	"scripts": {
-		"build": "tsc",
-		"prepare": "tsc",
-		"test": "pnpm check:standards && vitest run",
-		"test:watch": "vitest",
-		"extract-docs": "node scripts/extract-api-docs.mjs && node scripts/render-api-reference.mjs",
-		"check:standards": "node tools/check-standards.ts src",
-		"prebuild": "pnpm check:standards && pnpm extract-docs"
-	},
-	"publishConfig": {
-		"access": "public",
-		"registry": "https://registry.npmjs.org"
-	},
-	"dependencies": {
-		"@nats-io/jetstream": "3.4.0",
-		"@nats-io/transport-node": "3.4.0",
-		"@opentelemetry/api": "1.9.1",
-		"@opentelemetry/auto-instrumentations-node": "0.81.2",
-		"@opentelemetry/context-async-hooks": "2.12.0",
-		"@opentelemetry/core": "2.12.0",
-		"@opentelemetry/exporter-logs-otlp-http": "0.223.0",
-		"@opentelemetry/exporter-trace-otlp-http": "0.223.0",
-		"@opentelemetry/instrumentation": "0.223.0",
-		"@opentelemetry/resources": "2.12.0",
-		"@opentelemetry/sdk-logs": "0.223.0",
-		"@opentelemetry/sdk-trace-base": "2.12.0",
-		"@opentelemetry/semantic-conventions": "1.43.0",
-		"@primebrick/core": "workspace:*",
-		"countries-list": "3.4.1",
-		"exceljs": "4.4.0",
-		"handlebars": "4.7.10",
-		"jose": "6.2.12",
-		"json-bigint": "1.0.0",
-		"libphonenumber-js": "1.13.15",
-		"pluralize": "8.0.0",
-		"redis": "6.3.0",
-		"reflect-metadata": "0.2.2"
-	},
-	"devDependencies": {
-		"@types/express": "5.0.6",
-		"@types/json-bigint": "1.0.4",
-		"@types/node": "24.13.3",
-		"@types/pluralize": "0.0.33",
-		"typedoc": "0.28.20",
-		"typescript": "6.0.3",
-		"vite": "8.3.4",
-		"vitest": "4.1.10"
-	},
-	"packageManager": "pnpm@9.15.9"
+  "name": "@primebrick/sdk",
+  "version": "3.5.3",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": "24"
+  },
+  "description": "Shared microservice infrastructure for Primebrick v3 — config loading, migration runner, service registration, graceful shutdown, NATS client, health checks, env validation. DB-agnostic via port interfaces.",
+  "license": "MIT",
+  "author": "Michael Sogos",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michaelsogos/primebrick-v3-sdk"
+  },
+  "homepage": "https://github.com/michaelsogos/primebrick-v3-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/michaelsogos/primebrick-v3-sdk/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
+    "./json": {
+      "types": "./dist/json/ext-json.d.ts",
+      "development": "./src/json/ext-json.ts",
+      "import": "./dist/json/ext-json.js"
+    }
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "test": "pnpm check:standards && vitest run",
+    "test:watch": "vitest",
+    "extract-docs": "node scripts/extract-api-docs.mjs && node scripts/render-api-reference.mjs",
+    "check:standards": "node tools/check-standards.ts src",
+    "prebuild": "pnpm check:standards && pnpm extract-docs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "dependencies": {
+    "@nats-io/jetstream": "3.4.0",
+    "@nats-io/transport-node": "3.4.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "0.81.2",
+    "@opentelemetry/context-async-hooks": "2.12.0",
+    "@opentelemetry/core": "2.12.0",
+    "@opentelemetry/exporter-logs-otlp-http": "0.223.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
+    "@opentelemetry/instrumentation": "0.223.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-logs": "0.223.0",
+    "@opentelemetry/sdk-trace-base": "2.12.0",
+    "@opentelemetry/semantic-conventions": "1.43.0",
+    "@primebrick/core": "workspace:*",
+    "countries-list": "3.4.1",
+    "exceljs": "4.4.0",
+    "handlebars": "4.7.10",
+    "jose": "6.2.12",
+    "json-bigint": "1.0.0",
+    "libphonenumber-js": "1.13.15",
+    "pluralize": "8.0.0",
+    "redis": "6.3.0",
+    "reflect-metadata": "0.2.2"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/json-bigint": "1.0.4",
+    "@types/node": "24.13.3",
+    "@types/pluralize": "0.0.33",
+    "typedoc": "0.28.20",
+    "typescript": "6.0.3",
+    "vite": "8.3.4",
+    "vitest": "4.1.10"
+  },
+  "packageManager": "pnpm@9.15.9"
 }
