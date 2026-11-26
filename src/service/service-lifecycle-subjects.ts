@@ -85,22 +85,6 @@ export interface ServiceRegisterPayload extends ServiceHeartbeatPayload {
    */
   label_key?: string;
   /**
-   * sha256 of the service's client shield key (module config
-   * `service_client_shield_key`). The raw key NEVER travels — the BE
-   * stores only this hash in client_shield_registry and verifies inbound
-   * `x-primebrick-client-shield-key` by hashing+comparing.
-   */
-  client_key_hash?: string;
-  /**
-   * Key-rotation contract (B14): `key_mode='derived'` means the hash was
-   * produced from `HMAC(derivation_secret, ua_prefix:key_generation)` — the
-   * BE stores `key_generation` on the row and a rotate endpoint bumps it,
-   * triggering re-registration with the next derived key. 'static' rows
-   * carry a service-configured key and rotate only by admin action.
-   */
-  key_mode?: "static" | "derived";
-  key_generation?: number;
-  /**
    * Capabilities declared in the service's package.json
    * (`"capabilities": [...]`, snake_case lowercase) — e.g.
    * `llm_orchestrator`, `vectorizing_engine`. Persisted by the BE in

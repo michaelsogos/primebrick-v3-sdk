@@ -70,20 +70,12 @@ export * from "./currency/index.js";
 export { type IServiceRegistry } from "./service/service-registry.js";
 export { ServiceRegistrar, type ServiceRegistrarConfig, type HealthCheckFn } from "./service/service-registrar.js";
 export {
-  CLIENT_SHIELD_KEY_HEADER,
-  clientKeyHash,
-  deriveClientKey,
-  verifyRowKey,
   detectPackageIdentity,
   resolveServiceCode,
   setCurrentServiceCode,
   currentServiceCode,
   buildUserAgent,
-  identityHeaders,
-  verifyClientIdentity,
   type PackageIdentity,
-  type ClientIdentityResult,
-  type ClientKeyMaterial,
 } from "./service/service-identity.js";
 
 export {
@@ -115,6 +107,16 @@ export {
 } from "./docs-pack/build-docs-pack.js";
 export { docsPackRouteHandler, DOCS_PACK_ROUTE } from "./docs-pack/serve-docs-pack.js";
 export { fetchDocsPack } from "./docs-pack/docs-pack-client.js";
+export {
+  signInternalRequest,
+  verifyInternalRequest,
+  isSensitiveInternalHeader,
+  SIGNING_HEADERS,
+  SIGNATURE_SKEW_MS,
+  type VerifiedProvenance,
+} from "./auth/http-signing.js";
+export { verifyEdgeRequest, type EdgeVerifiedRequest } from "./auth/edge-verification.js";
+export { isNonceReplay } from "./auth/nonce-cache.js";
 export {
   extractHostFacts,
   extractRemoteFacts,

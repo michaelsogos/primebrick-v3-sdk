@@ -781,16 +781,10 @@ health status (HTTP + NATS + custom checks).
 
 #### `ServiceRegistrar.register(): Promise<void>`
 
-#### `ServiceRegistrar.onRegistryChanged(currentGeneration)`
-
-Derived-key mode (B14): invoked by the client-shield registry after a
-reload that changed row material. `currentGeneration` is the generation
-the BE snapshot now advertises for this service — when the BE bumped it
-(rotate endpoint), re-register with the newly derived key.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| currentGeneration | `number` |  |
+Register with the BE via NATS request/reply (`service.register` is a
+correlation-reply endpoint). Stateless by design: retries every 5s until
+the BE acknowledges — a service that never registers does not exist to
+the system, so this method only resolves on ack.
 
 #### `ServiceRegistrar.sendHeartbeat(): Promise<void>`
 
@@ -1109,18 +1103,6 @@ undeclarable (enforcement over verification; no lint needed).
 | partial | `boolean` | `partial: true` — update semantics: only present keys validated,
  absent required fields skipped. Default false (create semantics). |
 
-### `ClientKeyMaterial`
-
-Row-shaped key material for verification (subset of
-`system.client_shield_registry` used by both the SDK consumer cache and the
-BE publisher-identity verifier).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| client_key_hash | `string` |  |
-| previous_key_hash | `string \| null` |  |
-| previous_valid_until | `string \| Date \| null` |  |
-
 ### `CollaborationMeta`
 
 Collaboration fragment injected by `assembleMeta` at serve time.
@@ -1354,6 +1336,14 @@ One file of pack content — wire format.
 | openapi | `string` | Raw openapi.json content, when the pack carries one. |
 
 ### `DocsPgClient`
+
+### `EdgeVerifiedRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| provenance | `VerifiedProvenance` |  |
+| body | `Buffer` | The exact body bytes the signature was verified against — downstream
+ body parsing MUST consume this buffer, never the (now-drained) stream. |
 
 ### `EmitServiceDocsInput`
 
@@ -2959,16 +2949,6 @@ against this service's OWN translation namespace (same contract as
 nav[].label_key). Persisted in `service_registry.label_key`; every UI
 surface (breadcrumbs, app launcher, module menus) renders it, falling
 back to the raw `name` when absent or the key is unresolved. |
-| client_key_hash | `string` | sha256 of the service's client shield key (module config
-`service_client_shield_key`). The raw key NEVER travels — the BE
-stores only this hash in client_shield_registry and verifies inbound
-`x-primebrick-client-shield-key` by hashing+comparing. |
-| key_mode | `"static" \| "derived"` | Key-rotation contract (B14): `key_mode='derived'` means the hash was
-produced from `HMAC(derivation_secret, ua_prefix:key_generation)` — the
-BE stores `key_generation` on the row and a rotate endpoint bumps it,
-triggering re-registration with the next derived key. 'static' rows
-carry a service-configured key and rotate only by admin action. |
-| key_generation | `number` |  |
 | capabilities | `string[]` | Capabilities declared in the service's package.json
 (`"capabilities": [...]`, snake_case lowercase) — e.g.
 `llm_orchestrator`, `vectorizing_engine`. Persisted by the BE in
@@ -3015,21 +2995,6 @@ namespace by every UI surface (fallback: raw `name`). |
 | is_behind_scaler | `boolean` |  |
 | icon | `string` |  |
 | icon_type | `"url" \| "base64" \| "icon"` |  |
-| clientKey | `string` | This service's own client key (module config `service_client_shield_key`) — paired with
-the UA prefix in `system.client_shield_registry`. Only its sha256 hash is sent
-in `service.register`; the raw key never leaves the service. |
-| keyDerivationSecret | `string` | Derived-key mode (B14): the service's derivation secret (module config
-`service_key_derivation_secret`). When set, every `service.register`
-materializes the key as `HMAC(secret, ua_prefix:generation)` for the
-generation the BE advertises — the row becomes `key_mode='derived'` and
-a BE-side rotate (generation bump) auto-triggers re-registration with
-the newly derived key. No key material rests in config or on disk. |
-| registryGeneration | `() => number` | Reads this service's current `key_generation` from the client-shield
-registry snapshot (wired by create-microservice). Required for derived
-mode; unused otherwise. |
-| generationSlot | `{ value: number }` | Shared slot (wired by create-microservice): the registrar writes the
-generation of each ACKED register so outbound calls keep deriving the
-acked key while the post-rotation handshake completes (zero-gap). |
 | gatewayUrl | `string` | API gateway base URL (the BE, e.g. `http://localhost:3001`) — used only
 as a log tag on lifecycle messages so the target of registration and
 heartbeats is visible on the service's stdout. |
@@ -3432,6 +3397,13 @@ is `new MessageKeyProvider(() => reader.readGenerations(ref))`.
 | scope | `string` | "global" for fleet-wide secrets, or a service/module scope. |
 | name | `string` |  |
 
+### `VerifiedProvenance`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| service | `string` | The signer's declared and proven service code. |
+| sensitiveHeaders | `Record<string, string>` | Sensitive headers opened from the sealed blob (empty when absent). |
+
 ### `VisibleKeyPrefs`
 
 Persisted column-visibility intent (storage schema v2): the user's
@@ -3543,10 +3515,6 @@ own domain subject only — nothing in this axis knows scheduling exists.
 ### `CleanupFn`
 
 **Type:** `() => Promise<void>`
-
-### `ClientIdentityResult`
-
-**Type:** `{ ok: true; ua: string } \| { ok: false; status: 401 \| 403; error: string }`
 
 ### `ColumnDefaultSpec`
 
@@ -4496,10 +4464,6 @@ HTTP header names used by the Primebrick cache protocol.
 | IF_NONE_MATCH | "If-None-Match" |
 | PB_CACHED | "X-PB-Cached" |
 | PB_CACHE_SCOPE | "X-PB-Cache-Scope" |
-
-### `CLIENT_SHIELD_KEY_HEADER`
-
-**Type:** `"x-primebrick-client-shield-key"`
 
 ### `CONFIG_CHANGED_SUBJECT`
 
@@ -5459,6 +5423,25 @@ NATS subject for the shared config request/reply.
 
 **Type:** `"config.get"`
 
+### `SIGNATURE_SKEW_MS`
+
+Clock-skew window for timestamp acceptance (±30s).
+
+**Type:** `30000`
+
+### `SIGNING_HEADERS`
+
+**Type:** `{ service: "x-pb-service"; keygen: "x-pb-keygen"; timestamp: "x-pb-timestamp"; nonce: "x-pb-nonce"; signature: "x-pb-signature"; sealed: "x-pb-sealed" }`
+
+| Field | Value |
+|-------|-------|
+| service | "x-pb-service" |
+| keygen | "x-pb-keygen" |
+| timestamp | "x-pb-timestamp" |
+| nonce | "x-pb-nonce" |
+| signature | "x-pb-signature" |
+| sealed | "x-pb-sealed" |
+
 ### `SINGULAR_NAV_ALLOWLIST`
 
 Leaf nav segments allowed to stay singular when they resolve to no
@@ -5943,9 +5926,8 @@ Wraps serializeAuthUserToHeaders() — includes gateway secret for anti-spoofing
 ### `buildUserAgent(identity, capabilities): string`
 
 Build the Primebrick User-Agent string, e.g.
-`primebrick-emailsender/1.4.0 (emailsender) Node/24.14.1`.
-`capabilities` is the service code / role tag — free-form but should be
-stable; it is what the allowlist prefix matches against along with name.
+`primebrick-emailsender/1.4.0 (emailsender) Node/24.14.1` — observability
+metadata for logs and traces, never consulted for trust decisions.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -6050,16 +6032,6 @@ route universe (BE documents only what no module declared).
 |-----------|------|-------------|
 | registry | `{ code: string; endpoints: Record<string, unknown> }[]` |  |
 | ownCode | `string` |  |
-
-### `clientKeyHash(key): string`
-
-sha256 hex of a client key — the only form that ever leaves the service
-(sent in `service.register` → stored in system.client_shield_registry) and the
-only form compared at verification time.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| key | `string` |  |
 
 ### `closeRedisClient(): Promise<void>`
 
@@ -6337,20 +6309,6 @@ Keys visible by default — from column flags.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | columns | `MetaColumn[]` |  |
-
-### `deriveClientKey(derivationSecret, uaPrefix, generation): string`
-
-Deterministic per-service client key (B14): `HMAC-SHA256(secret, uaPrefix:generation)`
-rendered base64url. Services configured with `service_key_derivation_secret`
-never store a key — they re-derive it from the derivation secret (provisioned
-by the installer/secret engine) plus the generation the BE registry row
-currently advertises. Rotating a key = bumping the generation on the BE.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| derivationSecret | `string` |  |
-| uaPrefix | `string` |  |
-| generation | `number` |  |
 
 ### `deriveMessageKey(partA, partB, generation): Buffer`
 
@@ -7026,18 +6984,6 @@ Columns that exist only to carry a record-level IANA timezone for a
 |-----------|------|-------------|
 | meta | `EntityMeta` |  |
 
-### `identityHeaders(identity, capabilities, clientKey): Record<string, string>`
-
-Identity headers to attach to every outbound internal call.
-`clientKey` comes from the service's own config (env/config entry) —
-it is the secret paired with the UA in `system.client_shield_registry`.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| identity | `PackageIdentity` |  |
-| capabilities | `string` |  |
-| clientKey | `string` |  |
-
 ### `initAuthConfig(p): void`
 
 Initialize the auth config with a port implementation.
@@ -7232,6 +7178,18 @@ refuses to mount anything else at startup.
 |-----------|------|-------------|
 | v | `string` |  |
 
+### `isNonceReplay(service, nonce): Promise<boolean>`
+
+Register-or-report the nonce. True = already seen (replay). False = first
+sighting, now recorded. Fail-CLOSED on Redis errors: a verifier that cannot
+check replays must reject rather than wave through — same doctrine as the
+signature itself.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| service | `string` |  |
+| nonce | `string` |  |
+
 ### `isPeriodic(d): boolean`
 
 `true` when the value was produced by a truncated non-terminating division.
@@ -7259,6 +7217,17 @@ role expansion.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | p | `string` |  |
+
+### `isSensitiveInternalHeader(name): boolean`
+
+Sensitive-internal-header classification — ONE definition shared by the
+publisher (seal), the edge (strip cleartext + merge unsealed) and any
+future funnel. x-user-* plus the auth headers configured for gateway mode:
+identity material never travels cleartext on internal hops.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | `string` |  |
 
 ### `isSnakeCaseSingular(value): value is SnakeCaseSingular`
 
@@ -8543,6 +8512,15 @@ Store the cache port and Redis info (called once after Redis connects).
 
 Flush pending batches + shutdown current providers (graceful shutdown).
 
+### `signInternalRequest(input): Record<string, string>`
+
+Sign an outbound internal request. Fail-closed (A7 doctrine): without key
+material this THROWS — an unsigned internal request must never reach the wire.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `SignInternalRequestInput` |  |
+
 ### `signum(d): -1 \| 0 \| 1`
 
 | Parameter | Type | Description |
@@ -8845,23 +8823,14 @@ NO ports needed. Just verifies gateway secret + deserializes AuthUser from heade
 | headers | `HeaderProvider` |  |
 | config | `AuthConfig` |  |
 
-### `verifyClientIdentity(req, opts): Promise<ClientIdentityResult>`
+### `verifyEdgeRequest(req, url): Promise<EdgeVerifiedRequest>`
 
-Verify an inbound internal call's identity headers.
-
-- `ua` missing                → 401 UNIDENTIFIED_CLIENT
-- `ua` not starting with an allowed prefix → 403 UNKNOWN_CLIENT
-- `verifyKey(key)` false      → 401 INVALID_CLIENT_SHIELD_KEY
-
-`allowedPrefixes` is loaded from `system.client_shield_registry` (cached by the
-caller and refreshed on `system.client_shield_registry.changed` events).
-`verifyKey` compares the presented key against the registry entry for the
-matched prefix (hash comparison — inject the hasher).
+Buffer + verify + unseal-merge. Throws AuthError — the caller maps to 401.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| req | `{ headers: { get:  } }` |  |
-| opts | `{ allowedPrefixes: typeOperator; verifyKey: (uaPrefix: string, presentedKey: string) => boolean \| Promise<boolean> }` |  |
+| req | `IncomingMessage` |  |
+| url | `URL` |  |
 
 ### `verifyHttpRequest(req, config, ports): Promise<AuthUser>`
 
@@ -8872,6 +8841,15 @@ Verify auth from an HTTP request.
 | req | `IncomingMessage` | Raw Node.js IncomingMessage (or Express Request which extends it) |
 | config | `AuthConfig` | Auth configuration |
 | ports | `AuthPorts` | Auth ports (UserResolverPort + RoleMappingPort). Required for STANDALONE mode (BE). Omit for GATEWAY-RESOLVED mode (microservices). |
+
+### `verifyInternalRequest(input): Promise<VerifiedProvenance>`
+
+Verify the provenance proof on an inbound internal request. Ordering is
+the contract — every failure is a distinct 401 code.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| input | `VerifyInternalRequestInput` |  |
 
 ### `verifyNatsMessage(msg, config): Promise<AuthUser>`
 
@@ -8888,18 +8866,6 @@ GATEWAY-RESOLVED mode — no ports needed.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | _msg | `{ subject: string; headers: MsgHdrs }` |  |
-
-### `verifyRowKey(row, presentedKey): boolean`
-
-Verify a presented key against a registry row: current hash always wins;
-during the post-rotation grace window (`previous_valid_until` in the future)
-the previous hash is still accepted so in-flight callers are not cut off
-mid-rotation.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| row | `ClientKeyMaterial \| undefined` |  |
-| presentedKey | `string` |  |
 
 ### `walkHostPages(routesDir): string[]`
 
