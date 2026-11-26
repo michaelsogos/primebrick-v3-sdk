@@ -5410,6 +5410,19 @@ NOT published by microservices — it is a BE-internal event.
 | STALE | "service.stale" |
 | GATEWAY_ONLINE | "service.gateway_online" |
 
+### `serviceLaneVerify`
+
+Service-to-service lane verification: declares explicitly that the route
+carries no user context — the sealed A7 envelope (validated at the
+transport layer before any route logic runs) IS the provenance proof, and
+no user identity exists to resolve. Mount on routes that exist for
+service-to-service traffic only (service.register, config.get, …).
+
+Routes that MAY carry user context depending on the lane must instead
+deserialize opportunistically and decide inside the handler.
+
+**Type:** `NatsRouteVerify`
+
 ### `SEZ_VALUE_RE`
 
 Sezionale value charset — alphanumerics and separators; the join

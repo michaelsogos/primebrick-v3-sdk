@@ -228,6 +228,7 @@ export {
   makeNatsRoutes,
   makeNatsRequestRoute,
   callNats,
+  serviceLaneVerify,
   type CallablePayloadContract,
   type NatsRoute,
   type NatsRequestRoute,

@@ -19,7 +19,7 @@
  */
 
 import { NatsClient } from "../nats/nats-client.js";
-import { callNats, makeNatsRequestRoute, type NatsRouteVerify } from "../nats/nats-routes.js";
+import { callNats, makeNatsRequestRoute, serviceLaneVerify, type NatsRouteVerify } from "../nats/nats-routes.js";
 import { subscribeShielded } from "../nats/service-shield.js";
 
 /**
@@ -105,7 +105,7 @@ export async function subscribeSharedConfig(
         subject: SHARED_CONFIG_SUBJECT,
         queue: "primebrick-api",
         permissions: [],
-        verify,
+        verify: verify ?? serviceLaneVerify,
         handler: async () => {
           try {
             return getConfig();

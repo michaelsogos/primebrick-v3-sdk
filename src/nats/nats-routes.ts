@@ -92,6 +92,18 @@ export interface NatsRouteContext<TReq = unknown> {
  */
 export type NatsRouteVerify = (msg: Msg) => Promise<AuthUser | null | undefined>;
 
+/**
+ * Service-to-service lane verification: declares explicitly that the route
+ * carries no user context — the sealed A7 envelope (validated at the
+ * transport layer before any route logic runs) IS the provenance proof, and
+ * no user identity exists to resolve. Mount on routes that exist for
+ * service-to-service traffic only (service.register, config.get, …).
+ *
+ * Routes that MAY carry user context depending on the lane must instead
+ * deserialize opportunistically and decide inside the handler.
+ */
+export const serviceLaneVerify: NatsRouteVerify = async () => undefined;
+
 export interface NatsRoute<TReq = unknown> {
   /** NATS subject, e.g. "emailsender.send". */
   subject: string;
