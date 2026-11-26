@@ -89,3 +89,48 @@ describe("peekEnvelopeGeneration", () => {
     expect(peekEnvelopeGeneration(new TextEncoder().encode("not json at all {{{"))).toBeNull();
   });
 });
+
+describe("A7 — wire is envelope-only by construction (prova del 9)", () => {
+  afterEach(() => {
+    setMessageKeyProvider(null);
+  });
+
+  it("decodeInboundMessage hard-rejects plaintext payloads", () => {
+    const plaintext = new TextEncoder().encode(extJsonStringify({ secret_field: "in-the-clear" }));
+    expect(() => decodeInboundMessage(plaintext)).toThrow("MESSAGE_PLAINTEXT_REJECTED");
+  });
+
+  it("decodeInboundMessage hard-rejects legacy-shaped payloads that predate the envelope", () => {
+    const legacy = new TextEncoder().encode(extJsonStringify({ id: 1n, action: "update" }));
+    expect(() => decodeInboundMessage(legacy)).toThrow("MESSAGE_PLAINTEXT_REJECTED");
+  });
+
+  it("encodeOutboundMessage fail-closes without key material — nothing can be published", async () => {
+    setMessageKeyProvider(null);
+    const { encodeOutboundMessage } = await import("../message-codec.js");
+    expect(() => encodeOutboundMessage({ any: "payload" })).toThrow("MESSAGE_KEY_PROVIDER_UNAVAILABLE");
+  });
+
+  it("a sealed envelope WITHOUT any shield stamp decodes and delivers — the seal is the provenance proof", async () => {
+    const provider = new MessageKeyProvider(async () => ({ generation: 7, generations: { "7": "test-partb-material" } }));
+    await provider.refresh();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    // no x-client-shield-secret, no user-agent — nothing but the seal itself
+    const wire = sealEnvelope(current!.key, current!.generation, { id: 5n }, {});
+    const decoded = decodeInboundMessage(new TextEncoder().encode(wire));
+    expect((decoded.data as { id: bigint }).id).toBe(5n);
+    expect(decoded.encrypted).toBe(true);
+  });
+
+  it("a tampered envelope fails GCM authentication — integrity violation, never delivery", async () => {
+    const provider = new MessageKeyProvider(async () => ({ generation: 7, generations: { "7": "test-partb-material" } }));
+    await provider.refresh();
+    setMessageKeyProvider(provider);
+    const current = provider.currentKey();
+    const parsed = extJsonParse(sealEnvelope(current!.key, current!.generation, { secret: "x" }, {})) as { data: string };
+    parsed.data = "A" + parsed.data.slice(1);
+    const tampered = new TextEncoder().encode(extJsonStringify(parsed));
+    expect(() => decodeInboundMessage(tampered)).toThrow("MESSAGE_INTEGRITY_VIOLATION");
+  });
+});

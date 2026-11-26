@@ -24,7 +24,6 @@ import { jetstreamManager } from "@nats-io/jetstream";
 import { decodeInboundMessage, encodeOutboundMessage, messageWithInboundView } from "./message-codec.js";
 import { NatsClient, publishJobResultMessage } from "./nats-client.js";
 import { internalIdentityHeaders } from "../http/internal-client.js";
-import { verifyNatsPublisher } from "./service-shield.js";
 import { extJsonParse, extJsonStringify } from "../json/ext-json.js";
 import { verifyNatsMessage } from "../auth/verify-nats.js";
 import { enforceNatsRbac, RbacDeniedError } from "../auth/rbac-enforce.js";
@@ -220,13 +219,11 @@ async function verifyAndAuthorize(
     enrollment?: boolean;
   },
 ): Promise<AuthUser | undefined> {
-  // Layer 1 — client shield: the publisher must be a registered client.
-  // Runs before everything else, on every governed route — EXCEPT the
-  // enrollment channel, where the route's own `verify` owns the whole
-  // identity check (a first-time registrant cannot satisfy the snapshot).
-  if (!route.enrollment && !(await verifyNatsPublisher(msg))) {
-    throw new AuthError("CLIENT_IDENTITY_DENIED", "client identity rejected");
-  }
+  // A7 — the client-shield publisher check is removed from the NATS user
+  // layer: a valid sealed envelope can only be produced by a service holding
+  // vault-derived message keys, so envelope validity IS the provenance proof
+  // (stronger than a cleartext stamp). The shield stays at the HTTP edge,
+  // where the threat model is real. RBAC and route.verify are unchanged.
   // Layer 2 — caller verification: custom service-auth hook, or the
   // default client-shield-secret + AuthUser + RBAC chain.
   if (route.verify) {

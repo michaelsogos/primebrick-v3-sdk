@@ -54,7 +54,6 @@ export const JOB_STREAM_SUBJECTS = [
 ] as const;
 
 import type { MsgHdrs } from "@nats-io/transport-node";
-import { verifyNatsPublisher } from "./service-shield.js";
 import { getAuthConfig } from "../auth/auth-config-cache.js";
 import type { AuthUser } from "../auth/types.js";
 
@@ -99,7 +98,8 @@ export function dueLaneVerify(
   lane: "system" | "user",
 ): (msg: { subject?: string; headers?: MsgHdrs }) => Promise<AuthUser | null | undefined> {
   return async (msg) => {
-    if (!(await verifyNatsPublisher(msg))) return null;
+    // A7 — no shield publisher check here either: the sealed envelope is
+    // the provenance proof by construction (see nats-routes.ts).
     if (lane === "system") return undefined;
     return forwardedActor(msg).actor_uuid ? undefined : null;
   };
