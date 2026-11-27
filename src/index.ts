@@ -341,6 +341,10 @@ export {
   type ServiceRoutesHandler,
   type ServiceRoutesInput,
 } from "./http/service-routes.js";
+export {
+  deriveEntityNav,
+  type DeriveEntityNavOpts,
+} from "./http/derive-entity-nav.js";
 
 // Lifecycle — startup logging
 export { logModuleStartup, logServiceStartup, pgServerBanner, type SqlVersionProbe } from "./lifecycle/startup-logger.js";

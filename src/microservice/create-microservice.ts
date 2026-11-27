@@ -61,7 +61,8 @@ import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { composeRouteHandlers, type RouteHandler } from "../http/rpc-router.js";
-import { mergeBuiltinNav } from "../http/builtin-entities.js";
+import { mergeBuiltinNav, builtinNavContributions } from "../http/builtin-entities.js";
+import { deriveEntityNav } from "../http/derive-entity-nav.js";
 import { entityEventPayloadSchema } from "../nats/entity-events.js";
 import type { EntityRouteDecl } from "../http/service-routes.js";
 import { docsPackRouteHandler } from "../docs-pack/serve-docs-pack.js";
@@ -644,11 +645,27 @@ export async function createMicroservice(
   const serviceCode = resolveServiceCode(selfIdentity, configLoader.get("service_code"));
   setCurrentServiceCode(serviceCode);
 
-  // Builtin nav mount — entity-registry leaves contributed by registered
-  // providers (dal-pg sequences today) merge into the module's nav BY
-  // CONSTRUCTION, appended LAST inside their sibling. Same invariant as
-  // the route mount: module-authored collisions are a boot error.
-  const nav = mergeBuiltinNav(options.nav, schemas);
+  // Entity-nav derivation + builtin nav mount — the SAME entity decls
+  // that built the routes derive the module's navigation leaves
+  // (derive-entity-nav: relation → never a leaf, dict → settings sibling,
+  // standard → list+create from declared permissions, nav:false opt-out);
+  // builtin contributions (dal-pg sequences today) then merge LAST inside
+  // their sibling. Same invariant as the route mount: module-authored
+  // collisions are a boot error. Builtin entities suppress derivation
+  // through their own nav channel — never double-leafed.
+  const brandedNav = options.routeHandler as
+    | (RouteHandler & { entityDecls?: EntityRouteDecl[] })
+    | undefined;
+  const builtinOwned = new Set(
+    builtinNavContributions(schemas).map((c) => c.entity),
+  );
+  const nav = mergeBuiltinNav(
+    deriveEntityNav(brandedNav?.entityDecls ?? [], options.nav, {
+      module_code: serviceCode,
+      suppress_entities: builtinOwned,
+    }),
+    schemas,
+  );
 
   // Docs emit — the service documents itself from THIS options object
   // (nav + the route handler's .entityDecls/.spec brands), never a

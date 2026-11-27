@@ -99,6 +99,10 @@ export interface EntityServiceLike<TEntity = unknown> {
   /** `Clonable` mixin on the entity class — populated by dal-pg. Gates
    *  `/duplicate` registration. Derived, never declared. */
   clonable?: boolean;
+  /** The entity's persistence table name (plural snake_case) — populated
+   *  by dal-pg `DomainService`. The nav derivation builds leaf paths/ids
+   *  from it. Derived, never declared. */
+  tableName?: string;
 }
 
 export type EntityAction =
@@ -225,6 +229,11 @@ export interface EntityRouterConfig<TEntity = unknown> {
   /** Async per-action guards invoked before the service call — the US
    *  replacement for Express action middlewares (MFA step-up, B9). */
   guards?: Partial<Record<EntityAction, (ctx: RpcRouteContext) => void | Promise<void>>>;
+  /** Nav derivation opt-out — the ONLY escape hatch: the entity keeps
+   *  its routes but contributes no leaf (`derive-entity-nav`). Absence
+   *  from the navigation must be a deliberate choice; bridge/edge
+   *  entities never need this (`@Relation` suppresses by construction). */
+  nav?: false;
 }
 
 // ─── Bracket-notation query parser ──────────────────────────────────────────
