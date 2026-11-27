@@ -159,7 +159,7 @@ export function deriveEntityNav(
       // flagged `sidebar: false` (the sidebar skips it, the popover
       // lists it). NOT nav_hidden: that channel is the server's
       // access-denied reveal list, computed per-user — never declared.
-      rootNav.push({ id: `${table}-create`, label_key: "app.common.new", href: `${listHref}/create`, sidebar: false });
+      rootNav.push({ id: `${table}-create`, label_key: `${opts.module_code}.${table}.nav.create`, href: `${listHref}/create`, sidebar: false });
     }
     rootRoutes.push({ route: listHref, kind: "list", entity: decl.entityName, label_key });
 
