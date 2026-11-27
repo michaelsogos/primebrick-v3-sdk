@@ -136,7 +136,14 @@ export function deriveEntityNav(
         `deriveEntityNav: list leaf "${table}" collides with an authored leaf — remove the hand-written declaration`,
       );
     }
-    rootNav.push({ id: table, label_key, href: listHref });
+    const createLeaf = decl.permissions.create
+      ? // The create leaf ALWAYS follows the route's fate (user-ratified
+        // 2026-11-27): the route exists ⟺ the leaf exists — child of the
+        // list leaf, never a flat entry. What impacts the route impacts
+        // the leaf; the leaf-only opt-out never impacts the route.
+        [{ id: `${table}-create`, label_key: "app.common.new", href: `${listHref}/create` }]
+      : undefined;
+    rootNav.push({ id: table, label_key, href: listHref, ...(createLeaf ? { children: createLeaf } : {}) });
     rootRoutes.push({ route: listHref, kind: "list", entity: decl.entityName, label_key });
 
     if (decl.permissions.create) {
