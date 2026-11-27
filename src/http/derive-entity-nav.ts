@@ -55,10 +55,23 @@ function authoredEntities(nav: ModuleNavDeclaration): Set<string> {
 function createFormFields(decl: EntityRouteDecl): { key: string }[] {
   const columns = decl.meta?.columns;
   if (!columns) return [];
-  return Object.entries(columns)
-    .filter(([, c]) => !c.audited && !c.managed && !c.kind && !c.hidden)
-    .sort(([, a], [, b]) => (a.order ?? 0) - (b.order ?? 0))
-    .map(([key]) => ({ key }));
+  // meta.columns is MetaColumn[] — an ARRAY. Object.entries on it yields
+  // numeric index keys ("0"…"18") that drift-crash the form renderer
+  // (prova del 9 2026-11-27: "declares field '18' but entity meta has no
+  // such column"). The column identity is c.key, never the position.
+  const uid = decl.meta?.uid;
+  return columns
+    .filter(
+      (c) =>
+        !c.audited &&
+        !c.managed &&
+        !c.kind &&
+        !c.hidden &&
+        c.key !== uid &&
+        c.key !== "version",
+    )
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((c) => ({ key: c.key }));
 }
 
 export function deriveEntityNav(
@@ -73,6 +86,9 @@ export function deriveEntityNav(
   const suppressed = opts.suppress_entities ?? new Set<string>();
 
   const rootNav = [...nav.nav];
+  const rootHidden = [
+    ...((nav as { nav_hidden?: ModuleNavLink[] }).nav_hidden ?? []),
+  ];
   const rootRoutes = [...(nav.routes ?? [])];
   const siblings = (nav.siblings ?? []).map((s) => ({ ...s, nav: [...s.nav], routes: [...(s.routes ?? [])] }));
 
@@ -136,14 +152,17 @@ export function deriveEntityNav(
         `deriveEntityNav: list leaf "${table}" collides with an authored leaf — remove the hand-written declaration`,
       );
     }
-    const createLeaf = decl.permissions.create
-      ? // The create leaf ALWAYS follows the route's fate (user-ratified
-        // 2026-11-27): the route exists ⟺ the leaf exists — child of the
-        // list leaf, never a flat entry. What impacts the route impacts
-        // the leaf; the leaf-only opt-out never impacts the route.
-        [{ id: `${table}-create`, label_key: "app.common.new", href: `${listHref}/create` }]
-      : undefined;
-    rootNav.push({ id: table, label_key, href: listHref, ...(createLeaf ? { children: createLeaf } : {}) });
+    if (decl.permissions.create) {
+      // The create leaf ALWAYS follows the route's fate (user-ratified
+      // 2026-11-27): the route exists ⟺ the leaf exists. What impacts the
+      // route impacts the leaf; the leaf-only opt-out never impacts the
+      // route. Placement (user-ratified same day): POPOVER-ONLY — the
+      // sidebar stays flat single-level, so create leaves land in
+      // nav_hidden, the channel the launcher lists and the sidebar never
+      // renders.
+      rootHidden.push({ id: `${table}-create`, label_key: `${opts.module_code}.${table}.nav.create`, href: `${listHref}/create` });
+    }
+    rootNav.push({ id: table, label_key, href: listHref });
     rootRoutes.push({ route: listHref, kind: "list", entity: decl.entityName, label_key });
 
     if (decl.permissions.create) {
@@ -161,7 +180,8 @@ export function deriveEntityNav(
   return {
     ...nav,
     nav: rootNav,
+    nav_hidden: rootHidden,
     routes: rootRoutes,
     ...(siblings.length ? { siblings } : {}),
-  };
+  } as typeof nav;
 }
