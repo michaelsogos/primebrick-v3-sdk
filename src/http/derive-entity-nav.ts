@@ -86,9 +86,6 @@ export function deriveEntityNav(
   const suppressed = opts.suppress_entities ?? new Set<string>();
 
   const rootNav = [...nav.nav];
-  const rootHidden = [
-    ...((nav as { nav_hidden?: ModuleNavLink[] }).nav_hidden ?? []),
-  ];
   const rootRoutes = [...(nav.routes ?? [])];
   const siblings = (nav.siblings ?? []).map((s) => ({ ...s, nav: [...s.nav], routes: [...(s.routes ?? [])] }));
 
@@ -152,17 +149,18 @@ export function deriveEntityNav(
         `deriveEntityNav: list leaf "${table}" collides with an authored leaf — remove the hand-written declaration`,
       );
     }
+    rootNav.push({ id: table, label_key, href: listHref });
     if (decl.permissions.create) {
       // The create leaf ALWAYS follows the route's fate (user-ratified
       // 2026-11-27): the route exists ⟺ the leaf exists. What impacts the
       // route impacts the leaf; the leaf-only opt-out never impacts the
       // route. Placement (user-ratified same day): POPOVER-ONLY — the
-      // sidebar stays flat single-level, so create leaves land in
-      // nav_hidden, the channel the launcher lists and the sidebar never
-      // renders.
-      rootHidden.push({ id: `${table}-create`, label_key: `${opts.module_code}.${table}.nav.create`, href: `${listHref}/create` });
+      // sidebar stays flat single-level, so the leaf is a flat sibling
+      // flagged `sidebar: false` (the sidebar skips it, the popover
+      // lists it). NOT nav_hidden: that channel is the server's
+      // access-denied reveal list, computed per-user — never declared.
+      rootNav.push({ id: `${table}-create`, label_key: `${opts.module_code}.${table}.nav.create`, href: `${listHref}/create`, sidebar: false });
     }
-    rootNav.push({ id: table, label_key, href: listHref });
     rootRoutes.push({ route: listHref, kind: "list", entity: decl.entityName, label_key });
 
     if (decl.permissions.create) {
@@ -180,8 +178,7 @@ export function deriveEntityNav(
   return {
     ...nav,
     nav: rootNav,
-    nav_hidden: rootHidden,
     routes: rootRoutes,
     ...(siblings.length ? { siblings } : {}),
-  } as typeof nav;
+  };
 }
