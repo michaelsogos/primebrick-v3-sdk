@@ -110,7 +110,11 @@ export function deriveEntityNav(
         siblings.push(sib);
       }
       const href = `${settingsPrefix}/${table}`;
-      const label_key = `${opts.module_code}.settings.nav.${table}`;
+      // the label belongs to the ENTITY, never to its placement — one
+      // canonical key shape (`<module>.<table>.nav`) everywhere, so the
+      // seeds that already exist for every entity resolve with zero
+      // duplication and a leaf never renames when it moves.
+      const label_key = `${opts.module_code}.${table}.nav`;
       if (sib.nav.some((l) => l.id === table)) {
         throw new Error(
           `deriveEntityNav: dict leaf "${table}" collides with an authored sibling leaf — remove the hand-written declaration`,

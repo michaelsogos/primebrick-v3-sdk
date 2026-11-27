@@ -88091,7 +88091,8 @@
 						{
 							"fileName": "primebrick-v3-sdk/src/http/derive-entity-nav.ts",
 							"line": 35,
-							"character": 2
+							"character": 2,
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/derive-entity-nav.ts#L35"
 						}
 					],
 					"type": {
@@ -88119,7 +88120,8 @@
 						{
 							"fileName": "primebrick-v3-sdk/src/http/derive-entity-nav.ts",
 							"line": 38,
-							"character": 2
+							"character": 2,
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/derive-entity-nav.ts#L38"
 						}
 					],
 					"type": {
@@ -88153,7 +88155,8 @@
 				{
 					"fileName": "primebrick-v3-sdk/src/http/derive-entity-nav.ts",
 					"line": 33,
-					"character": 17
+					"character": 17,
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/derive-entity-nav.ts#L33"
 				}
 			]
 		},
@@ -88167,7 +88170,8 @@
 				{
 					"fileName": "primebrick-v3-sdk/src/http/derive-entity-nav.ts",
 					"line": 64,
-					"character": 16
+					"character": 16,
+					"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/derive-entity-nav.ts#L64"
 				}
 			],
 			"signatures": [
@@ -88181,7 +88185,8 @@
 						{
 							"fileName": "primebrick-v3-sdk/src/http/derive-entity-nav.ts",
 							"line": 64,
-							"character": 16
+							"character": 16,
+							"url": "https://github.com/michaelsogos/primebrick-v3-sdk/blob/main/src/http/derive-entity-nav.ts#L64"
 						}
 					],
 					"parameters": [
