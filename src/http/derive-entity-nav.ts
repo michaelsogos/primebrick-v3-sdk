@@ -21,10 +21,11 @@
  * Opt-out: `nav: false` on the decl — the entity keeps its routes but
  * contributes no leaf (the ONLY escape hatch; absence must be chosen).
  *
- * Ownership suppression: any module-authored route entry naming the
- * entity (root or sibling census) suppresses derivation FOR THAT ENTITY
- * — the author owns its surfaces (custom icons, default flags, remote
- * pages). Builtin contributions suppress through the same channel.
+ * Derivation is TOTAL and unconditional (user-ratified 2026-11-27): an
+ * authored leaf is a COSMETIC override carrier only — icon/label/order/
+ * default merge onto the derived leaf by href, they NEVER suppress the
+ * autowire, NEVER change a route, NEVER change a page kind. Nothing in
+ * any module is non-standard because someone wanted a custom icon.
  */
 
 import type { ModuleNavDeclaration, ModuleNavLink, PageRouteDeclaration } from "@primebrick/core";
@@ -82,7 +83,6 @@ export function deriveEntityNav(
   if (!nav || decls.length === 0) return nav;
   const primary = nav.route_prefixes[0];
   if (!primary) return nav;
-  const owned = authoredEntities(nav);
   const suppressed = opts.suppress_entities ?? new Set<string>();
 
   const rootNav = [...nav.nav];
@@ -91,7 +91,7 @@ export function deriveEntityNav(
 
   for (const decl of decls) {
     if ((decl as { nav?: false }).nav === false) continue;
-    if (owned.has(decl.entityName) || suppressed.has(decl.entityName)) continue;
+    if (suppressed.has(decl.entityName)) continue;
     const svc = decl.service as {
       relationFacet?: unknown;
       dictFacet?: unknown;
@@ -128,12 +128,9 @@ export function deriveEntityNav(
       // seeds that already exist for every entity resolve with zero
       // duplication and a leaf never renames when it moves.
       const label_key = `${opts.module_code}.${table}.nav`;
-      if (sib.nav.some((l) => l.id === table)) {
-        throw new Error(
-          `deriveEntityNav: dict leaf "${table}" collides with an authored sibling leaf — remove the hand-written declaration`,
-        );
+      if (!sib.nav.some((l) => l.href === href)) {
+        sib.nav.push({ id: table, label_key, href });
       }
-      sib.nav.push({ id: table, label_key, href });
       (sib.routes ??= []).push({ route: href, kind: "dict", entity: decl.entityName, label_key });
       continue;
     }
@@ -144,12 +141,9 @@ export function deriveEntityNav(
     if (!decl.permissions.list) continue;
     const label_key = `${opts.module_code}.${table}.nav`;
     const listHref = `${primary}/${table}`;
-    if (rootNav.some((l) => l.id === table)) {
-      throw new Error(
-        `deriveEntityNav: list leaf "${table}" collides with an authored leaf — remove the hand-written declaration`,
-      );
+    if (!rootNav.some((l) => l.href === listHref)) {
+      rootNav.push({ id: table, label_key, href: listHref });
     }
-    rootNav.push({ id: table, label_key, href: listHref });
     if (decl.permissions.create) {
       // The create leaf ALWAYS follows the route's fate (user-ratified
       // 2026-11-27): the route exists ⟺ the leaf exists. What impacts the
@@ -159,19 +153,42 @@ export function deriveEntityNav(
       // flagged `sidebar: false` (the sidebar skips it, the popover
       // lists it). NOT nav_hidden: that channel is the server's
       // access-denied reveal list, computed per-user — never declared.
-      rootNav.push({ id: `${table}-create`, label_key: `${opts.module_code}.${table}.nav.create`, href: `${listHref}/create`, sidebar: false });
+      const createHrefNav = `${listHref}/create`;
+      const derivedCreateLeaf = { id: `${table}-create`, label_key: `${opts.module_code}.${table}.nav.create`, href: createHrefNav, sidebar: false as boolean | undefined };
+      const authoredIdx = rootNav.findIndex((l) => l.href === createHrefNav);
+      if (authoredIdx >= 0) {
+        // Cosmetic merge (user-ratified 2026-11-27): the authored leaf contributes
+        // ONLY cosmetics — icon/label_key/order/default. The structure is the
+        // derivation's own: id, href, and sidebar:false (popover-only) are never
+        // overridable — an icon can never rewrite placement.
+        const a = rootNav[authoredIdx];
+        rootNav[authoredIdx] = {
+          ...derivedCreateLeaf,
+          ...(a.label_key ? { label_key: a.label_key } : {}),
+          ...(a.icon ? { icon: a.icon } : {}),
+          ...(a.order !== undefined ? { order: a.order } : {}),
+          ...(a.default !== undefined ? { default: a.default } : {}),
+        };
+      } else {
+        rootNav.push(derivedCreateLeaf);
+      }
     }
-    rootRoutes.push({ route: listHref, kind: "list", entity: decl.entityName, label_key });
+    if (!rootRoutes.some((r) => r.route === listHref)) {
+      rootRoutes.push({ route: listHref, kind: "list", entity: decl.entityName, label_key });
+    }
 
     if (decl.permissions.create) {
-      const fields = createFormFields(decl);
-      rootRoutes.push({
-        route: `${listHref}/create`,
-        kind: "create",
-        entity: decl.entityName,
-        label_key: `${opts.module_code}.${table}.nav.create`,
-        page_props: { form: { fields } },
-      });
+      const createHref = `${listHref}/create`;
+      if (!rootRoutes.some((r) => r.route === createHref)) {
+        const fields = createFormFields(decl);
+        rootRoutes.push({
+          route: createHref,
+          kind: "create",
+          entity: decl.entityName,
+          label_key: `${opts.module_code}.${table}.nav.create`,
+          page_props: { form: { fields } },
+        });
+      }
     }
   }
 
