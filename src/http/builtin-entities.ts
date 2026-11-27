@@ -54,6 +54,9 @@ export interface BuiltinNavContribution {
   label_key: string;
   icon: string;
   entity: string;
+  /** Explicit pin position (ModuleNavLink.order) — builtins that must
+   *  close the sibling (sequences) carry it by design. */
+  order?: number;
 }
 
 const REGISTRY_KEY = Symbol.for("primebrick.builtin-entity-decl-factories");
@@ -95,9 +98,10 @@ export function builtinNavContributions(schemas: readonly string[]): BuiltinNavC
  *
  *  - the contribution's sibling is found-or-created under the module's
  *    primary route_prefix (`/<prefix>/<sibling_id>`);
- *  - leaf + route append LAST inside the sibling's arrays — array
- *    position is the ordering at every nav level, so builtins always
- *    sort after every module-authored entry;
+ *  - leaf + route append inside the sibling's arrays — array position
+ *    is NOT the ordering anymore (pinned `order` wins, unpinned sort
+ *    alphabetically at render): builtins that must close the sibling
+ *    carry an explicit `order` pin by design;
  *  - a module-authored leaf or route colliding with the contribution is
  *    a BOOT ERROR — builtins may only ever exist through this mount.
  *
@@ -132,7 +136,7 @@ export function mergeBuiltinNav(nav: ModuleNavDeclaration | undefined, schemas: 
       );
     }
     const href = `${primary}/${c.sibling_id}/${c.leaf_id}`;
-    sib.nav.push({ id: c.leaf_id, label_key: c.label_key, href, icon: c.icon });
+    sib.nav.push({ id: c.leaf_id, label_key: c.label_key, href, icon: c.icon, ...(c.order != null ? { order: c.order } : {}) });
     // `list` = the host-rendered EntityTablePage archetype (the standard
     // list surface — row/bulk custom CTAs from entity_op synthesis live
     // there; `dict` is the settings-dictionary anatomy, not a registry).
