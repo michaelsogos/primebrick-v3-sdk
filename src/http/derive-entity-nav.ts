@@ -169,7 +169,7 @@ export function deriveEntityNav(
         route: `${listHref}/create`,
         kind: "create",
         entity: decl.entityName,
-        label_key: "app.common.new",
+        label_key: `${opts.module_code}.${table}.nav.create`,
         page_props: { form: { fields } },
       });
     }
