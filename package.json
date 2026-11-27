@@ -40,7 +40,7 @@
     "test": "pnpm check:standards && vitest run",
     "test:watch": "vitest",
     "extract-docs": "node scripts/extract-api-docs.mjs && node scripts/render-api-reference.mjs",
-    "check:standards": "node tools/check-standards.ts src",
+    "check:standards": "node tools/check-standards.ts src && node tools/check-i18n-docs.mjs",
     "prebuild": "pnpm check:standards && pnpm extract-docs"
   },
   "publishConfig": {
